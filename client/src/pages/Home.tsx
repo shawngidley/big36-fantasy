@@ -1,33 +1,15 @@
-import { useAuth } from "@/_core/hooks/useAuth";
+import { ArrowRight, Crown, ShieldCheck, Trophy } from "lucide-react";
+import { Link } from "wouter";
+import LeagueShell from "@/components/LeagueShell";
+import { EmptyLedger, LeagueError, LeagueLoading } from "@/components/LeagueState";
 import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
-import { Streamdown } from 'streamdown';
+import { trpc } from "@/lib/trpc";
 
-/**
- * All content in this page are only for example, replace with your own feature implementation
- * When building pages, remember your instructions in Frontend Workflow, Frontend Best Practices, Design Guide and Common Pitfalls
- */
 export default function Home() {
-  // The useAuth hook provides authentication state.
-  // To implement login/logout, call logout(), or start login from an event
-  // handler: onClick={() => startLogin()} (imported from "@/const"). Never call
-  // startLogin() during render (no href={startLogin()}) — it mints a one-time
-  // nonce cookie and must run only at the moment of navigation.
-  let { user, loading, error, isAuthenticated, logout } = useAuth();
-
-  // If theme is switchable in App.tsx, we can implement theme toggling like this:
-  // const { theme, toggleTheme } = useTheme();
-
-  return (
-    <div className="min-h-screen flex flex-col">
-      <main>
-        {/* Example: lucide-react for icons */}
-        <Loader2 className="animate-spin" />
-        Example Page
-        {/* Example: Streamdown for markdown rendering */}
-        <Streamdown>Any **markdown** content</Streamdown>
-        <Button variant="default">Example Button</Button>
-      </main>
-    </div>
-  );
+  const league = trpc.league.snapshot.useQuery();
+  if (league.isLoading) return <LeagueShell><LeagueLoading /></LeagueShell>;
+  if (league.error || !league.data) return <LeagueShell><LeagueError message={league.error?.message} /></LeagueShell>;
+  const leader = league.data.overallStandings[0];
+  const latestWeek = league.data.weeklySummaries.find(week => week.status === "OPEN") ?? league.data.weeklySummaries.at(-1);
+  return <LeagueShell><section className="hero-grid overflow-hidden border-b border-border"><div className="container grid gap-10 py-16 sm:py-24 lg:grid-cols-[1.2fr_.8fr] lg:items-end"><div><p className="section-kicker">College football, amplified</p><h1 className="hero-title mt-4">One draft.<br /><span>Thirty-six stories.</span></h1><p className="mt-6 max-w-xl text-base leading-7 text-muted-foreground">Big 36 turns every Saturday into a league-wide chase: 36 owners, six divisions, and one school-position group at every slot.</p><div className="mt-8 flex flex-wrap gap-3"><Link href="/standings"><Button size="lg" className="gap-2 font-bold">View standings <ArrowRight className="h-4 w-4" /></Button></Link><Link href="/draft"><Button size="lg" variant="outline" className="font-bold">Explore the draft</Button></Link></div></div><div className="hero-score-card"><div className="flex items-center justify-between"><span className="stat-kicker">Current leader</span><Crown className="h-5 w-5 text-primary" /></div>{leader ? <><p className="mt-8 font-display text-3xl font-extrabold tracking-tight">{leader.teamName}</p><p className="mt-1 text-sm text-muted-foreground">{leader.displayName}</p><p className="mt-7 font-display text-5xl font-extrabold tabular-nums">{leader.totalPoints.toFixed(2)}</p><p className="mt-1 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Season points</p></> : <div className="mt-8"><EmptyLedger title="The race is about to start" detail="Teams will take the lead once owners, selections, and scoring events are recorded." /></div>}</div></div></section><section className="container py-14"><div className="grid gap-5 md:grid-cols-3"><article className="feature-card"><Trophy className="h-5 w-5 text-primary" /><p className="mt-6 font-display text-2xl font-extrabold">{league.data.totals.ownerCount}<span className="text-muted-foreground">/36</span></p><p className="mt-1 text-sm font-semibold">Owners in the field</p><p className="mt-3 text-xs leading-5 text-muted-foreground">Six position groups per owner. One unified standings race.</p></article><article className="feature-card"><ShieldCheck className="h-5 w-5 text-primary" /><p className="mt-6 font-display text-2xl font-extrabold">{league.data.totals.divisionCount}<span className="text-muted-foreground">/6</span></p><p className="mt-1 text-sm font-semibold">Divisions configured</p><p className="mt-3 text-xs leading-5 text-muted-foreground">A local division battle sits inside the full-league chase.</p></article><article className="feature-card"><Crown className="h-5 w-5 text-primary" /><p className="mt-6 font-display text-2xl font-extrabold">{latestWeek ? `Week ${latestWeek.weekNumber}` : "Ledger"}</p><p className="mt-1 text-sm font-semibold">{latestWeek ? latestWeek.label : "Ready for kickoff"}</p><p className="mt-3 text-xs leading-5 text-muted-foreground">Every awarded point is retained in an event-level, commissioner-controlled audit trail.</p></article></div></section><section className="container pb-4"><div className="rounded-3xl bg-primary px-7 py-9 text-primary-foreground sm:px-10"><p className="stat-kicker text-primary-foreground/60">Built for the whole league</p><div className="mt-3 flex flex-col gap-6 md:flex-row md:items-end md:justify-between"><div><h2 className="font-display text-3xl font-extrabold tracking-tight">The entire season, in one ledger.</h2><p className="mt-3 max-w-2xl text-sm leading-6 text-primary-foreground/70">Track draft selections, manual scoring entries, division positions, and school-position leaders from one public source of truth.</p></div><Link href="/weekly"><Button variant="secondary" className="font-bold">Weekly scoreboard</Button></Link></div></div></section></LeagueShell>;
 }
