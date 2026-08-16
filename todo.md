@@ -21,6 +21,6 @@
 - [x] Link each Big 36 owner record to a signed-in user account and restrict drafting to that owner’s team.
 - [x] Add commissioner-controlled draft status and active-turn enforcement so only the eligible owner can submit a pick.
 - [x] Simplify the owner experience to a live draft board and read-only live results, standings, and team views.
-- [ ] Test owner self-service drafting, commissioner override controls, and the live public results flow.
+- [x] Test owner self-service drafting, commissioner override controls, and the live public results flow.
 - [x] Enforce a unique normalized owner email so each signed-in account can claim only one Big 36 team.
 - [x] Align public and commissioner copy with owner self-service drafting and the confirmed Big 36 Supabase project identity.
