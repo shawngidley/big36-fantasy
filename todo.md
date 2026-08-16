@@ -24,3 +24,13 @@
 - [x] Test owner self-service drafting, commissioner override controls, and the live public results flow.
 - [x] Enforce a unique normalized owner email so each signed-in account can claim only one Big 36 team.
 - [x] Align public and commissioner copy with owner self-service drafting and the confirmed Big 36 Supabase project identity.
+- [ ] Identify a licensed live college-football data provider that supplies FBS schedule, roster, play-by-play, and final-stat coverage required by Big 36 scoring.
+- [ ] Compare live-update delivery and hosting approaches for automatic scoring and select an implementation route with the commissioner.
+- [ ] Integrate the approved live-stat source and automate Big 36 scoring, corrections, and standings updates.
+- [ ] Validate CollegeFootballData Tier 3 event fields for every Big 36 rule, including touchdown distance, DEF/ST returns, sacks, recoveries, and shutouts.
+- [ ] Add a documented fallback for any Big 36 scoring element the provider cannot attribute deterministically from live data.
+- [ ] Apply the confirmed rule that QB passing touchdowns and the scoring receiver/rusher both earn touchdown-tier points based on snap yardline-to-goal.
+- [ ] Reconcile the original scoring sheet and remove any unconfirmed non-touchdown automated scoring rules.
+- [ ] Replace the incorrect FLEX slot across Big 36 with the original K position and its kicker-only scoring rules.
+- [ ] Restrict Year 1 automated scoring to touchdown tiers, two-point conversions, kicker scores, and the defined DEF/ST events; exclude all accumulated yardage scoring.
+- [x] Reconcile every original Year 1 Big 36 blueprint requirement with the current implementation and document any corrections or remaining decisions.
