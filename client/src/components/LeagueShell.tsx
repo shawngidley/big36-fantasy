@@ -1,4 +1,4 @@
-import { Trophy, Shield, Menu, ChevronRight } from "lucide-react";
+import { Trophy, Shield, Menu, ChevronRight, UserRound } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -9,6 +9,7 @@ const publicNav = [
   { label: "Draft Board", path: "/draft" },
   { label: "Leaders", path: "/leaders" },
   { label: "Weekly", path: "/weekly" },
+  { label: "My Draft", path: "/my-draft" },
 ];
 
 function Brand() {
@@ -35,7 +36,7 @@ export default function LeagueShell({ children, eyebrow }: { children: React.Rea
           </Link>)}
         </nav>
         <div className="flex items-center gap-2">
-          <Link href="/commissioner"><Button variant="outline" size="sm" className="hidden gap-2 border-primary/20 bg-card text-xs font-bold md:flex"><Shield className="h-3.5 w-3.5" /> Commissioner</Button></Link>
+          <Link href="/my-draft"><Button variant="outline" size="sm" className="hidden gap-2 border-primary/20 bg-card text-xs font-bold md:flex"><UserRound className="h-3.5 w-3.5" /> My Draft</Button></Link><Link href="/commissioner"><Button variant="ghost" size="icon" className="hidden md:flex" aria-label="Commissioner"><Shield className="h-4 w-4" /></Button></Link>
           <Sheet><SheetTrigger asChild><Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open navigation"><Menu className="h-5 w-5" /></Button></SheetTrigger><SheetContent side="right" className="w-[290px] px-6"><div className="pt-6"><Brand /></div><nav className="mt-10 grid gap-1">{publicNav.map(item => <Link key={item.path} href={item.path} className="flex items-center justify-between rounded-lg px-3 py-3 text-sm font-semibold hover:bg-accent"><span>{item.label}</span><ChevronRight className="h-4 w-4 text-muted-foreground" /></Link>)}<Link href="/commissioner" className="mt-3 flex items-center justify-between rounded-lg bg-primary px-3 py-3 text-sm font-bold text-primary-foreground"><span>Commissioner</span><Shield className="h-4 w-4" /></Link></nav></SheetContent></Sheet>
         </div>
       </div>

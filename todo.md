@@ -15,3 +15,12 @@
 - [x] Build a polished public Big 36 homepage with league highlights, leader callouts, and accessible navigation.
 - [x] Create Vitest coverage for draft-position validation, duplicate-combination locks, score calculations, correction logging, and standings logic.
 - [x] Validate responsive public and commissioner workflows, then save the completed project checkpoint.
+- [x] Replace the managed league persistence with a Supabase-backed data layer for owners, draft picks, scores, and standings.
+- [x] Create and secure isolated `b36_` tables inside the originally approved project without mixing with existing league data.
+- [x] Move the isolated Big 36 tables and integrations to the confirmed fjzlwifohkehwymisaoh Supabase project.
+- [x] Link each Big 36 owner record to a signed-in user account and restrict drafting to that owner’s team.
+- [x] Add commissioner-controlled draft status and active-turn enforcement so only the eligible owner can submit a pick.
+- [x] Simplify the owner experience to a live draft board and read-only live results, standings, and team views.
+- [ ] Test owner self-service drafting, commissioner override controls, and the live public results flow.
+- [x] Enforce a unique normalized owner email so each signed-in account can claim only one Big 36 team.
+- [x] Align public and commissioner copy with owner self-service drafting and the confirmed Big 36 Supabase project identity.

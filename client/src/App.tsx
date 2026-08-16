@@ -7,6 +7,7 @@ import Commissioner from "./pages/Commissioner";
 import DraftBoard from "./pages/DraftBoard";
 import Home from "./pages/Home";
 import Leaderboards from "./pages/Leaderboards";
+import MyDraft from "./pages/MyDraft";
 import NotFound from "./pages/NotFound";
 import Standings from "./pages/Standings";
 import Team from "./pages/Team";
@@ -19,6 +20,7 @@ function Router() {
     <Route path="/draft" component={DraftBoard} />
     <Route path="/leaders" component={Leaderboards} />
     <Route path="/weekly" component={Weekly} />
+    <Route path="/my-draft" component={MyDraft} />
     <Route path="/team/:ownerId" component={Team} />
     <Route path="/commissioner" component={Commissioner} />
     <Route path="/404" component={NotFound} />
