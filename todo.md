@@ -47,3 +47,9 @@
 - [x] Add owner-created program identities and editable conference names/identities.
 - [x] Add conference, position, and national champion reporting with equal prize-split logic.
 - [x] Reconcile every original Year 1 Big 36 blueprint requirement with the current implementation and document any corrections or remaining decisions.
+- [x] Define the 2025 research-card fields and calculate each FBS school-position unit’s points under the official 36 Football scoring rules.
+- [x] Ingest verified 2025 FBS team, play, player-position, and special-teams data required for the draft research catalog.
+- [x] Build public draft research views for QB, RB, WR, TE, K/ST, and DEF units with official-rule 2025 points and supporting statistics.
+- [x] Implement missing 2025 K/ST and DEF research scoring events: blocked field goals, blocked punts, special-teams safeties, other special-teams touchdowns, and defensive safeties.
+- [ ] Validate the registered one-minute gameday schedule’s protected callback against the published 36 Football site during an active-game rehearsal.
+- [x] Register and persist the project-level one-minute 36 Football gameday Heartbeat job with automation disabled by default.

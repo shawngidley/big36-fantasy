@@ -5,6 +5,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Commissioner from "./pages/Commissioner";
 import DraftBoard from "./pages/DraftBoard";
+import DraftResearch from "./pages/DraftResearch";
 import Home from "./pages/Home";
 import Leaderboards from "./pages/Leaderboards";
 import MyDraft from "./pages/MyDraft";
@@ -18,6 +19,7 @@ function Router() {
     <Route path="/" component={Home} />
     <Route path="/standings" component={Standings} />
     <Route path="/draft" component={DraftBoard} />
+    <Route path="/research" component={DraftResearch} />
     <Route path="/leaders" component={Leaderboards} />
     <Route path="/weekly" component={Weekly} />
     <Route path="/my-draft" component={MyDraft} />

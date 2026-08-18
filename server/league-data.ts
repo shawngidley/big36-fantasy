@@ -14,6 +14,7 @@ type RuleRow = { id: string; label: string; event_type: ScoringEventType; positi
 type EventRow = { id: string; week_id: string; draft_slot_id: string; event_type: ScoringEventType; stat_value: number; yard_distance: number | null; computed_points: number; note: string | null; audit_action: "ENTRY" | "CORRECTION" | "REVERSAL"; correction_of_event_id: string | null; recorded_by_open_id: string; created_at: string };
 type DraftStateRow = { status: "SETUP" | "OPEN" | "PAUSED" | "COMPLETE"; active_position: Position | null; updated_at: string };
 type DraftTurnRow = { id: string; global_pick: number; round_number: number; owner_id: string; status: "PENDING" | "ACTIVE" | "SKIPPED" | "PICKED"; expires_at: string | null; skipped_at: string | null; picked_at: string | null; draft_slot_id: string | null };
+type ResearchUnitRow = { season: number; school_name: string; position: Position; official_points: number | string; event_counts: Record<string, number>; stat_summary: Record<string, number>; source_note: string; calculated_at: string };
 
 const ownerPath = "b36_owners";
 const slotPath = "b36_draft_slots";
@@ -102,6 +103,13 @@ export async function getLeagueSnapshot() {
   };
 
   return { divisions, owners, overallStandings, weeks: weekRows.map(week => ({ id: week.id, weekNumber: week.week_number, label: week.label, status: week.status })), weeklySummaries, rules: ruleRows.map(rule => ({ id: rule.id, label: rule.label, eventType: rule.event_type, positionScope: rule.position_scope, minYards: asNumber(rule.min_yards), maxYards: asNumber(rule.max_yards), flatPoints: asNumber(rule.flat_points), pointsPerUnit: asNumber(rule.points_per_unit), isActive: rule.is_active ? "true" : "false" })), leaderboard, events, champions, draftState: { status: state.status, activePosition: null, updatedAt: state.updated_at, currentTurn: activeTurn ? { id: activeTurn.id, ownerId: activeTurn.owner_id, teamName: turnOwner?.teamName ?? "Unassigned team", draftPosition: activeTurn.global_pick, roundNumber: activeTurn.round_number, expiresAt: activeTurn.expires_at } : null }, totals: { ownerCount: owners.length, divisionCount: divisions.length, draftPickCount: slotRows.filter(slot => slot.school_name).length, scoringEventCount: events.length } };
+}
+
+export async function getDraftResearchCatalog(position?: Position) {
+  const query: Record<string, string> = { select: "season,school_name,position,official_points,event_counts,stat_summary,source_note,calculated_at", season: q.eq(2025), order: "official_points.desc,school_name.asc" };
+  if (position) query.position = q.eq(position);
+  const rows = await supabaseRest<ResearchUnitRow[]>("b36_draft_research_units", { query });
+  return rows.map(row => ({ season: row.season, schoolName: row.school_name, position: row.position, officialPoints: Number(row.official_points), eventCounts: row.event_counts ?? {}, statSummary: row.stat_summary ?? {}, sourceNote: row.source_note, calculatedAt: row.calculated_at }));
 }
 
 export async function getOrClaimOwner(openId: string, email?: string | null) {

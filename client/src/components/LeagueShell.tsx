@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 const publicNav = [
   { label: "Standings", path: "/standings" },
   { label: "Draft Board", path: "/draft" },
+  { label: "2025 Research", path: "/research" },
   { label: "Leaders", path: "/leaders" },
   { label: "Weekly", path: "/weekly" },
   { label: "My Draft", path: "/my-draft" },

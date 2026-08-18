@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { positions, scoringEventTypes, type Position } from "../../drizzle/schema";
-import { getAllDraftSlots, getDraftOwnerState, getDraftSlotByGroup, getLeagueSnapshot, getOrClaimOwner, getScoreEvent, getScoringRulesForEvent } from "../league-data";
+import { getAllDraftSlots, getDraftOwnerState, getDraftSlotByGroup, getDraftResearchCatalog, getLeagueSnapshot, getOrClaimOwner, getScoreEvent, getScoringRulesForEvent } from "../league-data";
 import { assertSchoolPositionAvailable, buildReversal, calculateEventScore, hasBalancedDraftAssignments, normalizeSchoolName } from "../league-scoring";
 import { buildSerpentineTurns } from "../serpentine-draft";
 import { q, supabaseRest, supabaseRpc } from "../supabase";
@@ -17,6 +17,7 @@ const asError = (error: unknown): never => { throw new TRPCError({ code: "BAD_RE
 
 export const leagueRouter = router({
   snapshot: publicProcedure.query(() => getLeagueSnapshot()),
+  research: publicProcedure.input(z.object({ position: positionSchema.optional() }).optional()).query(({ input }) => getDraftResearchCatalog(input?.position)),
   owner: publicProcedure.input(z.object({ ownerId: uuid })).query(async ({ input }) => {
     const owner = (await getLeagueSnapshot()).owners.find(item => item.id === input.ownerId);
     if (!owner) throw new TRPCError({ code: "NOT_FOUND", message: "Big 36 team not found." });
