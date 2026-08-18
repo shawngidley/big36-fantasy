@@ -7,6 +7,7 @@ import { trpc } from "@/lib/trpc";
 
 const placement = (rank: number) => rank === 1 ? "bg-primary text-primary-foreground" : rank === 2 ? "bg-amber-100 text-amber-950" : rank === 3 ? "bg-orange-100 text-orange-950" : "bg-accent text-muted-foreground";
 
+// Championship and prize reporting remains available to league administration, not the public standings page.
 export default function Standings() {
   const league = trpc.league.snapshot.useQuery();
   if (league.isLoading) return <LeagueShell><LeagueLoading /></LeagueShell>;
