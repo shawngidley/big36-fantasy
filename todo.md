@@ -24,13 +24,26 @@
 - [x] Test owner self-service drafting, commissioner override controls, and the live public results flow.
 - [x] Enforce a unique normalized owner email so each signed-in account can claim only one Big 36 team.
 - [x] Align public and commissioner copy with owner self-service drafting and the confirmed Big 36 Supabase project identity.
-- [ ] Identify a licensed live college-football data provider that supplies FBS schedule, roster, play-by-play, and final-stat coverage required by Big 36 scoring.
-- [ ] Compare live-update delivery and hosting approaches for automatic scoring and select an implementation route with the commissioner.
+- [x] Identify a licensed live college-football data provider that supplies FBS schedule, roster, play-by-play, and final-stat coverage required by Big 36 scoring.
+- [x] Compare live-update delivery and hosting approaches for automatic scoring and select an implementation route with the commissioner.
 - [ ] Integrate the approved live-stat source and automate Big 36 scoring, corrections, and standings updates.
 - [ ] Validate CollegeFootballData Tier 3 event fields for every Big 36 rule, including touchdown distance, DEF/ST returns, sacks, recoveries, and shutouts.
-- [ ] Add a documented fallback for any Big 36 scoring element the provider cannot attribute deterministically from live data.
-- [ ] Apply the confirmed rule that QB passing touchdowns and the scoring receiver/rusher both earn touchdown-tier points based on snap yardline-to-goal.
-- [ ] Reconcile the original scoring sheet and remove any unconfirmed non-touchdown automated scoring rules.
-- [ ] Replace the incorrect FLEX slot across Big 36 with the original K position and its kicker-only scoring rules.
-- [ ] Restrict Year 1 automated scoring to touchdown tiers, two-point conversions, kicker scores, and the defined DEF/ST events; exclude all accumulated yardage scoring.
+- [x] Add a documented fallback for any Big 36 scoring element the provider cannot attribute deterministically from live data.
+- [x] Apply the confirmed rule that QB passing touchdowns and the scoring receiver/rusher both earn touchdown-tier points based on snap yardline-to-goal.
+- [x] Reconcile the original scoring sheet and remove any unconfirmed non-touchdown automated scoring rules.
+- [x] Replace the incorrect FLEX slot across Big 36 with the original K position and its kicker-only scoring rules.
+- [x] Restrict Year 1 automated scoring to touchdown tiers, two-point conversions, kicker scores, and the defined DEF/ST events; exclude all accumulated yardage scoring.
+- [x] Enforce the fixed Big 36 capacity of six divisions, six owners per division, and 36 owners total.
+- [ ] Implement the approved every-minute CollegeFootballData gameday refresh and final postgame reconciliation workflow.
+- [ ] Confirm the selected CollegeFootballData Tier 4 subscription supplies live FBS scoreboard and live play-by-play access through an actual in-game rehearsal.
+- [ ] Complete the full 36 Football inaugural blueprint, including 136-school/12-game normalization, serpent draft clock/leapfrog notifications, live event feed/corrections, program identity, and champion reporting.
+- [x] Validate CollegeFootballData request volume for the full 136-school live-scoring workload and lock the required paid tier.
+- [ ] Validate the confirmed $15 CollegeFootballData subscription against both live scoreboard and live play-by-play during an active FBS game.
+- [x] Retest the existing CFBD key after the Tier 4 entitlement activation window and record the live-endpoint result.
+- [ ] Replace the position-specific draft rounds with the six-round serpentine order, daily round limits, ten-minute clock, leapfrog rule, and owner draft notifications.
+- [x] Separate K/ST and DEF throughout the owner program roster, leaderboard, scoring engine, and public views.
+- [ ] Enforce the 136-FBS-school pool, first-12 eligible regular-season cap, and fewer-than-12-game normalization rule.
+- [ ] Add automatic official-stat corrections and a live scoring-event feed explaining every standings change.
+- [ ] Add owner-created program identities and editable conference names/identities.
+- [ ] Add conference, position, and national champion reporting with equal prize-split logic.
 - [x] Reconcile every original Year 1 Big 36 blueprint requirement with the current implementation and document any corrections or remaining decisions.

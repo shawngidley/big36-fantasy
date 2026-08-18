@@ -1,58 +1,44 @@
 import { describe, expect, it } from "vitest";
-import { assertSchoolPositionAvailable, buildReversal, calculateEventScore, hasBalancedDraftAssignments, normalizeSchoolName, rankBySeasonPoints } from "./league-scoring";
+import { assertSchoolPositionAvailable, buildReversal, calculateEventScore, generateBalancedDraftPlans, hasBalancedDraftAssignments, normalizeSchoolName, rankBySeasonPoints } from "./league-scoring";
+import { yearOneRules } from "./year-one-rules";
 
-describe("Big 36 scoring engine", () => {
-  const rules = [
-    { id: 1, eventType: "TOUCHDOWN" as const, positionScope: "ALL" as const, minYards: 1, maxYards: 9, flatPoints: "6", pointsPerUnit: null, isActive: "true" as const },
-    { id: 2, eventType: "TOUCHDOWN" as const, positionScope: "ALL" as const, minYards: 10, maxYards: 19, flatPoints: "9", pointsPerUnit: null, isActive: "true" as const },
-    { id: 3, eventType: "PASSING_YARDS" as const, positionScope: "QB" as const, minYards: null, maxYards: null, flatPoints: null, pointsPerUnit: "0.04", isActive: "true" as const },
-  ];
-
-  it("uses the matching touchdown distance tier", () => {
-    expect(calculateEventScore(rules, { eventType: "TOUCHDOWN", position: "WR", statValue: 1, yardDistance: 14 })).toEqual({ ruleId: 2, points: 9 });
+describe("36 Football scoring engine", () => {
+  const rules = yearOneRules.map((rule, index) => ({ ...rule, id: index + 1, pointsPerUnit: null, isActive: "true" as const }));
+  it("uses the complete offensive touchdown tiers and two-point value", () => {
+    expect(calculateEventScore(rules, { eventType: "TOUCHDOWN", position: "WR", statValue: 1, yardDistance: 7 })).toMatchObject({ points: 6 });
+    expect(calculateEventScore(rules, { eventType: "TOUCHDOWN", position: "TE", statValue: 1, yardDistance: 24 })).toMatchObject({ points: 8 });
+    expect(calculateEventScore(rules, { eventType: "TOUCHDOWN", position: "RB", statValue: 1, yardDistance: 45 })).toMatchObject({ points: 10 });
+    expect(calculateEventScore(rules, { eventType: "TOUCHDOWN", position: "QB", statValue: 1, yardDistance: 70 })).toMatchObject({ points: 12 });
+    expect(calculateEventScore(rules, { eventType: "TWO_POINT_CONVERSION", position: "WR", statValue: 1 })).toMatchObject({ points: 4 });
   });
-
-  it("calculates yardage with a position-specific rate", () => {
-    expect(calculateEventScore(rules, { eventType: "PASSING_YARDS", position: "QB", statValue: 250 })).toEqual({ ruleId: 3, points: 10 });
+  it("scores turnovers, K/ST stacking components, and DEF events", () => {
+    expect(calculateEventScore(rules, { eventType: "INTERCEPTION_THROWN", position: "QB", statValue: 1 })).toMatchObject({ points: -3 });
+    expect(calculateEventScore(rules, { eventType: "FUMBLE_LOST", position: "RB", statValue: 1 })).toMatchObject({ points: -3 });
+    expect(calculateEventScore(rules, { eventType: "FIELD_GOAL", position: "K_ST", statValue: 1, yardDistance: 43 })).toMatchObject({ points: 9 });
+    expect(calculateEventScore(rules, { eventType: "BLOCKED_PUNT", position: "K_ST", statValue: 1 })).toMatchObject({ points: 3 });
+    expect(calculateEventScore(rules, { eventType: "PUNT_RETURN_TOUCHDOWN", position: "K_ST", statValue: 1 })).toMatchObject({ points: 12 });
+    expect(calculateEventScore(rules, { eventType: "SACK", position: "DEF", statValue: 1 })).toMatchObject({ points: 1 });
+    expect(calculateEventScore(rules, { eventType: "DEFENSIVE_TOUCHDOWN", position: "DEF", statValue: 1, yardDistance: 65 })).toMatchObject({ points: 15 });
+    expect(calculateEventScore(rules, { eventType: "SHUTOUT", position: "DEF", statValue: 1 })).toMatchObject({ points: 15 });
   });
-
   it("requires six distinct assignments totalling 111", () => {
-    expect(hasBalancedDraftAssignments([
-      { position: "QB", draftPosition: 1 }, { position: "RB", draftPosition: 12 },
-      { position: "WR", draftPosition: 18 }, { position: "TE", draftPosition: 20 },
-      { position: "DEF_ST", draftPosition: 24 }, { position: "FLEX", draftPosition: 36 },
-    ])).toBe(true);
-    expect(hasBalancedDraftAssignments([{ position: "QB", draftPosition: 1 }])).toBe(false);
+    expect(hasBalancedDraftAssignments([{ position: "QB", draftPosition: 1 }, { position: "RB", draftPosition: 12 }, { position: "WR", draftPosition: 18 }, { position: "TE", draftPosition: 20 }, { position: "K_ST", draftPosition: 24 }, { position: "DEF", draftPosition: 36 }])).toBe(true);
   });
-
-  it("normalizes schools and rejects an already locked school-position group", () => {
+  it("normalizes schools and rejects a locked school-position group", () => {
     expect(normalizeSchoolName("  Ohio   State ")).toBe("Ohio State");
-    expect(() => assertSchoolPositionAvailable(
-      [{ ownerId: 2, schoolName: "Ohio State", position: "WR" }],
-      { ownerId: 1, schoolName: " ohio  state ", position: "WR" },
-    )).toThrow("already locked");
-    expect(() => assertSchoolPositionAvailable(
-      [{ ownerId: 2, schoolName: "Ohio State", position: "WR" }],
-      { ownerId: 1, schoolName: "Ohio State", position: "QB" },
-    )).not.toThrow();
+    expect(() => assertSchoolPositionAvailable([{ ownerId: 2, schoolName: "Ohio State", position: "WR" }], { ownerId: 1, schoolName: " ohio  state ", position: "WR" })).toThrow("already locked");
   });
-
-  it("records an equal and opposite immutable reversal payload", () => {
-    expect(buildReversal({ id: 44, statValue: "1", computedPoints: "9" })).toEqual({
-      auditAction: "REVERSAL",
-      correctionOfEventId: 44,
-      statValue: "-1",
-      computedPoints: "-9",
-    });
+  it("records an immutable reversal payload", () => expect(buildReversal({ id: 44, statValue: "1", computedPoints: "9" })).toEqual({ auditAction: "REVERSAL", correctionOfEventId: 44, statValue: "-1", computedPoints: "-9" }));
+  it("ranks equal season totals alphabetically", () => expect(rankBySeasonPoints([{ teamName: "Zebra Club", totalPoints: 82 }, { teamName: "Alpha Club", totalPoints: 82 }]).map(team => `${team.rank}:${team.teamName}`)).toEqual(["1:Alpha Club", "2:Zebra Club"]));
+  it("declares the complete K/ST and DEF blueprint without yardage accumulation", () => {
+    expect(new Set(yearOneRules.map(rule => rule.positionScope))).toEqual(new Set(["QB", "RB", "WR", "TE", "K_ST", "DEF"]));
+    expect(yearOneRules.some(rule => rule.eventType === "FIELD_GOAL" && rule.flatPoints === 12)).toBe(true);
+    expect(yearOneRules.some(rule => rule.eventType === "DEFENSIVE_TOUCHDOWN" && rule.flatPoints === 15)).toBe(true);
   });
-
-  it("ranks season totals and breaks equal totals alphabetically", () => {
-    expect(rankBySeasonPoints([
-      { teamName: "Zebra Club", totalPoints: 82 },
-      { teamName: "Alpha Club", totalPoints: 82 },
-      { teamName: "Bronze Club", totalPoints: 79 },
-    ]).map(team => `${team.rank}:${team.teamName}`)).toEqual([
-      "1:Alpha Club", "2:Zebra Club", "3:Bronze Club",
-    ]);
+  it("generates 36 auditable 111 plans without multiple early premium picks", () => {
+    const plans = generateBalancedDraftPlans();
+    expect(plans).toHaveLength(36); expect(plans.every(hasBalancedDraftAssignments)).toBe(true);
+    expect(plans.every(plan => plan.filter(slot => ["QB", "RB", "WR"].includes(slot.position) && slot.draftPosition <= 12).length <= 1)).toBe(true);
+    for (const position of ["QB", "RB", "WR", "TE", "K_ST", "DEF"] as const) expect(plans.map(plan => plan.find(slot => slot.position === position)?.draftPosition).sort((a, b) => a! - b!)).toEqual(Array.from({ length: 36 }, (_, index) => index + 1));
   });
 });

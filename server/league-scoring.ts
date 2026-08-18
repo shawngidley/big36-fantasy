@@ -57,9 +57,10 @@ export function rankBySeasonPoints<T extends { teamName: string; totalPoints: nu
 }
 
 export function calculateEventScore(rules: RuleInput[], event: ScoreEventInput): CalculatedScore {
+  const distanceTieredEvent = event.eventType === "TOUCHDOWN" || event.eventType === "FIELD_GOAL" || event.eventType === "DEFENSIVE_TOUCHDOWN";
   const matches = rules.filter(rule => {
     const scopeMatches = rule.positionScope === "ALL" || rule.positionScope === event.position;
-    const distanceMatches = event.eventType !== "TOUCHDOWN" || (
+    const distanceMatches = !distanceTieredEvent || (
       event.yardDistance !== undefined && event.yardDistance !== null &&
       (rule.minYards === null || event.yardDistance >= rule.minYards) &&
       (rule.maxYards === null || event.yardDistance <= rule.maxYards)
@@ -90,4 +91,23 @@ export function hasBalancedDraftAssignments(assignments: Array<{ position: Posit
   if (assignments.length !== 6) return false;
   if (new Set(assignments.map(assignment => assignment.position)).size !== 6) return false;
   return assignments.reduce((total, assignment) => total + assignment.draftPosition, 0) === 111;
+}
+
+export function generateBalancedDraftPlans(): Array<Array<{ position: Position; draftPosition: number }>> {
+  return Array.from({ length: 36 }, (_, index) => {
+    const qb = index + 1;
+    const rb = 37 - qb;
+    const wr = qb <= 12 ? qb + 12 : qb <= 24 ? qb - 12 : qb;
+    const te = 37 - wr;
+    const k = ((index + 8) % 36) + 1;
+    const defSt = 37 - k;
+    return [
+      { position: "QB" as const, draftPosition: qb },
+      { position: "RB" as const, draftPosition: rb },
+      { position: "WR" as const, draftPosition: wr },
+      { position: "TE" as const, draftPosition: te },
+      { position: "K_ST" as const, draftPosition: k },
+      { position: "DEF" as const, draftPosition: defSt },
+    ];
+  });
 }

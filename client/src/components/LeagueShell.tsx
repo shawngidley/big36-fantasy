@@ -13,13 +13,13 @@ const publicNav = [
 ];
 
 function Brand() {
-  return <Link href="/" className="group flex items-center gap-3" aria-label="Big 36 home">
+  return <Link href="/" className="group flex items-center gap-3" aria-label="36 Football home">
     <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-lg shadow-primary/20 transition-transform duration-200 group-hover:-rotate-3">
       <Trophy className="h-5 w-5" />
     </span>
     <span className="leading-none">
-      <span className="block font-display text-xl font-extrabold tracking-[-0.06em] text-foreground">BIG 36</span>
-      <span className="mt-1 block text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">College Fantasy</span>
+      <span className="block font-display text-xl font-extrabold tracking-[-0.06em] text-foreground">36 FOOTBALL</span>
+      <span className="mt-1 block text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Inaugural season</span>
     </span>
   </Link>;
 }
@@ -42,6 +42,6 @@ export default function LeagueShell({ children, eyebrow }: { children: React.Rea
       </div>
     </header>
     <main>{eyebrow ? <div className="border-b border-border/60 bg-accent/40"><div className="container py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">{eyebrow}</div></div> : null}{children}</main>
-    <footer className="mt-16 border-t border-border/70"><div className="container flex flex-col gap-3 py-8 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between"><p>BIG 36 · 36 teams · 6 divisions · 1 champion.</p><p className="font-medium">Commissioner-managed scoring ledger</p></div></footer>
+    <footer className="mt-16 border-t border-border/70"><div className="container flex flex-col gap-3 py-8 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between"><p>36 Football · 36 programs · 6 conferences · 1 national champion.</p><p className="font-medium">Official live scoring ledger</p></div></footer>
   </div>;
 }

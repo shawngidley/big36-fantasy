@@ -1,0 +1,6 @@
+ALTER TABLE `draft_assignments` MODIFY COLUMN `position` enum('QB','RB','WR','TE','K','DEF_ST') NOT NULL;--> statement-breakpoint
+ALTER TABLE `draft_picks` MODIFY COLUMN `position` enum('QB','RB','WR','TE','K','DEF_ST') NOT NULL;--> statement-breakpoint
+ALTER TABLE `scoring_events` MODIFY COLUMN `position` enum('QB','RB','WR','TE','K','DEF_ST') NOT NULL;--> statement-breakpoint
+ALTER TABLE `scoring_events` MODIFY COLUMN `eventType` enum('TOUCHDOWN','TWO_POINT_CONVERSION','EXTRA_POINT','FIELD_GOAL','INTERCEPTION','FUMBLE_RECOVERY','SHUTOUT','DEFENSIVE_TOUCHDOWN','PUNT_RETURN_TOUCHDOWN','KICKOFF_RETURN_TOUCHDOWN') NOT NULL;--> statement-breakpoint
+ALTER TABLE `scoring_rules` MODIFY COLUMN `eventType` enum('TOUCHDOWN','TWO_POINT_CONVERSION','EXTRA_POINT','FIELD_GOAL','INTERCEPTION','FUMBLE_RECOVERY','SHUTOUT','DEFENSIVE_TOUCHDOWN','PUNT_RETURN_TOUCHDOWN','KICKOFF_RETURN_TOUCHDOWN') NOT NULL;--> statement-breakpoint
+ALTER TABLE `scoring_rules` MODIFY COLUMN `positionScope` enum('ALL','QB','RB','WR','TE','K','DEF_ST') NOT NULL DEFAULT 'ALL';

@@ -12,7 +12,7 @@ The automated data source is selected but not connected: CollegeFootballData Tie
 
 | Original blueprint requirement | Current status | Reconciliation |
 |---|---|---|
-| 36 owners in six divisions of six | **Built, with safeguard required** | The commissioner can create six editable divisions and assign owners. The interface communicates the 36-owner model, but hard database checks for maximum 36 owners and six owners per division still need to be added. |
+| 36 owners in six divisions of six | **Built** | The commissioner can create six editable divisions and assign owners. Server guards now reject a seventh owner in any division and reject a thirty-seventh league owner. |
 | $100 entry / $3,600 pool | **Operational policy** | No payment collection or payout tracking is built. This is appropriate for a private Year 1 league; the commissioner can collect and distribute funds outside the site. |
 | Three $1,200 prize pools: division champions, six position champions, Big 36 champion | **View support; payout ledger not built** | Division and position standings support identifying winners. A commissioner payout screen is not yet present. |
 | No trades, waivers, or weekly lineup decisions | **Built by omission** | The application has no roster transaction, waiver, trade, or lineup system. Owners draft once and follow the results. |
@@ -77,13 +77,10 @@ For a passing touchdown, the **QB** receives the applicable touchdown tier and t
 
 ## Required corrections before launch
 
-1. Replace FLEX with K everywhere, including the Supabase position type and all user interfaces.
-2. Remove passing/rushing/receiving yard events and any accumulated-yardage rule from the scoring interface and engine.
-3. Load the original Year 1 point values and the confirmed passing-touchdown double-credit rule.
-4. Add official FBS school validation and an automatic first-12 regular-season game cap.
-5. Add a premium-position balance generator/checker for draft plans.
-6. Add hard capacity checks for 36 owners, six divisions, and six owners per division.
-7. Add the CFBD Tier 3 key, run a live-game rehearsal, and validate raw live event attribution before the first paid game counts.
+1. Load the original Year 1 point values and the confirmed passing-touchdown double-credit rule.
+2. Add official FBS school validation and an automatic first-12 regular-season game cap.
+3. Add a premium-position balance generator/checker for draft plans.
+4. Add the CFBD Tier 3 key, run a live-game rehearsal, and validate raw live event attribution before the first paid game counts.
 
 ## Intentionally deferred from Year 1
 

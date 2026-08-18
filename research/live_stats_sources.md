@@ -28,6 +28,16 @@ The current REST v2 documentation confirms that `GET /plays` can retrieve an ent
 
 The API documentation shows the key raw fields needed for automation: stable play ID; offense/defense; yardage; scoring flag; play type/text; player-attributed play stats; and current status/drives. Independent CFBD material documents derived player attribution for rush/pass/receive, sacks, interceptions, fumbles/recoveries, kick/punt/field-goal returns and blocks, plus offensive and defensive scoring flags. Treat that material as supporting evidence only until a Tier 3 live-key sample validates the raw REST event payload.
 
+## Validated Tier 3 key sample — 2025 FBS data
+
+The supplied Tier 3 key successfully authenticated against `GET /teams/fbs?year=2026`. A completed 2025 regular-season game sample from `GET /games?year=2025&week=1&seasonType=regular` verified the game identity, `seasonType: "regular"`, `completed`, `homeClassification`/`awayClassification`, team names, start date, and final scores required to enforce the pilot’s first-12-regular-season-game limit.
+
+The documented `GET /plays` endpoint rejected a `gameId` filter for the tested API version but accepted the week-and-team filter: `GET /plays?year=2025&week=1&seasonType=regular&team=Iowa%20State`. Its play records included a stable `id`, `gameId`, `offense`, `defense`, `yardsToGoal`, `yardsGained`, `scoring`, `playType`, and `playText`. A passing-touchdown example had `yardsToGoal: 4` at snap, confirming the field needed for the commissioner’s confirmed TD-tier convention.
+
+`GET /plays/stats?year=2025&week=1&seasonType=regular&team=Iowa%20State` returned player-attributed rows keyed by the same `playId`, including `athleteId`, athlete name, team, `statType`, stat, and `yardsToGoal`. A verified passing-touchdown play joined to a QB `Touchdown` stat and a receiver `Reception` stat under the shared play ID. The `GET /roster?team=Iowa%20State&year=2025` response supplied athlete IDs and official `position` values. This confirms the planned role mapping: use roster position—not play action—to credit each drafted school-position group, while creating a second QB scoring event for a passing touchdown under the confirmed double-credit rule.
+
+The provider sample supports the planned score engine but must still be rehearsed during a live game to measure refresh timing and correction behavior. For automatic ingestion, use weekly/season REST filters rather than the unsupported per-game play filter observed in the sample.
+
 ## Sources
 
 1. https://developer.sportradar.com/football/reference/ncaafb-overview

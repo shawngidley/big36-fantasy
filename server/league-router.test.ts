@@ -52,6 +52,7 @@ function createContext(role: "admin" | "user"): TrpcContext {
 describe("Big 36 owner draft procedures", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.getLeagueSnapshot.mockResolvedValue({ owners: [], divisions: [], totals: { ownerCount: 0 } });
   });
 
   it("allows an enrolled owner to submit their own normalized school-position selection", async () => {
@@ -93,6 +94,27 @@ describe("Big 36 owner draft procedures", () => {
 
     await expect(caller.league.admin.recordDraftPick({ ownerId, position: "TE", schoolName: "  Texas  " })).resolves.toEqual({ success: true, draftPosition: 8 });
     expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_draft_slots", expect.objectContaining({ method: "PATCH", body: expect.objectContaining({ school_name: "Texas", selected_by_open_id: "owner-open-id" }) }));
+  });
+
+  it("blocks a seventh owner from being placed into a six-owner division", async () => {
+    const divisionId = "11111111-1111-4111-8111-111111111111";
+    mocks.getLeagueSnapshot.mockResolvedValue({
+      owners: [],
+      divisions: [{ id: divisionId, owners: Array.from({ length: 6 }, (_, index) => ({ id: `owner-${index}` })) }],
+      totals: { ownerCount: 6 },
+    });
+    const caller = appRouter.createCaller(createContext("admin"));
+
+    await expect(caller.league.admin.upsertOwner({ displayName: "Seventh Owner", teamName: "Seventh Team", email: "seventh@example.com", divisionId })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("six owners") });
+    expect(mocks.supabaseRest).not.toHaveBeenCalled();
+  });
+
+  it("blocks a thirty-seventh owner from entering Big 36", async () => {
+    mocks.getLeagueSnapshot.mockResolvedValue({ owners: Array.from({ length: 36 }, (_, index) => ({ id: `owner-${index}` })), divisions: [], totals: { ownerCount: 36 } });
+    const caller = appRouter.createCaller(createContext("admin"));
+
+    await expect(caller.league.admin.upsertOwner({ displayName: "Late Owner", teamName: "Late Team", email: "late@example.com", divisionId: null })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("36-owner") });
+    expect(mocks.supabaseRest).not.toHaveBeenCalled();
   });
 
   it("serves the public league snapshot without requiring an owner account", async () => {

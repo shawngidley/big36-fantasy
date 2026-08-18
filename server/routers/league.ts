@@ -3,8 +3,11 @@ import { z } from "zod";
 import { positions, scoringEventTypes, type Position } from "../../drizzle/schema";
 import { getAllDraftSlots, getDraftOwnerState, getDraftSlotByGroup, getLeagueSnapshot, getOrClaimOwner, getScoreEvent, getScoringRulesForEvent } from "../league-data";
 import { assertSchoolPositionAvailable, buildReversal, calculateEventScore, hasBalancedDraftAssignments, normalizeSchoolName } from "../league-scoring";
+import { buildSerpentineTurns } from "../serpentine-draft";
 import { q, supabaseRest, supabaseRpc } from "../supabase";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "../_core/trpc";
+import { yearOneRules } from "../year-one-rules";
+import { runGamedayRefresh } from "../gameday-refresh";
 
 const positionSchema = z.enum(positions);
 const eventTypeSchema = z.enum(scoringEventTypes);
@@ -23,7 +26,7 @@ export const leagueRouter = router({
     const owner = await getOrClaimOwner(ctx.user.openId, ctx.user.email);
     if (!owner) throw new TRPCError({ code: "FORBIDDEN", message: "Your email has not been assigned to a Big 36 owner record yet." });
     try {
-      const pick = await supabaseRpc<{ id: string; draft_position: number }>("b36_submit_pick", { p_owner_open_id: ctx.user.openId, p_position: input.position, p_school_name: normalizeSchoolName(input.schoolName) });
+      const pick = await supabaseRpc<{ id: string; draft_position: number }>("b36_submit_serpentine_pick", { p_owner_open_id: ctx.user.openId, p_position: input.position, p_school_name: normalizeSchoolName(input.schoolName) });
       return { success: true as const, draftPosition: pick.draft_position };
     } catch (error) { asError(error); }
   }),
@@ -32,22 +35,70 @@ export const leagueRouter = router({
       const existing = await supabaseRest<Array<{ id: string }>>("b36_divisions", { query: { select: "id" } });
       if (existing.length) throw new TRPCError({ code: "CONFLICT", message: "Divisions are already configured." });
       await supabaseRest("b36_divisions", { method: "POST", body: Array.from({ length: 6 }, (_, index) => ({ name: `Division ${index + 1}`, sort_order: index + 1 })) });
+      const rules = await supabaseRest<Array<{ id: string }>>("b36_scoring_rules", { query: { select: "id" } });
+      if (!rules.length) await supabaseRest("b36_scoring_rules", { method: "POST", body: yearOneRules.map(rule => ({ label: rule.label, event_type: rule.eventType, position_scope: rule.positionScope, min_yards: rule.minYards, max_yards: rule.maxYards, flat_points: rule.flatPoints, points_per_unit: null, is_active: true })) });
       await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "INITIALIZE_DIVISIONS", entity_type: "b36_divisions" } });
       return { success: true as const };
     }),
+    generateSerpentineDraft: adminProcedure.input(z.object({ ownerOrder: z.array(uuid).length(36) })).mutation(async ({ ctx, input }) => {
+      try {
+        if (new Set(input.ownerOrder).size !== 36) throw new Error("The serpentine order must contain 36 unique programs.");
+        const snapshot = await getLeagueSnapshot();
+        if (snapshot.owners.length !== 36 || input.ownerOrder.some(ownerId => !snapshot.owners.some(owner => owner.id === ownerId))) throw new Error("Create all 36 programs before generating the draft order.");
+        if (snapshot.totals.draftPickCount) throw new Error("The serpentine order cannot be regenerated after the draft has started.");
+        await Promise.all(input.ownerOrder.map((ownerId, index) => supabaseRest("b36_owners", { method: "PATCH", query: { id: q.eq(ownerId) }, body: { draft_order: index + 1 } })));
+        await supabaseRest("b36_draft_turns", { method: "DELETE", query: { id: "not.is.null" }, prefer: "return=minimal" });
+        await supabaseRest("b36_draft_turns", { method: "POST", body: buildSerpentineTurns(input.ownerOrder).map(turn => ({ global_pick: turn.globalPick, round_number: turn.roundNumber, owner_id: turn.ownerId })) });
+        await supabaseRest("b36_draft_state", { method: "PATCH", query: { id: q.eq(true) }, body: { status: "SETUP", active_turn_id: null, active_position: null, updated_at: new Date().toISOString(), updated_by_open_id: ctx.user.openId } });
+        await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "GENERATE_SERPENTINE_DRAFT", entity_type: "b36_draft_turns", detail: { owner_order: input.ownerOrder } } });
+      } catch (error) { asError(error); }
+      return { success: true as const };
+    }),
+    startSerpentineDraft: adminProcedure.mutation(async ({ ctx }) => {
+      try {
+        const pending = await supabaseRest<Array<{ id: string }>>("b36_draft_turns", { query: { select: "id", status: q.eq("PENDING"), order: "global_pick.asc", limit: "1" } });
+        if (!pending[0]) throw new Error("Generate a serpentine draft order before opening the draft.");
+        const now = new Date(); const expiresAt = new Date(now.getTime() + 600_000).toISOString();
+        await supabaseRest("b36_draft_turns", { method: "PATCH", query: { id: q.eq(pending[0].id) }, body: { status: "ACTIVE", opened_at: now.toISOString(), expires_at: expiresAt } });
+        await supabaseRest("b36_draft_state", { method: "PATCH", query: { id: q.eq(true) }, body: { status: "OPEN", active_turn_id: pending[0].id, active_position: null, updated_at: now.toISOString(), updated_by_open_id: ctx.user.openId } });
+      } catch (error) { asError(error); }
+      return { success: true as const };
+    }),
+    setLiveAutomation: adminProcedure.input(z.object({ enabled: z.boolean() })).mutation(async ({ ctx, input }) => {
+      await supabaseRest("b36_automation_config", { method: "PATCH", query: { id: q.eq(true) }, body: { enabled: input.enabled, updated_at: new Date().toISOString() } });
+      await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: input.enabled ? "ENABLE_LIVE_AUTOMATION" : "DISABLE_LIVE_AUTOMATION", entity_type: "b36_automation_config" } });
+      return { success: true as const };
+    }),
+    runLiveRefreshNow: adminProcedure.mutation(async ({ ctx }) => {
+      try {
+        const result = await runGamedayRefresh({ force: true });
+        await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "RUN_LIVE_REFRESH", entity_type: "b36_automation_config", detail: result } });
+        return { success: true as const, ...result };
+      } catch (error) { asError(error); }
+    }),
     upsertDivision: adminProcedure.input(z.object({ id: uuid.optional(), name: z.string().trim().min(2).max(80), sortOrder: z.number().int().min(1).max(6) })).mutation(async ({ ctx, input }) => {
       if (input.id) await supabaseRest("b36_divisions", { method: "PATCH", query: { id: q.eq(input.id) }, body: { name: input.name, sort_order: input.sortOrder } });
-      else await supabaseRest("b36_divisions", { method: "POST", body: { name: input.name, sort_order: input.sortOrder } });
+      else {
+        const divisions = await supabaseRest<Array<{ id: string }>>("b36_divisions", { query: { select: "id" } });
+        if (divisions.length >= 6) throw new TRPCError({ code: "CONFLICT", message: "Big 36 is fixed at six divisions." });
+        await supabaseRest("b36_divisions", { method: "POST", body: { name: input.name, sort_order: input.sortOrder } });
+      }
       await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "SAVE_DIVISION", entity_type: "b36_divisions", entity_id: input.id ?? null } });
       return { success: true as const };
     }),
     upsertOwner: adminProcedure.input(z.object({ id: uuid.optional(), displayName: z.string().trim().min(2).max(120), teamName: z.string().trim().min(2).max(120), email: z.string().trim().email().nullable().optional(), divisionId: uuid.nullable(), isCommissioner: z.boolean().optional() })).mutation(async ({ ctx, input }) => {
       const values = { display_name: input.displayName, team_name: input.teamName, email: input.email?.toLowerCase() ?? null, division_id: input.divisionId, is_commissioner: input.isCommissioner ?? false };
       try {
+        const snapshot = await getLeagueSnapshot();
+        const existingOwner = input.id ? snapshot.owners.find(owner => owner.id === input.id) : undefined;
+        if (input.divisionId && existingOwner?.divisionId !== input.divisionId) {
+          const targetDivision = snapshot.divisions.find(division => division.id === input.divisionId);
+          if (!targetDivision) throw new Error("Choose one of the six configured Big 36 divisions.");
+          if (targetDivision.owners.filter(owner => owner.id !== input.id).length >= 6) throw new Error("Each Big 36 division is limited to six owners.");
+        }
         if (input.id) await supabaseRest("b36_owners", { method: "PATCH", query: { id: q.eq(input.id) }, body: values });
         else {
-          const owners = await supabaseRest<Array<{ id: string }>>("b36_owners", { query: { select: "id" } });
-          if (owners.length >= 36) throw new Error("Big 36 has reached its 36-owner limit.");
+          if (snapshot.owners.length >= 36) throw new Error("Big 36 has reached its 36-owner limit.");
           await supabaseRest("b36_owners", { method: "POST", body: values });
         }
         await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "SAVE_OWNER", entity_type: "b36_owners", entity_id: input.id ?? null } });

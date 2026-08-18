@@ -1,9 +1,10 @@
 import type { Position, ScoringEventType } from "../drizzle/schema";
 import { rankBySeasonPoints } from "./league-scoring";
+import { ownerCanDraft } from "./serpentine-draft";
 import { q, supabaseRest } from "./supabase";
 
-export const b36Positions = ["QB", "RB", "WR", "TE", "DEF_ST", "FLEX"] as const;
-const positionLabel: Record<Position, string> = { QB: "QB", RB: "RB", WR: "WR", TE: "TE", DEF_ST: "DEF/ST", FLEX: "FLEX" };
+export const b36Positions = ["QB", "RB", "WR", "TE", "K_ST", "DEF"] as const;
+const positionLabel: Record<Position, string> = { QB: "QB", RB: "RB", WR: "WR", TE: "TE", K_ST: "K/ST", DEF: "DEF" };
 
 type DivisionRow = { id: string; name: string; sort_order: number };
 type OwnerRow = { id: string; manus_open_id: string | null; display_name: string; team_name: string; email: string | null; division_id: string | null; is_commissioner: boolean };
@@ -12,6 +13,7 @@ type WeekRow = { id: string; week_number: number; label: string; status: "UPCOMI
 type RuleRow = { id: string; label: string; event_type: ScoringEventType; position_scope: "ALL" | Position; min_yards: number | null; max_yards: number | null; flat_points: number | null; points_per_unit: number | null; is_active: boolean };
 type EventRow = { id: string; week_id: string; draft_slot_id: string; event_type: ScoringEventType; stat_value: number; yard_distance: number | null; computed_points: number; note: string | null; audit_action: "ENTRY" | "CORRECTION" | "REVERSAL"; correction_of_event_id: string | null; recorded_by_open_id: string; created_at: string };
 type DraftStateRow = { status: "SETUP" | "OPEN" | "PAUSED" | "COMPLETE"; active_position: Position | null; updated_at: string };
+type DraftTurnRow = { id: string; global_pick: number; round_number: number; owner_id: string; status: "PENDING" | "ACTIVE" | "SKIPPED" | "PICKED"; expires_at: string | null; skipped_at: string | null; picked_at: string | null; draft_slot_id: string | null };
 
 const ownerPath = "b36_owners";
 const slotPath = "b36_draft_slots";
@@ -27,7 +29,7 @@ function camelSlot(slot: SlotRow) {
 }
 
 export async function getLeagueSnapshot() {
-  const [divisionRows, ownerRows, slotRows, weekRows, ruleRows, eventRows, stateRows] = await Promise.all([
+  const [divisionRows, ownerRows, slotRows, weekRows, ruleRows, eventRows, stateRows, turnRows] = await Promise.all([
     supabaseRest<DivisionRow[]>("b36_divisions", { query: { select: "*", order: "sort_order.asc" } }),
     supabaseRest<OwnerRow[]>(ownerPath, { query: { select: "*", order: "team_name.asc" } }),
     supabaseRest<SlotRow[]>(slotPath, { query: { select: "*", order: "position.asc,draft_position.asc" } }),
@@ -35,6 +37,7 @@ export async function getLeagueSnapshot() {
     supabaseRest<RuleRow[]>("b36_scoring_rules", { query: { select: "*", order: "event_type.asc,min_yards.asc" } }),
     supabaseRest<EventRow[]>("b36_scoring_events", { query: { select: "*", order: "created_at.desc" } }),
     supabaseRest<DraftStateRow[]>("b36_draft_state", { query: { select: "*", id: "eq.true" } }),
+    supabaseRest<DraftTurnRow[]>("b36_draft_turns", { query: { select: "*", order: "global_pick.asc" } }),
   ]);
 
   const pointsBySlot = new Map<string, number>();
@@ -80,10 +83,10 @@ export async function getLeagueSnapshot() {
     return { id: event.id, weekId: event.week_id, weekNumber: weekRows.find(week => week.id === event.week_id)?.week_number ?? 0, weekLabel: weekRows.find(week => week.id === event.week_id)?.label ?? "Unknown week", schoolName: slot?.school_name ?? "Unassigned", position: slot?.position ?? "QB", positionLabel: positionLabel[slot?.position ?? "QB"], eventType: event.event_type, statValue: Number(event.stat_value), yardDistance: asNumber(event.yard_distance), computedPoints: Number(event.computed_points), note: event.note, auditAction: event.audit_action, correctionOfEventId: event.correction_of_event_id, recordedByName: author?.display_name ?? "Commissioner", createdAt: event.created_at };
   });
   const state = stateRows[0] ?? { status: "SETUP" as const, active_position: null, updated_at: new Date(0).toISOString() };
-  const currentTurn = state.active_position ? slotRows.filter(slot => slot.position === state.active_position && !slot.school_name).sort((a, b) => a.draft_position - b.draft_position)[0] : undefined;
-  const turnOwner = currentTurn ? owners.find(owner => owner.id === currentTurn.owner_id) : undefined;
+  const activeTurn = turnRows.find(turn => turn.status === "ACTIVE");
+  const turnOwner = activeTurn ? owners.find(owner => owner.id === activeTurn.owner_id) : undefined;
 
-  return { divisions, owners, overallStandings, weeks: weekRows.map(week => ({ id: week.id, weekNumber: week.week_number, label: week.label, status: week.status })), weeklySummaries, rules: ruleRows.map(rule => ({ id: rule.id, label: rule.label, eventType: rule.event_type, positionScope: rule.position_scope, minYards: asNumber(rule.min_yards), maxYards: asNumber(rule.max_yards), flatPoints: asNumber(rule.flat_points), pointsPerUnit: asNumber(rule.points_per_unit), isActive: rule.is_active ? "true" : "false" })), leaderboard, events, draftState: { status: state.status, activePosition: state.active_position, updatedAt: state.updated_at, currentTurn: currentTurn ? { ...camelSlot(currentTurn), schoolName: null, ownerId: currentTurn.owner_id, teamName: turnOwner?.teamName ?? "Unassigned team" } : null }, totals: { ownerCount: owners.length, divisionCount: divisions.length, draftPickCount: slotRows.filter(slot => slot.school_name).length, scoringEventCount: events.length } };
+  return { divisions, owners, overallStandings, weeks: weekRows.map(week => ({ id: week.id, weekNumber: week.week_number, label: week.label, status: week.status })), weeklySummaries, rules: ruleRows.map(rule => ({ id: rule.id, label: rule.label, eventType: rule.event_type, positionScope: rule.position_scope, minYards: asNumber(rule.min_yards), maxYards: asNumber(rule.max_yards), flatPoints: asNumber(rule.flat_points), pointsPerUnit: asNumber(rule.points_per_unit), isActive: rule.is_active ? "true" : "false" })), leaderboard, events, draftState: { status: state.status, activePosition: null, updatedAt: state.updated_at, currentTurn: activeTurn ? { id: activeTurn.id, ownerId: activeTurn.owner_id, teamName: turnOwner?.teamName ?? "Unassigned team", draftPosition: activeTurn.global_pick, roundNumber: activeTurn.round_number, expiresAt: activeTurn.expires_at } : null }, totals: { ownerCount: owners.length, divisionCount: divisions.length, draftPickCount: slotRows.filter(slot => slot.school_name).length, scoringEventCount: events.length } };
 }
 
 export async function getOrClaimOwner(openId: string, email?: string | null) {
@@ -98,11 +101,11 @@ export async function getOrClaimOwner(openId: string, email?: string | null) {
 }
 
 export async function getDraftOwnerState(openId: string, email?: string | null) {
-  const [owner, snapshot] = await Promise.all([getOrClaimOwner(openId, email), getLeagueSnapshot()]);
+  const [owner, snapshot, turns] = await Promise.all([getOrClaimOwner(openId, email), getLeagueSnapshot(), supabaseRest<DraftTurnRow[]>("b36_draft_turns", { query: { select: "*", order: "global_pick.asc" } })]);
   const enrolledOwner = owner ? snapshot.owners.find(item => item.id === owner.id) ?? null : null;
-  const activePosition = snapshot.draftState.activePosition;
-  const assignedSlot = enrolledOwner && activePosition ? enrolledOwner.assignments.find(slot => slot.position === activePosition) : undefined;
-  return { owner: enrolledOwner, draftState: snapshot.draftState, assignedSlot, canPick: Boolean(enrolledOwner && assignedSlot && snapshot.draftState.status === "OPEN" && snapshot.draftState.currentTurn?.ownerId === enrolledOwner.id) };
+  const availablePositions = enrolledOwner ? b36Positions.filter(position => !enrolledOwner.picks.some(pick => pick.position === position)) : [];
+  const skippedTurns = enrolledOwner ? turns.filter(turn => turn.owner_id === enrolledOwner.id && turn.status === "SKIPPED").map(turn => ({ globalPick: turn.global_pick, roundNumber: turn.round_number })) : [];
+  return { owner: enrolledOwner, draftState: snapshot.draftState, availablePositions, skippedTurns, canPick: Boolean(enrolledOwner && snapshot.draftState.status === "OPEN" && ownerCanDraft(turns.map(turn => ({ globalPick: turn.global_pick, roundNumber: turn.round_number, ownerId: turn.owner_id, status: turn.status, expiresAt: turn.expires_at })), enrolledOwner.id)) };
 }
 
 export async function getDraftSlotByGroup(schoolName: string, position: Position) {

@@ -22,19 +22,28 @@ export const users = mysqlTable("users", {
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
 });
 
-export const positions = ["QB", "RB", "WR", "TE", "DEF_ST", "FLEX"] as const;
+export const positions = ["QB", "RB", "WR", "TE", "K_ST", "DEF"] as const;
 export type Position = (typeof positions)[number];
 
 export const scoringEventTypes = [
   "TOUCHDOWN",
-  "PASSING_YARDS",
-  "RUSHING_YARDS",
-  "RECEIVING_YARDS",
-  "INTERCEPTION",
+  "TWO_POINT_CONVERSION",
+  "INTERCEPTION_THROWN",
+  "FUMBLE_LOST",
+  "EXTRA_POINT",
+  "FIELD_GOAL",
+  "BLOCKED_FIELD_GOAL",
+  "BLOCKED_PUNT",
+  "SPECIAL_TEAMS_SAFETY",
+  "KICK_RETURN_TOUCHDOWN",
+  "PUNT_RETURN_TOUCHDOWN",
+  "BLOCKED_KICK_RETURN_TOUCHDOWN",
+  "OTHER_SPECIAL_TEAMS_TOUCHDOWN",
   "SACK",
-  "FUMBLE_RECOVERY",
+  "DEFENSIVE_TURNOVER",
+  "DEFENSIVE_SAFETY",
   "SHUTOUT",
-  "RETURN_TOUCHDOWN",
+  "DEFENSIVE_TOUCHDOWN",
 ] as const;
 export type ScoringEventType = (typeof scoringEventTypes)[number];
 
