@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* 36 Football restrained collegiate editorial palette — production refresh. */
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
