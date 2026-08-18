@@ -44,6 +44,6 @@
 - [x] Separate K/ST and DEF throughout the owner program roster, leaderboard, scoring engine, and public views.
 - [ ] Enforce the 136-FBS-school pool, first-12 eligible regular-season cap, and fewer-than-12-game normalization rule.
 - [ ] Add automatic official-stat corrections and a live scoring-event feed explaining every standings change.
-- [ ] Add owner-created program identities and editable conference names/identities.
-- [ ] Add conference, position, and national champion reporting with equal prize-split logic.
+- [x] Add owner-created program identities and editable conference names/identities.
+- [x] Add conference, position, and national champion reporting with equal prize-split logic.
 - [x] Reconcile every original Year 1 Big 36 blueprint requirement with the current implementation and document any corrections or remaining decisions.

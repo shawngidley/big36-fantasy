@@ -57,11 +57,12 @@ describe("Big 36 owner draft procedures", () => {
 
   it("allows an enrolled owner to submit their own normalized school-position selection", async () => {
     mocks.getOrClaimOwner.mockResolvedValue({ id: "owner-uuid", displayName: "League Owner", teamName: "Owner Team" });
+    mocks.supabaseRest.mockResolvedValue([{ school_name: "Ohio State" }]);
     mocks.supabaseRpc.mockResolvedValue({ id: "slot-uuid", draft_position: 4 });
     const caller = appRouter.createCaller(createContext("user"));
 
     await expect(caller.league.submitMyPick({ position: "QB", schoolName: "  Ohio   State  " })).resolves.toEqual({ success: true, draftPosition: 4 });
-    expect(mocks.supabaseRpc).toHaveBeenCalledWith("b36_submit_pick", {
+    expect(mocks.supabaseRpc).toHaveBeenCalledWith("b36_submit_serpentine_pick", {
       p_owner_open_id: "owner-open-id",
       p_position: "QB",
       p_school_name: "Ohio State",

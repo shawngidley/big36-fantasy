@@ -6,8 +6,8 @@ import { q, supabaseRest } from "./supabase";
 export const b36Positions = ["QB", "RB", "WR", "TE", "K_ST", "DEF"] as const;
 const positionLabel: Record<Position, string> = { QB: "QB", RB: "RB", WR: "WR", TE: "TE", K_ST: "K/ST", DEF: "DEF" };
 
-type DivisionRow = { id: string; name: string; sort_order: number };
-type OwnerRow = { id: string; manus_open_id: string | null; display_name: string; team_name: string; email: string | null; division_id: string | null; is_commissioner: boolean };
+type DivisionRow = { id: string; name: string; sort_order: number; identity?: string | null; logo_url?: string | null };
+type OwnerRow = { id: string; manus_open_id: string | null; display_name: string; team_name: string; nickname?: string | null; program_identity?: string | null; logo_url?: string | null; email: string | null; division_id: string | null; is_commissioner: boolean };
 type SlotRow = { id: string; owner_id: string; position: Position; draft_position: number; school_name: string | null; selected_at: string | null; selected_by_open_id: string | null };
 type WeekRow = { id: string; week_number: number; label: string; status: "UPCOMING" | "OPEN" | "FINAL" };
 type RuleRow = { id: string; label: string; event_type: ScoringEventType; position_scope: "ALL" | Position; min_yards: number | null; max_yards: number | null; flat_points: number | null; points_per_unit: number | null; is_active: boolean };
@@ -20,8 +20,18 @@ const slotPath = "b36_draft_slots";
 
 const asNumber = (value: number | string | null) => value === null ? null : Number(value);
 
+function tiedLeaders<T extends { totalPoints: number }>(entries: T[]) {
+  const topScore = entries[0]?.totalPoints;
+  return topScore === undefined ? [] : entries.filter(entry => entry.totalPoints === topScore);
+}
+
+function championAward<T extends { totalPoints: number }>(entries: T[], pool: number) {
+  const winners = tiedLeaders(entries);
+  return { winners, pool, share: winners.length ? Number((pool / winners.length).toFixed(2)) : 0 };
+}
+
 function camelOwner(owner: OwnerRow) {
-  return { id: owner.id, manusOpenId: owner.manus_open_id, displayName: owner.display_name, teamName: owner.team_name, email: owner.email, divisionId: owner.division_id, isCommissioner: owner.is_commissioner };
+  return { id: owner.id, manusOpenId: owner.manus_open_id, displayName: owner.display_name, teamName: owner.team_name, nickname: owner.nickname ?? null, programIdentity: owner.program_identity ?? null, logoUrl: owner.logo_url ?? null, email: owner.email, divisionId: owner.division_id, isCommissioner: owner.is_commissioner };
 }
 
 function camelSlot(slot: SlotRow) {
@@ -61,7 +71,7 @@ export async function getLeagueSnapshot() {
   });
 
   const divisions = divisionRows.map(row => ({
-    id: row.id, name: row.name, sortOrder: row.sort_order,
+    id: row.id, name: row.name, identity: row.identity ?? null, logoUrl: row.logo_url ?? null, sortOrder: row.sort_order,
     owners: rankBySeasonPoints(owners.filter(owner => owner.divisionId === row.id)).map(owner => ({ ...owner, divisionRank: owner.rank })),
   }));
   const overallStandings = rankBySeasonPoints(owners).map(owner => ({ ...owner, overallRank: owner.rank }));
@@ -83,10 +93,15 @@ export async function getLeagueSnapshot() {
     return { id: event.id, weekId: event.week_id, weekNumber: weekRows.find(week => week.id === event.week_id)?.week_number ?? 0, weekLabel: weekRows.find(week => week.id === event.week_id)?.label ?? "Unknown week", schoolName: slot?.school_name ?? "Unassigned", position: slot?.position ?? "QB", positionLabel: positionLabel[slot?.position ?? "QB"], eventType: event.event_type, statValue: Number(event.stat_value), yardDistance: asNumber(event.yard_distance), computedPoints: Number(event.computed_points), note: event.note, auditAction: event.audit_action, correctionOfEventId: event.correction_of_event_id, recordedByName: author?.display_name ?? "Commissioner", createdAt: event.created_at };
   });
   const state = stateRows[0] ?? { status: "SETUP" as const, active_position: null, updated_at: new Date(0).toISOString() };
-  const activeTurn = turnRows.find(turn => turn.status === "ACTIVE");
+  const activeTurn = (turnRows ?? []).find(turn => turn.status === "ACTIVE");
   const turnOwner = activeTurn ? owners.find(owner => owner.id === activeTurn.owner_id) : undefined;
+  const champions = {
+    national: championAward(overallStandings, 1200),
+    conferences: divisions.map(division => ({ conferenceId: division.id, conferenceName: division.name, ...championAward(division.owners, 200) })),
+    positions: leaderboard.map(board => ({ position: board.position, label: board.label, ...championAward(board.entries, 200) })),
+  };
 
-  return { divisions, owners, overallStandings, weeks: weekRows.map(week => ({ id: week.id, weekNumber: week.week_number, label: week.label, status: week.status })), weeklySummaries, rules: ruleRows.map(rule => ({ id: rule.id, label: rule.label, eventType: rule.event_type, positionScope: rule.position_scope, minYards: asNumber(rule.min_yards), maxYards: asNumber(rule.max_yards), flatPoints: asNumber(rule.flat_points), pointsPerUnit: asNumber(rule.points_per_unit), isActive: rule.is_active ? "true" : "false" })), leaderboard, events, draftState: { status: state.status, activePosition: null, updatedAt: state.updated_at, currentTurn: activeTurn ? { id: activeTurn.id, ownerId: activeTurn.owner_id, teamName: turnOwner?.teamName ?? "Unassigned team", draftPosition: activeTurn.global_pick, roundNumber: activeTurn.round_number, expiresAt: activeTurn.expires_at } : null }, totals: { ownerCount: owners.length, divisionCount: divisions.length, draftPickCount: slotRows.filter(slot => slot.school_name).length, scoringEventCount: events.length } };
+  return { divisions, owners, overallStandings, weeks: weekRows.map(week => ({ id: week.id, weekNumber: week.week_number, label: week.label, status: week.status })), weeklySummaries, rules: ruleRows.map(rule => ({ id: rule.id, label: rule.label, eventType: rule.event_type, positionScope: rule.position_scope, minYards: asNumber(rule.min_yards), maxYards: asNumber(rule.max_yards), flatPoints: asNumber(rule.flat_points), pointsPerUnit: asNumber(rule.points_per_unit), isActive: rule.is_active ? "true" : "false" })), leaderboard, events, champions, draftState: { status: state.status, activePosition: null, updatedAt: state.updated_at, currentTurn: activeTurn ? { id: activeTurn.id, ownerId: activeTurn.owner_id, teamName: turnOwner?.teamName ?? "Unassigned team", draftPosition: activeTurn.global_pick, roundNumber: activeTurn.round_number, expiresAt: activeTurn.expires_at } : null }, totals: { ownerCount: owners.length, divisionCount: divisions.length, draftPickCount: slotRows.filter(slot => slot.school_name).length, scoringEventCount: events.length } };
 }
 
 export async function getOrClaimOwner(openId: string, email?: string | null) {

@@ -8,6 +8,7 @@ import { q, supabaseRest, supabaseRpc } from "../supabase";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { yearOneRules } from "../year-one-rules";
 import { runGamedayRefresh } from "../gameday-refresh";
+import { syncFbsPoolAndSchedule } from "../gameday-refresh";
 
 const positionSchema = z.enum(positions);
 const eventTypeSchema = z.enum(scoringEventTypes);
@@ -26,7 +27,10 @@ export const leagueRouter = router({
     const owner = await getOrClaimOwner(ctx.user.openId, ctx.user.email);
     if (!owner) throw new TRPCError({ code: "FORBIDDEN", message: "Your email has not been assigned to a Big 36 owner record yet." });
     try {
-      const pick = await supabaseRpc<{ id: string; draft_position: number }>("b36_submit_serpentine_pick", { p_owner_open_id: ctx.user.openId, p_position: input.position, p_school_name: normalizeSchoolName(input.schoolName) });
+      const normalizedSchool = normalizeSchoolName(input.schoolName);
+      const fbsPool = await supabaseRest<Array<{ school_name: string }>>("b36_fbs_schools", { query: { select: "school_name", season: q.eq(2026) } });
+      if (!fbsPool.some(team => normalizeSchoolName(team.school_name).toLowerCase() === normalizedSchool.toLowerCase())) throw new Error("Choose a school from the official 2026 FBS pool.");
+      const pick = await supabaseRpc<{ id: string; draft_position: number }>("b36_submit_serpentine_pick", { p_owner_open_id: ctx.user.openId, p_position: input.position, p_school_name: normalizedSchool });
       return { success: true as const, draftPosition: pick.draft_position };
     } catch (error) { asError(error); }
   }),
@@ -56,6 +60,7 @@ export const leagueRouter = router({
     }),
     startSerpentineDraft: adminProcedure.mutation(async ({ ctx }) => {
       try {
+        await syncFbsPoolAndSchedule(2026);
         const pending = await supabaseRest<Array<{ id: string }>>("b36_draft_turns", { query: { select: "id", status: q.eq("PENDING"), order: "global_pick.asc", limit: "1" } });
         if (!pending[0]) throw new Error("Generate a serpentine draft order before opening the draft.");
         const now = new Date(); const expiresAt = new Date(now.getTime() + 600_000).toISOString();
@@ -76,18 +81,19 @@ export const leagueRouter = router({
         return { success: true as const, ...result };
       } catch (error) { asError(error); }
     }),
-    upsertDivision: adminProcedure.input(z.object({ id: uuid.optional(), name: z.string().trim().min(2).max(80), sortOrder: z.number().int().min(1).max(6) })).mutation(async ({ ctx, input }) => {
-      if (input.id) await supabaseRest("b36_divisions", { method: "PATCH", query: { id: q.eq(input.id) }, body: { name: input.name, sort_order: input.sortOrder } });
+    upsertDivision: adminProcedure.input(z.object({ id: uuid.optional(), name: z.string().trim().min(2).max(80), identity: z.string().trim().max(160).nullable().optional(), logoUrl: z.string().url().max(1000).nullable().optional(), sortOrder: z.number().int().min(1).max(6) })).mutation(async ({ ctx, input }) => {
+      const values = { name: input.name, identity: input.identity ?? null, logo_url: input.logoUrl ?? null, sort_order: input.sortOrder };
+      if (input.id) await supabaseRest("b36_divisions", { method: "PATCH", query: { id: q.eq(input.id) }, body: values });
       else {
         const divisions = await supabaseRest<Array<{ id: string }>>("b36_divisions", { query: { select: "id" } });
         if (divisions.length >= 6) throw new TRPCError({ code: "CONFLICT", message: "Big 36 is fixed at six divisions." });
-        await supabaseRest("b36_divisions", { method: "POST", body: { name: input.name, sort_order: input.sortOrder } });
+        await supabaseRest("b36_divisions", { method: "POST", body: values });
       }
       await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "SAVE_DIVISION", entity_type: "b36_divisions", entity_id: input.id ?? null } });
       return { success: true as const };
     }),
-    upsertOwner: adminProcedure.input(z.object({ id: uuid.optional(), displayName: z.string().trim().min(2).max(120), teamName: z.string().trim().min(2).max(120), email: z.string().trim().email().nullable().optional(), divisionId: uuid.nullable(), isCommissioner: z.boolean().optional() })).mutation(async ({ ctx, input }) => {
-      const values = { display_name: input.displayName, team_name: input.teamName, email: input.email?.toLowerCase() ?? null, division_id: input.divisionId, is_commissioner: input.isCommissioner ?? false };
+    upsertOwner: adminProcedure.input(z.object({ id: uuid.optional(), displayName: z.string().trim().min(2).max(120), teamName: z.string().trim().min(2).max(120), nickname: z.string().trim().max(80).nullable().optional(), programIdentity: z.string().trim().max(160).nullable().optional(), logoUrl: z.string().url().max(1000).nullable().optional(), email: z.string().trim().email().nullable().optional(), divisionId: uuid.nullable(), isCommissioner: z.boolean().optional() })).mutation(async ({ ctx, input }) => {
+      const values = { display_name: input.displayName, team_name: input.teamName, nickname: input.nickname ?? null, program_identity: input.programIdentity ?? null, logo_url: input.logoUrl ?? null, email: input.email?.toLowerCase() ?? null, division_id: input.divisionId, is_commissioner: input.isCommissioner ?? false };
       try {
         const snapshot = await getLeagueSnapshot();
         const existingOwner = input.id ? snapshot.owners.find(owner => owner.id === input.id) : undefined;
