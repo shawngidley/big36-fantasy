@@ -56,3 +56,7 @@
 - [ ] Validate the registered one-minute gameday schedule’s protected callback against the published 36 Football site during an active-game rehearsal.
 - [x] Register and persist the project-level one-minute 36 Football gameday Heartbeat job, then enable it with guarded gameday polling.
 - [x] Verify the public home exits ledger-loading after a successful snapshot response and document the loaded state before closing this follow-up.
+- [x] Assign the purchased custom domain to the deployed 36 Football application and verify its live status.
+- [x] Confirm 36football.com is attached to this project and complete any required registrar or DNS verification.
+- [x] Verify live HTTPS routing for both 36football.com and www.36football.com after their project assignment.
+- [ ] Align the deployed application title and browser metadata with the official 36 Football brand.
