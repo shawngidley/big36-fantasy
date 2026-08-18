@@ -14,12 +14,13 @@ type RuleRow = { id: string; label: string; event_type: ScoringEventType; positi
 type EventRow = { id: string; week_id: string; draft_slot_id: string; event_type: ScoringEventType; stat_value: number; yard_distance: number | null; computed_points: number; note: string | null; audit_action: "ENTRY" | "CORRECTION" | "REVERSAL"; correction_of_event_id: string | null; recorded_by_open_id: string; created_at: string };
 type DraftStateRow = { status: "SETUP" | "OPEN" | "PAUSED" | "COMPLETE"; active_position: Position | null; updated_at: string };
 type DraftTurnRow = { id: string; global_pick: number; round_number: number; owner_id: string; status: "PENDING" | "ACTIVE" | "SKIPPED" | "PICKED"; expires_at: string | null; skipped_at: string | null; picked_at: string | null; draft_slot_id: string | null };
-type ResearchUnitRow = { season: number; school_name: string; position: Position; official_points: number | string; event_counts: Record<string, number>; stat_summary: Record<string, number>; source_note: string; calculated_at: string };
+type ResearchUnitRow = { season: number; school_name: string; position: Position; official_points: number | string; eligible_games: number; normalization_factor: number | string; normalized_points: number | string; event_counts: Record<string, number>; stat_summary: Record<string, number>; source_note: string; calculated_at: string };
 
 const ownerPath = "b36_owners";
 const slotPath = "b36_draft_slots";
 
 const asNumber = (value: number | string | null) => value === null ? null : Number(value);
+const normalizeSchoolName = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
 
 function tiedLeaders<T extends { totalPoints: number }>(entries: T[]) {
   const topScore = entries[0]?.totalPoints;
@@ -106,10 +107,10 @@ export async function getLeagueSnapshot() {
 }
 
 export async function getDraftResearchCatalog(position?: Position) {
-  const query: Record<string, string> = { select: "season,school_name,position,official_points,event_counts,stat_summary,source_note,calculated_at", season: q.eq(2025), order: "official_points.desc,school_name.asc" };
+  const query: Record<string, string> = { select: "season,school_name,position,official_points,eligible_games,normalization_factor,normalized_points,event_counts,stat_summary,source_note,calculated_at", season: q.eq(2025), order: "normalized_points.desc,school_name.asc" };
   if (position) query.position = q.eq(position);
   const rows = await supabaseRest<ResearchUnitRow[]>("b36_draft_research_units", { query });
-  return rows.map(row => ({ season: row.season, schoolName: row.school_name, position: row.position, officialPoints: Number(row.official_points), eventCounts: row.event_counts ?? {}, statSummary: row.stat_summary ?? {}, sourceNote: row.source_note, calculatedAt: row.calculated_at }));
+  return rows.map(row => ({ season: row.season, schoolName: row.school_name, position: row.position, officialPoints: Number(row.official_points), eligibleGames: row.eligible_games, normalizationFactor: Number(row.normalization_factor), normalizedPoints: Number(row.normalized_points), eventCounts: row.event_counts ?? {}, statSummary: row.stat_summary ?? {}, sourceNote: row.source_note, calculatedAt: row.calculated_at }));
 }
 
 export async function getOrClaimOwner(openId: string, email?: string | null) {
@@ -128,7 +129,12 @@ export async function getDraftOwnerState(openId: string, email?: string | null) 
   const enrolledOwner = owner ? snapshot.owners.find(item => item.id === owner.id) ?? null : null;
   const availablePositions = enrolledOwner ? b36Positions.filter(position => !enrolledOwner.picks.some(pick => pick.position === position)) : [];
   const skippedTurns = enrolledOwner ? turns.filter(turn => turn.owner_id === enrolledOwner.id && turn.status === "SKIPPED").map(turn => ({ globalPick: turn.global_pick, roundNumber: turn.round_number })) : [];
-  return { owner: enrolledOwner, draftState: snapshot.draftState, availablePositions, skippedTurns, canPick: Boolean(enrolledOwner && snapshot.draftState.status === "OPEN" && ownerCanDraft(turns.map(turn => ({ globalPick: turn.global_pick, roundNumber: turn.round_number, ownerId: turn.owner_id, status: turn.status, expiresAt: turn.expires_at })), enrolledOwner.id)) };
+  const activeIndex = turns.findIndex(turn => turn.status === "ACTIVE");
+  const nextOwnerTurnIndex = enrolledOwner ? turns.findIndex((turn, index) => index >= Math.max(activeIndex, 0) && turn.owner_id === enrolledOwner.id && (turn.status === "ACTIVE" || turn.status === "PENDING")) : -1;
+  const picksAway = skippedTurns.length ? 0 : activeIndex >= 0 && nextOwnerTurnIndex >= activeIndex ? nextOwnerTurnIndex - activeIndex : null;
+  const ownedUnitKeys = new Set(enrolledOwner?.picks.map(pick => `${normalizeSchoolName(pick.schoolName)}::${pick.position}`) ?? []);
+  const correctionAlerts = snapshot.events.filter(event => (event.auditAction === "CORRECTION" || event.auditAction === "REVERSAL") && ownedUnitKeys.has(`${normalizeSchoolName(event.schoolName)}::${event.position}`)).slice(0, 5);
+  return { owner: enrolledOwner, draftState: snapshot.draftState, availablePositions, skippedTurns, picksAway, correctionAlerts, canPick: Boolean(enrolledOwner && snapshot.draftState.status === "OPEN" && ownerCanDraft(turns.map(turn => ({ globalPick: turn.global_pick, roundNumber: turn.round_number, ownerId: turn.owner_id, status: turn.status, expiresAt: turn.expires_at })), enrolledOwner.id)) };
 }
 
 export async function getDraftSlotByGroup(schoolName: string, position: Position) {

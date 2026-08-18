@@ -70,9 +70,11 @@ for (const school of schools.values()) for (const position of unitPositions) ent
 
 const games = await cached("regular_games", () => get("/games", { year: season, seasonType: "regular" }));
 const eligibleGames = new Map();
+const completedEligibleGameCounts = new Map();
 for (const school of schools.values()) {
   const selected = games.filter(game => game.seasonType === "regular" && (normal(game.homeTeam) === normal(school) || normal(game.awayTeam) === normal(school))).sort((a, b) => new Date(a.startDate) - new Date(b.startDate) || a.id - b.id).slice(0, 12);
   eligibleGames.set(normal(school), new Set(selected.map(game => game.id)));
+  completedEligibleGameCounts.set(normal(school), selected.filter(game => game.completed).length);
   for (const game of selected.filter(game => game.completed)) {
     const opponentPoints = normal(game.homeTeam) === normal(school) ? game.awayPoints : game.homePoints;
     if (Number(opponentPoints) === 0) add(catalog, school, "DEF", "SHUTOUT", 15, { shutouts: 1 });
@@ -139,7 +141,12 @@ for (const week of weeks) {
   console.log(`processed week ${week}`);
 }
 
-const rows = [...catalog.values()].map(row => ({ ...row, official_points: Number(row.official_points.toFixed(2)) }));
+const rows = [...catalog.values()].map(row => {
+  const eligibleGames = completedEligibleGameCounts.get(normal(row.school_name)) ?? 0;
+  const normalizationFactor = eligibleGames > 0 && eligibleGames < 12 ? 12 / eligibleGames : 1;
+  const officialPoints = Number(row.official_points.toFixed(2));
+  return { ...row, official_points: officialPoints, eligible_games: eligibleGames, normalization_factor: Number(normalizationFactor.toFixed(4)), normalized_points: Number((officialPoints * normalizationFactor).toFixed(2)) };
+});
 for (let index = 0; index < rows.length; index += 250) await upsertCatalog(rows.slice(index, index + 250));
 await writeFile("/tmp/big36_2025_research_summary.json", JSON.stringify({ season, units: rows.length, rows }, null, 2));
 console.log(JSON.stringify({ season, units: rows.length }));

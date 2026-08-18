@@ -53,3 +53,4 @@
 - [x] Implement missing 2025 K/ST and DEF research scoring events: blocked field goals, blocked punts, special-teams safeties, other special-teams touchdowns, and defensive safeties.
 - [ ] Validate the registered one-minute gameday schedule’s protected callback against the published 36 Football site during an active-game rehearsal.
 - [x] Register and persist the project-level one-minute 36 Football gameday Heartbeat job with automation disabled by default.
+- [x] Resolve the intermittent public home ledger-loading state observed after the latest server restart.
