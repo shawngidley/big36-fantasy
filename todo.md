@@ -40,10 +40,12 @@
 - [x] Validate CollegeFootballData request volume for the full 136-school live-scoring workload and lock the required paid tier.
 - [ ] Validate the confirmed $15 CollegeFootballData subscription against both live scoreboard and live play-by-play during an active FBS game.
 - [x] Retest the existing CFBD key after the Tier 4 entitlement activation window and record the live-endpoint result.
-- [ ] Replace the position-specific draft rounds with the six-round serpentine order, daily round limits, ten-minute clock, leapfrog rule, and owner draft notifications.
+- [x] Replace the position-specific draft rounds with the six-round serpentine order, daily round limits, ten-minute clock, leapfrog rule, and in-app owner draft alerts.
 - [x] Separate K/ST and DEF throughout the owner program roster, leaderboard, scoring engine, and public views.
 - [ ] Enforce the 136-FBS-school pool, first-12 eligible regular-season cap, and fewer-than-12-game normalization rule.
-- [ ] Add automatic official-stat corrections and a live scoring-event feed explaining every standings change.
+- [x] Add automatic official-stat corrections and a live scoring-event feed explaining every standings change.
+- [x] Reconcile changed scoring details for an existing CFBD source-event key and expose the affected program’s before-and-after total or rank in the public feed.
+- [ ] Compute and display actual overall standings movement per event/correction and add reconciliation-flow coverage for unchanged, removed, and corrected source events.
 - [x] Add owner-created program identities and editable conference names/identities.
 - [x] Add conference, position, and national champion reporting with equal prize-split logic.
 - [x] Reconcile every original Year 1 Big 36 blueprint requirement with the current implementation and document any corrections or remaining decisions.

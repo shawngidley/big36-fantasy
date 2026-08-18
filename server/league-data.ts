@@ -32,6 +32,12 @@ function championAward<T extends { totalPoints: number }>(entries: T[], pool: nu
   return { winners, pool, share: winners.length ? Number((pool / winners.length).toFixed(2)) : 0 };
 }
 
+export function overallRankAtEvent(ownerId: string, owners: Array<{ id: string; teamName: string }>, totals: Map<string, number>) {
+  return [...owners]
+    .sort((left, right) => (totals.get(right.id) ?? 0) - (totals.get(left.id) ?? 0) || left.teamName.localeCompare(right.teamName))
+    .findIndex(owner => owner.id === ownerId) + 1;
+}
+
 function camelOwner(owner: OwnerRow) {
   return { id: owner.id, manusOpenId: owner.manus_open_id, displayName: owner.display_name, teamName: owner.team_name, nickname: owner.nickname ?? null, programIdentity: owner.program_identity ?? null, logoUrl: owner.logo_url ?? null, email: owner.email, divisionId: owner.division_id, isCommissioner: owner.is_commissioner };
 }
@@ -89,10 +95,24 @@ export async function getLeagueSnapshot() {
     teams: overallStandings.map(owner => ({ ownerId: owner.id, teamName: owner.teamName, points: Number(owner.picks.reduce((sum, pick) => sum + (pick.weeklyPoints.find(item => item.weekId === week.id)?.points ?? 0), 0).toFixed(2)) })).sort((a, b) => b.points - a.points || a.teamName.localeCompare(b.teamName)),
   }));
   const ownerByOpenId = new Map(ownerRows.filter(row => row.manus_open_id).map(row => [row.manus_open_id!, row]));
+  const ownerBySlotId = new Map(slotRows.map(slot => [slot.id, owners.find(owner => owner.id === slot.owner_id)]));
+  const runningPointsByOwner = new Map<string, number>();
+  const eventImpactById = new Map<string, { teamName: string; pointsBefore: number; pointsAfter: number; overallRankBefore: number; overallRankAfter: number }>();
+  for (const event of [...eventRows].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())) {
+    const affectedOwner = ownerBySlotId.get(event.draft_slot_id);
+    if (!affectedOwner) continue;
+    const pointsBefore = runningPointsByOwner.get(affectedOwner.id) ?? 0;
+    const overallRankBefore = overallRankAtEvent(affectedOwner.id, owners, runningPointsByOwner);
+    const pointsAfter = Number((pointsBefore + Number(event.computed_points)).toFixed(2));
+    runningPointsByOwner.set(affectedOwner.id, pointsAfter);
+    const overallRankAfter = overallRankAtEvent(affectedOwner.id, owners, runningPointsByOwner);
+    eventImpactById.set(event.id, { teamName: affectedOwner.teamName, pointsBefore, pointsAfter, overallRankBefore, overallRankAfter });
+  }
   const events = eventRows.map(event => {
     const slot = slotRows.find(item => item.id === event.draft_slot_id);
     const author = ownerByOpenId.get(event.recorded_by_open_id);
-    return { id: event.id, weekId: event.week_id, weekNumber: weekRows.find(week => week.id === event.week_id)?.week_number ?? 0, weekLabel: weekRows.find(week => week.id === event.week_id)?.label ?? "Unknown week", schoolName: slot?.school_name ?? "Unassigned", position: slot?.position ?? "QB", positionLabel: positionLabel[slot?.position ?? "QB"], eventType: event.event_type, statValue: Number(event.stat_value), yardDistance: asNumber(event.yard_distance), computedPoints: Number(event.computed_points), note: event.note, auditAction: event.audit_action, correctionOfEventId: event.correction_of_event_id, recordedByName: author?.display_name ?? "Commissioner", createdAt: event.created_at };
+    const impact = eventImpactById.get(event.id);
+    return { id: event.id, weekId: event.week_id, weekNumber: weekRows.find(week => week.id === event.week_id)?.week_number ?? 0, weekLabel: weekRows.find(week => week.id === event.week_id)?.label ?? "Unknown week", schoolName: slot?.school_name ?? "Unassigned", position: slot?.position ?? "QB", positionLabel: positionLabel[slot?.position ?? "QB"], eventType: event.event_type, statValue: Number(event.stat_value), yardDistance: asNumber(event.yard_distance), computedPoints: Number(event.computed_points), note: event.note, auditAction: event.audit_action, correctionOfEventId: event.correction_of_event_id, recordedByName: author?.display_name ?? "Commissioner", teamName: impact?.teamName ?? "Unassigned team", pointsBefore: impact?.pointsBefore ?? 0, pointsAfter: impact?.pointsAfter ?? 0, overallRankBefore: impact?.overallRankBefore ?? 0, overallRankAfter: impact?.overallRankAfter ?? 0, createdAt: event.created_at };
   });
   const state = stateRows[0] ?? { status: "SETUP" as const, active_position: null, updated_at: new Date(0).toISOString() };
   const activeTurn = (turnRows ?? []).find(turn => turn.status === "ACTIVE");

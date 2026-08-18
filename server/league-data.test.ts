@@ -7,10 +7,18 @@ vi.mock("./supabase", () => ({
   supabaseRest: mocks.supabaseRest,
 }));
 
-import { getLeagueSnapshot } from "./league-data";
+import { getLeagueSnapshot, overallRankAtEvent } from "./league-data";
 
 describe("Big 36 public live-results snapshot", () => {
   beforeEach(() => vi.clearAllMocks());
+
+  it("calculates an affected program's overall rank before and after a scoring update", () => {
+    const owners = [{ id: "alpha", teamName: "Alpha" }, { id: "bravo", teamName: "Bravo" }, { id: "charlie", teamName: "Charlie" }];
+    const totals = new Map<string, number>([["alpha", 10], ["bravo", 8], ["charlie", 6]]);
+    expect(overallRankAtEvent("bravo", owners, totals)).toBe(2);
+    totals.set("bravo", 14);
+    expect(overallRankAtEvent("bravo", owners, totals)).toBe(1);
+  });
 
   it("builds team totals, standings, weekly scores, and position leaders from Supabase records", async () => {
     mocks.supabaseRest
