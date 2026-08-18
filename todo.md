@@ -65,3 +65,4 @@
 - [x] Add 36 clearly temporary placeholder programs named Team 1 through Team 36 for standings review.
 - [x] Display tied placeholder programs in natural Team 1–Team 36 numeric order across the standings views.
 - [x] Lead the standings page with six conference races and move the overall national table below as a top-10 list.
+- [ ] Confirm the revised conference-first standings layout is served by the public 36football.com domain.
