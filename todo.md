@@ -67,3 +67,4 @@
 - [x] Lead the standings page with six conference races and move the overall national table below as a top-10 list.
 - [x] Confirm the revised conference-first standings layout is served by the public 36football.com domain.
 - [x] Remove the public championship ledger and provisional prize-race summary from the standings page.
+- [x] Show separate draft boards for the August 24–26, 2026 draft days, each with its two scheduled serpentine rounds, 72 picks, 9:00 AM–9:00 PM window, and 10-minute maximum clock.

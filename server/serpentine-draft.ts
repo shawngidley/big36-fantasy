@@ -1,3 +1,5 @@
+import { inauguralDraftDayForRound } from "../shared/draft-schedule";
+
 export type SerpentineTurn = {
   globalPick: number;
   roundNumber: number;
@@ -36,7 +38,5 @@ export function resolveExpiredActiveTurn(turns: DraftTurnState[], now = new Date
 }
 
 export function currentDraftDayRoundLimit(roundNumber: number) {
-  if (roundNumber <= 2) return 1;
-  if (roundNumber <= 4) return 2;
-  return 3;
+  return inauguralDraftDayForRound(roundNumber)?.dayNumber ?? 3;
 }

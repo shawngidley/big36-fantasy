@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { inauguralDraftDayForRound, inauguralDraftDays } from "../shared/draft-schedule";
 import { buildSerpentineTurns, currentDraftDayRoundLimit, ownerCanDraft, resolveExpiredActiveTurn } from "./serpentine-draft";
 
 describe("36 Football serpentine draft", () => {
@@ -26,5 +27,11 @@ describe("36 Football serpentine draft", () => {
     expect([1, 2].map(currentDraftDayRoundLimit)).toEqual([1, 1]);
     expect([3, 4].map(currentDraftDayRoundLimit)).toEqual([2, 2]);
     expect([5, 6].map(currentDraftDayRoundLimit)).toEqual([3, 3]);
+    expect(inauguralDraftDays.map(day => ({ date: day.dateLabel, picks: day.pickRange[1] - day.pickRange[0] + 1, rounds: day.rounds }))).toEqual([
+      { date: "August 24, 2026", picks: 72, rounds: [1, 2] },
+      { date: "August 25, 2026", picks: 72, rounds: [3, 4] },
+      { date: "August 26, 2026", picks: 72, rounds: [5, 6] },
+    ]);
+    expect(inauguralDraftDayForRound(4)?.weekday).toBe("Tuesday");
   });
 });

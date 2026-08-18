@@ -7,7 +7,7 @@ export const b36Positions = ["QB", "RB", "WR", "TE", "K_ST", "DEF"] as const;
 const positionLabel: Record<Position, string> = { QB: "QB", RB: "RB", WR: "WR", TE: "TE", K_ST: "K/ST", DEF: "DEF" };
 
 type DivisionRow = { id: string; name: string; sort_order: number; identity?: string | null; logo_url?: string | null };
-type OwnerRow = { id: string; manus_open_id: string | null; display_name: string; team_name: string; nickname?: string | null; program_identity?: string | null; logo_url?: string | null; email: string | null; division_id: string | null; is_commissioner: boolean };
+type OwnerRow = { id: string; manus_open_id: string | null; display_name: string; team_name: string; nickname?: string | null; program_identity?: string | null; logo_url?: string | null; email: string | null; division_id: string | null; is_commissioner: boolean; draft_order?: number | null };
 type SlotRow = { id: string; owner_id: string; position: Position; draft_position: number; school_name: string | null; selected_at: string | null; selected_by_open_id: string | null };
 type WeekRow = { id: string; week_number: number; label: string; status: "UPCOMING" | "OPEN" | "FINAL" };
 type RuleRow = { id: string; label: string; event_type: ScoringEventType; position_scope: "ALL" | Position; min_yards: number | null; max_yards: number | null; flat_points: number | null; points_per_unit: number | null; is_active: boolean };
@@ -47,7 +47,7 @@ export function completedScheduleNormalization(schoolName: string, regularGames:
 }
 
 function camelOwner(owner: OwnerRow) {
-  return { id: owner.id, manusOpenId: owner.manus_open_id, displayName: owner.display_name, teamName: owner.team_name, nickname: owner.nickname ?? null, programIdentity: owner.program_identity ?? null, logoUrl: owner.logo_url ?? null, email: owner.email, divisionId: owner.division_id, isCommissioner: owner.is_commissioner };
+  return { id: owner.id, manusOpenId: owner.manus_open_id, displayName: owner.display_name, teamName: owner.team_name, nickname: owner.nickname ?? null, programIdentity: owner.program_identity ?? null, logoUrl: owner.logo_url ?? null, email: owner.email, divisionId: owner.division_id, isCommissioner: owner.is_commissioner, draftOrder: owner.draft_order ?? null };
 }
 
 function camelSlot(slot: SlotRow) {
@@ -138,8 +138,20 @@ export async function getLeagueSnapshot() {
     conferences: divisions.map(division => ({ conferenceId: division.id, conferenceName: division.name, ...championAward(division.owners, 200) })),
     positions: leaderboard.map(board => ({ position: board.position, label: board.label, ...championAward(board.entries, 200) })),
   };
+  const draftTurns = turnRows.map(turn => ({
+    id: turn.id,
+    globalPick: turn.global_pick,
+    roundNumber: turn.round_number,
+    ownerId: turn.owner_id,
+    teamName: owners.find(owner => owner.id === turn.owner_id)?.teamName ?? "Unassigned program",
+    status: turn.status,
+    expiresAt: turn.expires_at,
+    skippedAt: turn.skipped_at,
+    pickedAt: turn.picked_at,
+    draftSlotId: turn.draft_slot_id,
+  }));
 
-  return { divisions, owners, overallStandings, weeks: weekRows.map(week => ({ id: week.id, weekNumber: week.week_number, label: week.label, status: week.status })), weeklySummaries, rules: ruleRows.map(rule => ({ id: rule.id, label: rule.label, eventType: rule.event_type, positionScope: rule.position_scope, minYards: asNumber(rule.min_yards), maxYards: asNumber(rule.max_yards), flatPoints: asNumber(rule.flat_points), pointsPerUnit: asNumber(rule.points_per_unit), isActive: rule.is_active ? "true" : "false" })), leaderboard, events, champions, draftState: { status: state.status, activePosition: null, updatedAt: state.updated_at, currentTurn: activeTurn ? { id: activeTurn.id, ownerId: activeTurn.owner_id, teamName: turnOwner?.teamName ?? "Unassigned team", draftPosition: activeTurn.global_pick, roundNumber: activeTurn.round_number, expiresAt: activeTurn.expires_at } : null }, totals: { ownerCount: owners.length, divisionCount: divisions.length, draftPickCount: slotRows.filter(slot => slot.school_name).length, scoringEventCount: events.length } };
+  return { divisions, owners, overallStandings, weeks: weekRows.map(week => ({ id: week.id, weekNumber: week.week_number, label: week.label, status: week.status })), weeklySummaries, rules: ruleRows.map(rule => ({ id: rule.id, label: rule.label, eventType: rule.event_type, positionScope: rule.position_scope, minYards: asNumber(rule.min_yards), maxYards: asNumber(rule.max_yards), flatPoints: asNumber(rule.flat_points), pointsPerUnit: asNumber(rule.points_per_unit), isActive: rule.is_active ? "true" : "false" })), leaderboard, events, champions, draftTurns, draftState: { status: state.status, activePosition: null, updatedAt: state.updated_at, currentTurn: activeTurn ? { id: activeTurn.id, ownerId: activeTurn.owner_id, teamName: turnOwner?.teamName ?? "Unassigned team", draftPosition: activeTurn.global_pick, roundNumber: activeTurn.round_number, expiresAt: activeTurn.expires_at } : null }, totals: { ownerCount: owners.length, divisionCount: divisions.length, draftPickCount: slotRows.filter(slot => slot.school_name).length, scoringEventCount: events.length } };
 }
 
 export async function getDraftResearchCatalog(position?: Position) {
