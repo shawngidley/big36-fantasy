@@ -24,6 +24,28 @@ function isPassTouchdown(stats: CfbdPlayStat[], positions: Map<number, LivePosit
   return stats.some(stat => positions.get(stat.athleteId) === "QB" && /touchdown|pass/i.test(stat.statType)) && stats.some(stat => ["RB", "WR", "TE"].includes(positions.get(stat.athleteId) ?? "") && /touchdown|reception|rush/i.test(stat.statType));
 }
 
+export function specialTeamsTouchdownType(playType: string | null | undefined) {
+  const type = String(playType ?? "").toLowerCase();
+  if (!/(touchdown|\btd\b)/.test(type)) return null;
+  if (type.includes("kickoff return")) return "KICK_RETURN_TOUCHDOWN";
+  if (type.includes("punt return")) return "PUNT_RETURN_TOUCHDOWN";
+  if (type.includes("blocked") && (type.includes("kick") || type.includes("punt") || type.includes("field goal"))) return "BLOCKED_KICK_RETURN_TOUCHDOWN";
+  if (type.includes("return") && (type.includes("kick") || type.includes("punt") || type.includes("field goal"))) return "OTHER_SPECIAL_TEAMS_TOUCHDOWN";
+  return null;
+}
+
+export function isSpecialTeamsPlayType(playType: string | null | undefined) {
+  const type = String(playType ?? "").toLowerCase();
+  return type.includes("kickoff") || type.includes("punt") || type.includes("field goal") || type.includes("extra point") || type.includes("pat") || type.includes("blocked kick");
+}
+
+export function hasMadePat(playType: string | null | undefined, playText: string | null | undefined) {
+  const type = String(playType ?? "").toLowerCase();
+  const text = String(playText ?? "").toLowerCase();
+  if (type.includes("extra point good") || type.includes("pat good")) return true;
+  return /(touchdown|\btd\b)/.test(type) && /\([^)]*\bkick\b[^)]*\)/.test(text) && !/(no good|missed|failed)/.test(text);
+}
+
 export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlayStat[]; roster: CfbdRosterAthlete[]; selectedSchoolPositions: Array<{ schoolName: string; position: LivePosition }>; provisional?: boolean }): ScoringCandidate[] {
   const { play, roster } = input;
   const provisional = input.provisional ?? true;
@@ -55,10 +77,13 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
     if (position === "K_ST" && eligibleSelection(schoolName, "K_ST") && type.includes("field goal") && /made|good/i.test(stat.statType)) candidates.push(statFor("FIELD_GOAL", stat, "K_ST", schoolName, play.yardsToGoal ?? null));
     if (position === "K_ST" && eligibleSelection(schoolName, "K_ST") && type.includes("extra point") && /made|good/i.test(stat.statType)) candidates.push(statFor("EXTRA_POINT", stat, "K_ST", schoolName));
   }
+  const offensePlayType = String(play.playType ?? "").toLowerCase();
+  if (eligibleSelection(schoolName, "K_ST") && (offensePlayType.includes("field goal good") || offensePlayType.includes("made field goal"))) candidates.push({ sourceEventKey: `${play.id}:FIELD_GOAL:play-type`, sourceGameId: play.gameId, schoolName, position: "K_ST", eventType: "FIELD_GOAL", statValue: 1, yardDistance: play.yardsToGoal === null || play.yardsToGoal === undefined ? null : play.yardsToGoal + 17, provisional, note: `CFBD play ${play.id} · made field goal` });
+  if (eligibleSelection(schoolName, "K_ST") && hasMadePat(play.playType, play.playText)) candidates.push({ sourceEventKey: `${play.id}:EXTRA_POINT:play-type`, sourceGameId: play.gameId, schoolName, position: "K_ST", eventType: "EXTRA_POINT", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · made PAT` });
   const defensiveSchool = play.defense;
   const defensiveStats = scoringStats.filter(stat => normalizeSchoolForComparison(stat.team) === normalizeSchoolForComparison(defensiveSchool));
   const playText = `${play.playType ?? ""} ${play.playText ?? ""}`.toLowerCase();
-  const specialTeamsPlay = playText.includes("kick") || playText.includes("punt") || playText.includes("return");
+  const specialTeamsPlay = isSpecialTeamsPlayType(play.playType);
   const defensiveCandidate = (eventType: string, stat: CfbdPlayStat, position: LivePosition, distance: number | null = null) => ({ sourceEventKey: `${play.id}:${eventType}:${stat.athleteId}`, sourceGameId: play.gameId, schoolName: defensiveSchool, position, eventType, statValue: 1, yardDistance: distance, provisional, note: `CFBD play ${play.id} · ${stat.statType}` } satisfies ScoringCandidate);
   const specialTeamsCandidate = (eventType: string) => ({ sourceEventKey: `${play.id}:${eventType}`, sourceGameId: play.gameId, schoolName: defensiveSchool, position: "K_ST" as const, eventType, statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · special teams event` } satisfies ScoringCandidate);
   if (eligibleSelection(defensiveSchool, "K_ST") && (playText.includes("blocked field goal") || playText.includes("field goal blocked"))) candidates.push(specialTeamsCandidate("BLOCKED_FIELD_GOAL"));
@@ -73,7 +98,7 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
     if (eligibleSelection(defensiveSchool, "DEF") && (type.includes("interception") || type.includes("fumble recovery"))) candidates.push(defensiveCandidate("DEFENSIVE_TURNOVER", stat, "DEF"));
     if (play.scoring && !specialTeamsPlay && eligibleSelection(defensiveSchool, "DEF") && type.includes("touchdown")) candidates.push(defensiveCandidate("DEFENSIVE_TOUCHDOWN", stat, "DEF", play.yardsGained ?? null));
   }
-  const specialTeamType = playText.includes("kickoff") && playText.includes("touchdown") ? "KICK_RETURN_TOUCHDOWN" : playText.includes("punt") && playText.includes("touchdown") ? "PUNT_RETURN_TOUCHDOWN" : playText.includes("blocked") && playText.includes("touchdown") ? "BLOCKED_KICK_RETURN_TOUCHDOWN" : playText.includes("touchdown") && specialTeamsPlay ? "OTHER_SPECIAL_TEAMS_TOUCHDOWN" : null;
+  const specialTeamType = specialTeamsTouchdownType(play.playType);
   if (specialTeamType && eligibleSelection(schoolName, "K_ST")) {
     candidates.push({ sourceEventKey: `${play.id}:${specialTeamType}`, sourceGameId: play.gameId, schoolName, position: "K_ST", eventType: specialTeamType, statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · special teams return` });
   }

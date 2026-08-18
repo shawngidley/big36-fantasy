@@ -50,6 +50,22 @@ const normal = value => String(value ?? "").trim().toLowerCase().replace(/\s+/g,
 const pointForTouchdown = distance => distance === null || distance === undefined ? 0 : distance <= 9 ? 6 : distance <= 29 ? 8 : distance <= 59 ? 10 : 12;
 const pointForFieldGoal = distance => distance < 10 ? 0 : distance <= 29 ? 3 : distance <= 39 ? 6 : distance <= 49 ? 9 : 12;
 const pointForDefensiveTouchdown = distance => distance === null || distance === undefined ? 0 : distance <= 19 ? 9 : distance <= 59 ? 12 : 15;
+const specialTeamsTouchdown = playType => {
+  const type = String(playType ?? "").toLowerCase();
+  if (!/(touchdown|\btd\b)/.test(type)) return null;
+  if (type.includes("kickoff return")) return "KICK_RETURN_TOUCHDOWN";
+  if (type.includes("punt return")) return "PUNT_RETURN_TOUCHDOWN";
+  if (type.includes("blocked") && (type.includes("kick") || type.includes("punt") || type.includes("field goal"))) return "BLOCKED_KICK_RETURN_TOUCHDOWN";
+  if (type.includes("return") && (type.includes("kick") || type.includes("punt") || type.includes("field goal"))) return "OTHER_SPECIAL_TEAMS_TOUCHDOWN";
+  return null;
+};
+const isSpecialTeamsPlayType = playType => /kickoff|punt|field goal|extra point|\bpat\b|blocked kick/i.test(String(playType ?? ""));
+const hasMadePat = (playType, playText) => {
+  const type = String(playType ?? "").toLowerCase();
+  const text = String(playText ?? "").toLowerCase();
+  if (type.includes("extra point good") || type.includes("pat good")) return true;
+  return /(touchdown|\btd\b)/.test(type) && /\([^)]*\bkick\b[^)]*\)/.test(text) && !/(no good|missed|failed)/.test(text);
+};
 
 function entry(catalog, school, position) {
   const key = `${normal(school)}::${position}`;
@@ -102,6 +118,7 @@ for (const week of weeks) {
     if (offense && eligibleGames.get(normal(offense))?.has(play.gameId)) {
       const positions = rosters.get(normal(offense)) ?? new Map();
       const text = `${play.playType ?? ""} ${play.playText ?? ""}`.toLowerCase();
+      const playType = String(play.playType ?? "").toLowerCase();
       const scoringDistance = play.yardsToGoal ?? null;
       const offensiveStats = sourceStats.filter(stat => normal(stat.team) === normal(offense));
       const qbTd = offensiveStats.some(stat => positions.get(stat.athleteId) === "QB" && /touchdown|pass/i.test(String(stat.statType))) && offensiveStats.some(stat => ["RB", "WR", "TE"].includes(positions.get(stat.athleteId)) && /touchdown|reception|rush/i.test(String(stat.statType)));
@@ -116,14 +133,16 @@ for (const week of weeks) {
         if (position === "K_ST" && statType.includes("extra point") && /good|made/.test(statType)) add(catalog, offense, "K_ST", "EXTRA_POINT", 1, { extra_points: 1 });
         if (position === "K_ST" && statType.includes("field goal") && /good|made/.test(statType)) { const distance = Number(play.yardsToGoal ?? 0) + 17; add(catalog, offense, "K_ST", "FIELD_GOAL", pointForFieldGoal(distance), { field_goals_made: 1 }); }
       }
+      if (playType.includes("field goal good") || playType.includes("made field goal")) { const distance = Number(play.yardsToGoal ?? 0) + 17; add(catalog, offense, "K_ST", "FIELD_GOAL", pointForFieldGoal(distance), { field_goals_made: 1 }); }
+      if (hasMadePat(play.playType, play.playText)) add(catalog, offense, "K_ST", "EXTRA_POINT", 1, { extra_points: 1 });
       if (play.scoring && qbTd && !credited.has("QB:pass")) add(catalog, offense, "QB", "TOUCHDOWN", pointForTouchdown(scoringDistance), { passing_touchdowns: 1 });
-      const special = text.includes("kickoff") && text.includes("touchdown") ? "KICK_RETURN_TOUCHDOWN" : text.includes("punt") && text.includes("touchdown") ? "PUNT_RETURN_TOUCHDOWN" : text.includes("blocked") && text.includes("touchdown") ? "BLOCKED_KICK_RETURN_TOUCHDOWN" : text.includes("touchdown") && (text.includes("kick") || text.includes("punt") || text.includes("return")) ? "OTHER_SPECIAL_TEAMS_TOUCHDOWN" : null;
+      const special = specialTeamsTouchdown(play.playType);
       if (special) add(catalog, offense, "K_ST", special, 12, { special_teams_touchdowns: 1 });
     }
     if (defense && eligibleGames.get(normal(defense))?.has(play.gameId)) {
       const defensiveStats = sourceStats.filter(stat => normal(stat.team) === normal(defense));
       const text = `${play.playType ?? ""} ${play.playText ?? ""}`.toLowerCase();
-      const specialTeamsPlay = text.includes("kick") || text.includes("punt") || text.includes("return");
+      const specialTeamsPlay = isSpecialTeamsPlayType(play.playType);
       if (text.includes("blocked field goal") || text.includes("field goal blocked")) add(catalog, defense, "K_ST", "BLOCKED_FIELD_GOAL", 3, { blocked_field_goals: 1 });
       if (text.includes("blocked punt") || text.includes("punt blocked")) add(catalog, defense, "K_ST", "BLOCKED_PUNT", 3, { blocked_punts: 1 });
       if (text.includes("safety")) {
