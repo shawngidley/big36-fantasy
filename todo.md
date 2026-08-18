@@ -63,3 +63,5 @@
 - [x] Audit K/ST and DEF scoring against the official 36 Football blueprint, correct any inflated event values, and rebuild the 2025 research catalog.
 - [x] Correct the live mapper so a non-special-teams defensive safety is credited to DEF rather than K/ST.
 - [x] Add 36 clearly temporary placeholder programs named Team 1 through Team 36 for standings review.
+- [x] Display tied placeholder programs in natural Team 1–Team 36 numeric order across the standings views.
+- [x] Lead the standings page with six conference races and move the overall national table below as a top-10 list.

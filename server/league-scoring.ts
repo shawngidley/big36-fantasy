@@ -52,7 +52,7 @@ export function buildReversal(original: { id: number; statValue: string | number
 
 export function rankBySeasonPoints<T extends { teamName: string; totalPoints: number }>(teams: T[]) {
   return [...teams]
-    .sort((a, b) => b.totalPoints - a.totalPoints || a.teamName.localeCompare(b.teamName))
+    .sort((a, b) => b.totalPoints - a.totalPoints || a.teamName.localeCompare(b.teamName, undefined, { numeric: true, sensitivity: "base" }))
     .map((team, index) => ({ ...team, rank: index + 1 }));
 }
 
