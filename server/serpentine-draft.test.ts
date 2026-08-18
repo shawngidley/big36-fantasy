@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inauguralDraftDayForRound, inauguralDraftDays } from "../shared/draft-schedule";
+import { assertInauguralDraftOrderCanBePublished, assertInauguralDraftRoundIsOpen, inauguralDraftDayForRound, inauguralDraftDays, inauguralDraftWindow } from "../shared/draft-schedule";
 import { buildSerpentineTurns, currentDraftDayRoundLimit, ownerCanDraft, resolveExpiredActiveTurn } from "./serpentine-draft";
 
 describe("36 Football serpentine draft", () => {
@@ -33,5 +33,13 @@ describe("36 Football serpentine draft", () => {
       { date: "August 26, 2026", picks: 72, rounds: [5, 6] },
     ]);
     expect(inauguralDraftDayForRound(4)?.weekday).toBe("Tuesday");
+  });
+  it("enforces the Sunday announcement and each Eastern-time daily round window", () => {
+    expect(() => assertInauguralDraftOrderCanBePublished(new Date("2026-08-22T16:00:00.000Z"))).toThrow("Sunday, August 23");
+    expect(() => assertInauguralDraftRoundIsOpen(1, new Date("2026-08-24T12:59:00.000Z"))).toThrow("9:00 AM to 9:00 PM");
+    expect(assertInauguralDraftRoundIsOpen(1, new Date("2026-08-24T13:00:00.000Z"))?.dayNumber).toBe(1);
+    expect(() => assertInauguralDraftRoundIsOpen(3, new Date("2026-08-24T13:00:00.000Z"))).toThrow("scheduled for Tuesday");
+    expect(inauguralDraftWindow(new Date("2026-08-26T00:59:00.000Z")).isOpen).toBe(true);
+    expect(inauguralDraftWindow(new Date("2026-08-26T01:00:00.000Z")).isOpen).toBe(false);
   });
 });

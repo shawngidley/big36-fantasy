@@ -68,3 +68,12 @@
 - [x] Confirm the revised conference-first standings layout is served by the public 36football.com domain.
 - [x] Remove the public championship ledger and provisional prize-race summary from the standings page.
 - [x] Show separate draft boards for the August 24–26, 2026 draft days, each with its two scheduled serpentine rounds, 72 picks, 9:00 AM–9:00 PM window, and 10-minute maximum clock.
+- [x] Enforce the August 23 order-announcement cutoff and the August 24–26, 9:00 AM–9:00 PM ET two-round daily draft windows in the live draft controls.
+- [x] Propose an approved collegiate-gridiron visual system based on the supplied reference before making sitewide design changes.
+- [x] Create visual mockups for the proposed 36 Football collegiate game-program direction before modifying the live site.
+- [x] Create a cleaner restrained-collegiate mockup that avoids the busy, AI-poster appearance of the first concepts.
+- [x] Apply the owner-approved restrained collegiate editorial visual system across the public homepage, standings, and draft board.
+- [ ] Define and obtain approval for the compact 36 Football PWA app-icon mark before creating the final app-icon assets.
+- [ ] Create and present a visual preview of the proposed compact 36 Football PWA app icon.
+- [ ] Create and present a distinct helmet-based PWA icon preview that avoids existing professional-football visual cues.
+- [ ] Publish and verify the approved restrained collegiate color refresh on the live 36football.com domain.

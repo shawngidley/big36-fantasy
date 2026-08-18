@@ -4,6 +4,7 @@ import { positions, scoringEventTypes, type Position } from "../../drizzle/schem
 import { getAllDraftSlots, getDraftOwnerState, getDraftSlotByGroup, getDraftResearchCatalog, getLeagueSnapshot, getOrClaimOwner, getScoreEvent, getScoringRulesForEvent } from "../league-data";
 import { assertSchoolPositionAvailable, buildReversal, calculateEventScore, hasBalancedDraftAssignments, normalizeSchoolName } from "../league-scoring";
 import { buildSerpentineTurns } from "../serpentine-draft";
+import { assertInauguralDraftOrderCanBePublished, assertInauguralDraftRoundIsOpen, assertInauguralDraftWindow } from "../../shared/draft-schedule";
 import { q, supabaseRest, supabaseRpc } from "../supabase";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { yearOneRules } from "../year-one-rules";
@@ -28,6 +29,7 @@ export const leagueRouter = router({
     const owner = await getOrClaimOwner(ctx.user.openId, ctx.user.email);
     if (!owner) throw new TRPCError({ code: "FORBIDDEN", message: "Your email has not been assigned to a Big 36 owner record yet." });
     try {
+      assertInauguralDraftWindow();
       const normalizedSchool = normalizeSchoolName(input.schoolName);
       const fbsPool = await supabaseRest<Array<{ school_name: string }>>("b36_fbs_schools", { query: { select: "school_name", season: q.eq(2026) } });
       if (!fbsPool.some(team => normalizeSchoolName(team.school_name).toLowerCase() === normalizedSchool.toLowerCase())) throw new Error("Choose a school from the official 2026 FBS pool.");
@@ -47,6 +49,7 @@ export const leagueRouter = router({
     }),
     generateSerpentineDraft: adminProcedure.input(z.object({ ownerOrder: z.array(uuid).length(36) })).mutation(async ({ ctx, input }) => {
       try {
+        assertInauguralDraftOrderCanBePublished();
         if (new Set(input.ownerOrder).size !== 36) throw new Error("The serpentine order must contain 36 unique programs.");
         const snapshot = await getLeagueSnapshot();
         if (snapshot.owners.length !== 36 || input.ownerOrder.some(ownerId => !snapshot.owners.some(owner => owner.id === ownerId))) throw new Error("Create all 36 programs before generating the draft order.");
@@ -62,8 +65,9 @@ export const leagueRouter = router({
     startSerpentineDraft: adminProcedure.mutation(async ({ ctx }) => {
       try {
         await syncFbsPoolAndSchedule(2026);
-        const pending = await supabaseRest<Array<{ id: string }>>("b36_draft_turns", { query: { select: "id", status: q.eq("PENDING"), order: "global_pick.asc", limit: "1" } });
+        const pending = await supabaseRest<Array<{ id: string; round_number: number }>>("b36_draft_turns", { query: { select: "id,round_number", status: q.eq("PENDING"), order: "global_pick.asc", limit: "1" } });
         if (!pending[0]) throw new Error("Generate a serpentine draft order before opening the draft.");
+        assertInauguralDraftRoundIsOpen(pending[0].round_number);
         const now = new Date(); const expiresAt = new Date(now.getTime() + 600_000).toISOString();
         await supabaseRest("b36_draft_turns", { method: "PATCH", query: { id: q.eq(pending[0].id) }, body: { status: "ACTIVE", opened_at: now.toISOString(), expires_at: expiresAt } });
         await supabaseRest("b36_draft_state", { method: "PATCH", query: { id: q.eq(true) }, body: { status: "OPEN", active_turn_id: pending[0].id, active_position: null, updated_at: now.toISOString(), updated_by_open_id: ctx.user.openId } });

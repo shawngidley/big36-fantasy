@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "./_core/context";
 
 const mocks = vi.hoisted(() => ({
@@ -51,9 +51,12 @@ function createContext(role: "admin" | "user"): TrpcContext {
 
 describe("Big 36 owner draft procedures", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-24T13:00:00.000Z"));
     vi.clearAllMocks();
     mocks.getLeagueSnapshot.mockResolvedValue({ owners: [], divisions: [], totals: { ownerCount: 0 } });
   });
+  afterEach(() => vi.useRealTimers());
 
   it("allows an enrolled owner to submit their own normalized school-position selection", async () => {
     mocks.getOrClaimOwner.mockResolvedValue({ id: "owner-uuid", displayName: "League Owner", teamName: "Owner Team" });
