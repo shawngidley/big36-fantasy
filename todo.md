@@ -26,17 +26,17 @@
 - [x] Align public and commissioner copy with owner self-service drafting and the confirmed Big 36 Supabase project identity.
 - [x] Identify a licensed live college-football data provider that supplies FBS schedule, roster, play-by-play, and final-stat coverage required by Big 36 scoring.
 - [x] Compare live-update delivery and hosting approaches for automatic scoring and select an implementation route with the commissioner.
-- [ ] Integrate the approved live-stat source and automate Big 36 scoring, corrections, and standings updates.
-- [ ] Validate CollegeFootballData Tier 3 event fields for every Big 36 rule, including touchdown distance, DEF/ST returns, sacks, recoveries, and shutouts.
+- [ ] Validate the activated Tier 4 live-stat workflow through an active FBS game and mark automatic scoring, corrections, and standings fully live.
+- [ ] Validate CollegeFootballData Tier 4 live event fields for every 36 Football rule, including touchdown distance, K/ST events, DEF events, and corrections.
 - [x] Add a documented fallback for any Big 36 scoring element the provider cannot attribute deterministically from live data.
 - [x] Apply the confirmed rule that QB passing touchdowns and the scoring receiver/rusher both earn touchdown-tier points based on snap yardline-to-goal.
 - [x] Reconcile the original scoring sheet and remove any unconfirmed non-touchdown automated scoring rules.
 - [x] Replace the incorrect FLEX slot across Big 36 with the original K position and its kicker-only scoring rules.
 - [x] Restrict Year 1 automated scoring to touchdown tiers, two-point conversions, kicker scores, and the defined DEF/ST events; exclude all accumulated yardage scoring.
 - [x] Enforce the fixed Big 36 capacity of six divisions, six owners per division, and 36 owners total.
-- [ ] Implement the approved every-minute CollegeFootballData gameday refresh and final postgame reconciliation workflow.
+- [ ] Complete the active-game verification of the deployed every-minute CollegeFootballData refresh and final postgame reconciliation workflow.
 - [ ] Confirm the selected CollegeFootballData Tier 4 subscription supplies live FBS scoreboard and live play-by-play access through an actual in-game rehearsal.
-- [ ] Complete the full 36 Football inaugural blueprint, including 136-school/12-game normalization, serpent draft clock/leapfrog notifications, live event feed/corrections, program identity, and champion reporting.
+- [ ] Confirm the complete 36 Football inaugural blueprint in a live owner rehearsal, including draft clock, live scoring, correction feed, program identity, and champion reporting.
 - [x] Validate CollegeFootballData request volume for the full 136-school live-scoring workload and lock the required paid tier.
 - [ ] Validate the confirmed $15 CollegeFootballData subscription against both live scoreboard and live play-by-play during an active FBS game.
 - [x] Retest the existing CFBD key after the Tier 4 entitlement activation window and record the live-endpoint result.
@@ -45,7 +45,7 @@
 - [x] Enforce the 136-FBS-school pool, first-12 eligible regular-season cap, and fewer-than-12-game normalization rule.
 - [x] Add automatic official-stat corrections and a live scoring-event feed explaining every standings change.
 - [x] Reconcile changed scoring details for an existing CFBD source-event key and expose the affected program’s before-and-after total or rank in the public feed.
-- [ ] Compute and display actual overall standings movement per event/correction and add reconciliation-flow coverage for unchanged, removed, and corrected source events.
+- [x] Compute and display actual overall standings movement per event/correction and add reconciliation-flow coverage for unchanged, removed, and corrected source events.
 - [x] Add owner-created program identities and editable conference names/identities.
 - [x] Add conference, position, and national champion reporting with equal prize-split logic.
 - [x] Reconcile every original Year 1 Big 36 blueprint requirement with the current implementation and document any corrections or remaining decisions.
@@ -54,5 +54,5 @@
 - [x] Build public draft research views for QB, RB, WR, TE, K/ST, and DEF units with official-rule 2025 points and supporting statistics.
 - [x] Implement missing 2025 K/ST and DEF research scoring events: blocked field goals, blocked punts, special-teams safeties, other special-teams touchdowns, and defensive safeties.
 - [ ] Validate the registered one-minute gameday schedule’s protected callback against the published 36 Football site during an active-game rehearsal.
-- [x] Register and persist the project-level one-minute 36 Football gameday Heartbeat job with automation disabled by default.
+- [x] Register and persist the project-level one-minute 36 Football gameday Heartbeat job, then enable it with guarded gameday polling.
 - [x] Resolve the intermittent public home ledger-loading state observed after the latest server restart.
