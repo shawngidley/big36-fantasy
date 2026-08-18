@@ -15,6 +15,8 @@ type EventRow = { id: string; week_id: string; draft_slot_id: string; event_type
 type DraftStateRow = { status: "SETUP" | "OPEN" | "PAUSED" | "COMPLETE"; active_position: Position | null; updated_at: string };
 type DraftTurnRow = { id: string; global_pick: number; round_number: number; owner_id: string; status: "PENDING" | "ACTIVE" | "SKIPPED" | "PICKED"; expires_at: string | null; skipped_at: string | null; picked_at: string | null; draft_slot_id: string | null };
 type ResearchUnitRow = { season: number; school_name: string; position: Position; official_points: number | string; eligible_games: number; normalization_factor: number | string; normalized_points: number | string; event_counts: Record<string, number>; stat_summary: Record<string, number>; source_note: string; calculated_at: string };
+type SourceGameRow = { season: number; season_type: string; completed: boolean; home_team: string; away_team: string };
+type AutomationSeasonRow = { season: number };
 
 const ownerPath = "b36_owners";
 const slotPath = "b36_draft_slots";
@@ -38,6 +40,12 @@ export function overallRankAtEvent(ownerId: string, owners: Array<{ id: string; 
     .findIndex(owner => owner.id === ownerId) + 1;
 }
 
+export function completedScheduleNormalization(schoolName: string, regularGames: SourceGameRow[]) {
+  const schedule = regularGames.filter(game => game.home_team === schoolName || game.away_team === schoolName);
+  if (!schedule.length || schedule.length >= 12 || schedule.some(game => !game.completed)) return 1;
+  return 12 / schedule.length;
+}
+
 function camelOwner(owner: OwnerRow) {
   return { id: owner.id, manusOpenId: owner.manus_open_id, displayName: owner.display_name, teamName: owner.team_name, nickname: owner.nickname ?? null, programIdentity: owner.program_identity ?? null, logoUrl: owner.logo_url ?? null, email: owner.email, divisionId: owner.division_id, isCommissioner: owner.is_commissioner };
 }
@@ -47,7 +55,7 @@ function camelSlot(slot: SlotRow) {
 }
 
 export async function getLeagueSnapshot() {
-  const [divisionRows, ownerRows, slotRows, weekRows, ruleRows, eventRows, stateRows, turnRows] = await Promise.all([
+  const [divisionRows, ownerRows, slotRows, weekRows, ruleRows, eventRows, stateRows, turnRows, sourceGameRows, automationRows] = await Promise.all([
     supabaseRest<DivisionRow[]>("b36_divisions", { query: { select: "*", order: "sort_order.asc" } }),
     supabaseRest<OwnerRow[]>(ownerPath, { query: { select: "*", order: "team_name.asc" } }),
     supabaseRest<SlotRow[]>(slotPath, { query: { select: "*", order: "position.asc,draft_position.asc" } }),
@@ -56,6 +64,8 @@ export async function getLeagueSnapshot() {
     supabaseRest<EventRow[]>("b36_scoring_events", { query: { select: "*", order: "created_at.desc" } }),
     supabaseRest<DraftStateRow[]>("b36_draft_state", { query: { select: "*", id: "eq.true" } }),
     supabaseRest<DraftTurnRow[]>("b36_draft_turns", { query: { select: "*", order: "global_pick.asc" } }),
+    supabaseRest<SourceGameRow[]>("b36_source_games", { query: { select: "season,season_type,completed,home_team,away_team" } }),
+    supabaseRest<AutomationSeasonRow[]>("b36_automation_config", { query: { select: "season", id: "eq.true" } }),
   ]);
 
   const pointsBySlot = new Map<string, number>();
@@ -65,6 +75,10 @@ export async function getLeagueSnapshot() {
     weeklyPointsBySlot.set(`${event.week_id}::${event.draft_slot_id}`, (weeklyPointsBySlot.get(`${event.week_id}::${event.draft_slot_id}`) ?? 0) + Number(event.computed_points));
   }
 
+  const season = automationRows[0]?.season;
+  const regularGames = sourceGameRows.filter(game => game.season === season && game.season_type.toLowerCase() === "regular");
+  const normalizationFactorForSchool = (schoolName: string) => completedScheduleNormalization(schoolName, regularGames);
+
   const owners = ownerRows.map(row => {
     const owner = camelOwner(row);
     const slots = slotRows.filter(slot => slot.owner_id === row.id);
@@ -72,7 +86,9 @@ export async function getLeagueSnapshot() {
       ...camelSlot(slot),
       schoolName: slot.school_name!,
       positionLabel: positionLabel[slot.position],
-      seasonPoints: Number((pointsBySlot.get(slot.id) ?? 0).toFixed(2)),
+      rawSeasonPoints: Number((pointsBySlot.get(slot.id) ?? 0).toFixed(2)),
+      normalizationFactor: normalizationFactorForSchool(slot.school_name!),
+      seasonPoints: Number(((pointsBySlot.get(slot.id) ?? 0) * normalizationFactorForSchool(slot.school_name!)).toFixed(2)),
       weeklyPoints: weekRows.map(week => ({ weekId: week.id, weekNumber: week.week_number, points: Number((weeklyPointsBySlot.get(`${week.id}::${slot.id}`) ?? 0).toFixed(2)) })),
     }));
     return { ...owner, assignments: slots.map(camelSlot), picks, totalPoints: Number(picks.reduce((sum, pick) => sum + pick.seasonPoints, 0).toFixed(2)) };

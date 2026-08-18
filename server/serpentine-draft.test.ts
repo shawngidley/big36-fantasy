@@ -20,6 +20,7 @@ describe("36 Football serpentine draft", () => {
     const resolved = resolveExpiredActiveTurn([{ globalPick: 1, roundNumber: 1, ownerId: "owner-1", status: "ACTIVE", expiresAt: "2026-08-24T13:00:00.000Z" }, { globalPick: 2, roundNumber: 1, ownerId: "owner-2", status: "PENDING" }], new Date("2026-08-24T13:01:00.000Z"));
     expect(resolved[0].status).toBe("SKIPPED");
     expect(resolved[1]).toMatchObject({ status: "ACTIVE", expiresAt: "2026-08-24T13:11:00.000Z" });
+    expect(ownerCanDraft(resolved, "owner-1")).toBe(true);
   });
   it("limits the published schedule to two rounds per day", () => {
     expect([1, 2].map(currentDraftDayRoundLimit)).toEqual([1, 1]);

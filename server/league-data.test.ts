@@ -7,7 +7,7 @@ vi.mock("./supabase", () => ({
   supabaseRest: mocks.supabaseRest,
 }));
 
-import { getLeagueSnapshot, overallRankAtEvent } from "./league-data";
+import { completedScheduleNormalization, getLeagueSnapshot, overallRankAtEvent } from "./league-data";
 
 describe("Big 36 public live-results snapshot", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -20,6 +20,12 @@ describe("Big 36 public live-results snapshot", () => {
     expect(overallRankAtEvent("bravo", owners, totals)).toBe(1);
   });
 
+  it("normalizes a completed regular season with fewer than twelve games and leaves unfinished schedules raw", () => {
+    const completedEleven = Array.from({ length: 11 }, (_, index) => ({ season: 2026, season_type: "regular", completed: true, home_team: "Hawaii", away_team: `Opponent ${index}` }));
+    expect(completedScheduleNormalization("Hawaii", completedEleven)).toBeCloseTo(12 / 11);
+    expect(completedScheduleNormalization("Hawaii", [...completedEleven, { season: 2026, season_type: "regular", completed: false, home_team: "Hawaii", away_team: "Future Opponent" }])).toBe(1);
+  });
+
   it("builds team totals, standings, weekly scores, and position leaders from Supabase records", async () => {
     mocks.supabaseRest
       .mockResolvedValueOnce([{ id: "division-1", name: "Atlantic", sort_order: 1 }])
@@ -28,7 +34,10 @@ describe("Big 36 public live-results snapshot", () => {
       .mockResolvedValueOnce([{ id: "week-1", week_number: 1, label: "Opening Week", status: "FINAL" }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: "event-1", week_id: "week-1", draft_slot_id: "slot-1", event_type: "TOUCHDOWN", stat_value: 1, yard_distance: 18, computed_points: 9, note: "Official box score", audit_action: "ENTRY", correction_of_event_id: null, recorded_by_open_id: "open-1", created_at: "2026-08-16T12:00:00.000Z" }])
-      .mockResolvedValueOnce([{ status: "PAUSED", active_position: null, updated_at: "2026-08-16T12:00:00.000Z" }]);
+      .mockResolvedValueOnce([{ status: "PAUSED", active_position: null, updated_at: "2026-08-16T12:00:00.000Z" }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ season: 2026 }]);
 
     const snapshot = await getLeagueSnapshot();
 
