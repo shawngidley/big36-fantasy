@@ -62,3 +62,4 @@
 - [x] Align the deployed application title and browser metadata with the official 36 Football brand.
 - [x] Audit K/ST and DEF scoring against the official 36 Football blueprint, correct any inflated event values, and rebuild the 2025 research catalog.
 - [x] Correct the live mapper so a non-special-teams defensive safety is credited to DEF rather than K/ST.
+- [x] Add 36 clearly temporary placeholder programs named Team 1 through Team 36 for standings review.

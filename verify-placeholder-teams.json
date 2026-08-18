@@ -1,0 +1,4 @@
+{
+  "project_id": "fjzlwifohkehwymisaoh",
+  "query": "SELECT (SELECT count(*) FROM public.b36_divisions) AS division_count, (SELECT count(*) FROM public.b36_owners) AS owner_count, (SELECT count(*) FROM public.b36_draft_slots) AS slot_count, (SELECT count(*) FROM public.b36_owners WHERE team_name ~ '^Team ([1-9]|[12][0-9]|3[0-6])$') AS placeholder_team_count LIMIT 1;"
+}
