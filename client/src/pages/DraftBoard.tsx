@@ -8,6 +8,7 @@ import { trpc } from "@/lib/trpc";
 
 const statusLabel = (status: "PENDING" | "ACTIVE" | "SKIPPED" | "PICKED") => status === "ACTIVE" ? "On clock" : status === "PICKED" ? "Selected" : status === "SKIPPED" ? "Leapfrogged" : "Awaiting pick";
 
+// The public board presents the official three-day schedule before the commissioner posts the randomized order.
 export default function DraftBoard() {
   const league = trpc.league.snapshot.useQuery();
   if (league.isLoading) return <LeagueShell><LeagueLoading /></LeagueShell>;
