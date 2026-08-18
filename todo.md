@@ -66,3 +66,4 @@
 - [x] Display tied placeholder programs in natural Team 1–Team 36 numeric order across the standings views.
 - [x] Lead the standings page with six conference races and move the overall national table below as a top-10 list.
 - [x] Confirm the revised conference-first standings layout is served by the public 36football.com domain.
+- [x] Remove the public championship ledger and provisional prize-race summary from the standings page.
