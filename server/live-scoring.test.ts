@@ -26,6 +26,16 @@ describe("36 Football automatic scoring map", () => {
     const candidates = mapLivePlayToCandidates({ play: { id: 552, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Pass Interception Return", playText: "A. Manning pass intercepted by Defender" }, stats: [], roster: [{ id: 1, firstName: "Arch", lastName: "Manning", position: "QB" }], selectedSchoolPositions: [{ schoolName: "Ohio State", position: "QB" }] });
     expect(candidates).toEqual([expect.objectContaining({ position: "QB", eventType: "INTERCEPTION_THROWN", sourceEventKey: "552:INTERCEPTION_THROWN:QB" })]);
   });
+  it("recognizes alternative pass-from wording while excluding interception returns and nullified touchdowns", () => {
+    const roster = [{ id: 1, firstName: "Sawyer", lastName: "Robertson", position: "QB" }, { id: 2, firstName: "Kobe", lastName: "Prentice", position: "WR" }];
+    const selectedSchoolPositions = [{ schoolName: "Baylor", position: "QB" as const }, { schoolName: "Baylor", position: "WR" as const }];
+    const passFrom = mapLivePlayToCandidates({ play: { id: 553, gameId: 9, offense: "Baylor", defense: "Opponent", yardsToGoal: 18, scoring: false, playType: "Passing Touchdown", playText: "K. Prentice 18 Yd pass from S. Robertson" }, stats: [], roster, selectedSchoolPositions });
+    const interceptionReturn = mapLivePlayToCandidates({ play: { id: 554, gameId: 9, offense: "Baylor", defense: "Opponent", yardsToGoal: 18, scoring: true, playType: "Interception Return Touchdown", playText: "S. Robertson pass intercepted and returned for a touchdown" }, stats: [], roster, selectedSchoolPositions });
+    const nullified = mapLivePlayToCandidates({ play: { id: 555, gameId: 9, offense: "Baylor", defense: "Opponent", yardsToGoal: 3, scoring: true, playType: "Penalty", playText: "S. Robertson rush for a touchdown nullified by penalty. NO PLAY" }, stats: [], roster, selectedSchoolPositions });
+    expect(passFrom.filter(candidate => candidate.eventType === "TOUCHDOWN").map(candidate => candidate.position).sort()).toEqual(["QB", "WR"]);
+    expect(interceptionReturn.some(candidate => candidate.eventType === "TOUCHDOWN" && candidate.position === "QB")).toBe(false);
+    expect(nullified.some(candidate => candidate.eventType === "TOUCHDOWN")).toBe(false);
+  });
   it("creates one touchdown per credited position when CFBD reports both reception and touchdown stats", () => {
     const candidates = mapLivePlayToCandidates({ play: { id: 56, gameId: 9, offense: "Ohio State", defense: "Opponent", yardsToGoal: 12, scoring: true, playType: "Passing Touchdown" }, stats: [{ playId: 56, athleteId: 1, team: "Ohio State", statType: "Completion", stat: 12 }, { playId: 56, athleteId: 1, team: "Ohio State", statType: "Touchdown", stat: 1 }, { playId: 56, athleteId: 2, team: "Ohio State", statType: "Reception", stat: 12 }, { playId: 56, athleteId: 2, team: "Ohio State", statType: "Touchdown", stat: 1 }], roster: [{ id: 1, position: "QB" }, { id: 2, position: "WR" }], selectedSchoolPositions: [{ schoolName: "Ohio State", position: "QB" }, { schoolName: "Ohio State", position: "WR" }] });
     expect(candidates.filter(candidate => candidate.eventType === "TOUCHDOWN").map(candidate => candidate.position).sort()).toEqual(["QB", "WR"]);

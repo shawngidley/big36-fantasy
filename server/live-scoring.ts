@@ -53,13 +53,15 @@ function positionsMentionedInText(playText: string | null | undefined, roster: C
 }
 
 function passerPositionsInText(playText: string | null | undefined, roster: CfbdRosterAthlete[], positions: Map<number, LivePosition | null>) {
-  const beforePass = ` ${normalizeText(playText).split(" pass ")[0] ?? ""} `;
+  const normalized = normalizeText(playText);
+  const beforePass = ` ${normalized.split(" pass ")[0] ?? ""} `;
+  const afterPassFrom = ` ${normalized.split(" pass from ")[1] ?? ""} `;
   const mentioned = new Set<LivePosition>();
   for (const athlete of roster) {
     const position = positions.get(athlete.id);
     const name = normalizeText(`${athlete.firstName ?? ""} ${athlete.lastName ?? ""}`);
     const shortName = normalizeText(`${String(athlete.firstName ?? "").slice(0, 1)} ${athlete.lastName ?? ""}`);
-    if (position && ((name.length >= 5 && beforePass.includes(` ${name} `)) || (shortName.length >= 3 && beforePass.includes(` ${shortName} `)))) mentioned.add(position);
+    if (position && ((name.length >= 5 && (beforePass.includes(` ${name} `) || afterPassFrom.includes(` ${name} `))) || (shortName.length >= 3 && (beforePass.includes(` ${shortName} `) || afterPassFrom.includes(` ${shortName} `))))) mentioned.add(position);
   }
   return mentioned;
 }
@@ -102,26 +104,33 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   const statsByAthlete = new Map<number, CfbdPlayStat[]>();
   for (const stat of scoringStats) statsByAthlete.set(stat.athleteId, [...(statsByAthlete.get(stat.athleteId) ?? []), stat]);
   const playType = String(play.playType ?? "").toLowerCase();
+  const playTextNormalized = normalizeText(play.playText);
   const mentionedPositions = positionsMentionedInText(play.playText, roster, positions);
   const passerPositions = passerPositionsInText(play.playText, roster, positions);
   const athletePositionsFor = (matcher: (type: string) => boolean) => new Set(Array.from(statsByAthlete.entries()).flatMap(([athleteId, stats]) => matcher(stats.map(stat => stat.statType.toLowerCase()).join(" ")) ? [positions.get(athleteId)] : []).filter((position): position is LivePosition => Boolean(position)));
   const explicitTouchdownPositions = athletePositionsFor(type => type.includes("touchdown"));
-  const passingTouchdown = play.scoring && (playType.includes("passing touchdown") || athletePositionsFor(type => type.includes("passing touchdown")).has("QB"));
-  const rushingTouchdown = play.scoring && (playType.includes("rushing touchdown") || athletePositionsFor(type => type.includes("rushing touchdown")).size > 0);
+  const passingTouchdownPositions = athletePositionsFor(type => type.includes("passing touchdown"));
+  const rushingTouchdownPositions = athletePositionsFor(type => type.includes("rushing touchdown"));
+  const isTwoPoint = /two[ -]?point/.test(`${playType} ${playTextNormalized}`);
+  const isInvalidated = /(no play|nullified by penalty|reversed|overturned)/.test(`${playType} ${playTextNormalized}`);
+  const isInterceptionReturn = playType.includes("interception");
+  const hasOffensiveTouchdownText = /(touchdown|\btd\b)/.test(`${playType} ${playTextNormalized}`);
+  const passingTouchdown = !isTwoPoint && !isInvalidated && !isInterceptionReturn && (passingTouchdownPositions.has("QB") || (explicitTouchdownPositions.has("QB") && athletePositionsFor(type => type.includes("reception")).size > 0) || (hasOffensiveTouchdownText && /\bpass\b/.test(`${playType} ${playTextNormalized}`)));
+  const rushingTouchdown = !isTwoPoint && !isInvalidated && !passingTouchdown && (rushingTouchdownPositions.size > 0 || (hasOffensiveTouchdownText && /\b(rush\w*|run)\b/.test(`${playType} ${playTextNormalized}`)));
   const scoringDistance = play.yardsToGoal ?? null;
   const offensiveCandidate = (position: LivePosition, eventType: "TOUCHDOWN" | "TWO_POINT_CONVERSION") => {
     if (!eligibleSelection(schoolName, position)) return;
     candidates.push({ sourceEventKey: `${play.id}:${eventType}:${position}`, sourceGameId: play.gameId, schoolName, position, eventType, statValue: 1, yardDistance: eventType === "TOUCHDOWN" ? scoringDistance : null, provisional, note: `CFBD play ${play.id} · ${eventType.toLowerCase().replace(/_/g, " ")}` });
   };
   if (passingTouchdown) {
-    const qbSource = explicitTouchdownPositions.has("QB") || athletePositionsFor(type => type.includes("completion") || type.includes("passing touchdown")).has("QB") || mentionedPositions.has("QB");
+    const qbSource = passingTouchdownPositions.has("QB") || (explicitTouchdownPositions.has("QB") && athletePositionsFor(type => type.includes("reception")).size > 0) || passerPositions.has("QB");
     if (qbSource) offensiveCandidate("QB", "TOUCHDOWN");
     const scorer = offensivePositions.filter(position => position !== "QB" && explicitTouchdownPositions.has(position));
     const legacyScorer = offensivePositions.filter(position => position !== "QB" && athletePositionsFor(type => type.includes("reception")).has(position));
     const positionsToCredit = scorer.length > 0 ? scorer : legacyScorer.length > 0 ? legacyScorer : offensivePositions.filter(position => position !== "QB" && mentionedPositions.has(position));
     positionsToCredit.forEach(position => offensiveCandidate(position, "TOUCHDOWN"));
   } else if (rushingTouchdown) {
-    const scorer = offensivePositions.filter(position => explicitTouchdownPositions.has(position));
+    const scorer = offensivePositions.filter(position => rushingTouchdownPositions.has(position) || explicitTouchdownPositions.has(position));
     const legacyScorer = offensivePositions.filter(position => athletePositionsFor(type => type.includes("rush")).has(position));
     const positionsToCredit = scorer.length > 0 ? scorer : legacyScorer.length > 0 ? legacyScorer : offensivePositions.filter(position => mentionedPositions.has(position));
     positionsToCredit.forEach(position => offensiveCandidate(position, "TOUCHDOWN"));
@@ -138,7 +147,7 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
       scorer.forEach(position => offensiveCandidate(position, "TWO_POINT_CONVERSION"));
     }
   }
-  const qbInterception = scoringStats.some(stat => positions.get(stat.athleteId) === "QB" && stat.statType.toLowerCase().includes("interception")) || (/interception/.test(playType) && passerPositions.has("QB"));
+  const qbInterception = !isInvalidated && (scoringStats.some(stat => positions.get(stat.athleteId) === "QB" && stat.statType.toLowerCase().includes("interception")) || (/interception/.test(playType) && passerPositions.has("QB")));
   if (qbInterception && eligibleSelection(schoolName, "QB")) candidates.push({ sourceEventKey: `${play.id}:INTERCEPTION_THROWN:QB`, sourceGameId: play.gameId, schoolName, position: "QB", eventType: "INTERCEPTION_THROWN", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · quarterback interception` });
   for (const stat of scoringStats) {
     const position = positions.get(stat.athleteId);

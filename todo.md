@@ -83,3 +83,8 @@
 - [x] Reconcile and correct the Texas QB 2025 research card against official passing/rushing touchdown records under the first-12-regular-season-game rule.
 - [x] Reconcile the reported seven Texas QB interceptions across the first 12 regular-season games and correct any omitted interception events.
 - [x] Confirm the public Texas QB research card displays the verified seven first-12-game interceptions after the catalog rebuild.
+- [ ] Certify every 2025 first-12-regular-season QB unit against official team controls and reconcile all player-level passing, rushing, and interception exceptions before publication.
+- [ ] Rebuild 2025 QB attribution from official CFBD per-game player box scores while retaining play-by-play only for verified touchdown-distance tiers.
+- [ ] Reconcile first-12-game QB touchdown tiers against cached public ESPN scoring summaries before certifying and publishing the full 2025 QB catalog.
+- [x] Publish and verify certified CFBD first-12-game QB touchdown and interception stat lines on all public research cards while retaining the nine-school tier-points audit as a separate holdout.
+- [x] Remove or clearly separate legacy QB event-ledger counts from certified QB stat cards so public research values are not contradictory.

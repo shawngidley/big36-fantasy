@@ -78,9 +78,17 @@ const positionsMentionedInText = (playText, roster) => {
   return mentioned;
 };
 const passerPositionsInText = (playText, roster) => {
-  const beforePass = ` ${nameKey(playText).split(" pass ")[0] ?? ""} `;
+  const normalized = nameKey(playText);
+  const beforePass = ` ${normalized.split(" pass ")[0] ?? ""} `;
+  const afterPassFrom = ` ${normalized.split(" pass from ")[1] ?? ""} `;
   const mentioned = new Set();
-  for (const athlete of roster.values()) if (athlete.position && ((athlete.name.length >= 5 && beforePass.includes(` ${athlete.name} `)) || (athlete.short.length >= 3 && beforePass.includes(` ${athlete.short} `)))) mentioned.add(athlete.position);
+  for (const athlete of roster.values()) if (athlete.position && ((athlete.name.length >= 5 && (beforePass.includes(` ${athlete.name} `) || afterPassFrom.includes(` ${athlete.name} `))) || (athlete.short.length >= 3 && (beforePass.includes(` ${athlete.short} `) || afterPassFrom.includes(` ${athlete.short} `))))) mentioned.add(athlete.position);
+  return mentioned;
+};
+const rusherPositionsInText = (playText, roster) => {
+  const beforeRush = ` ${nameKey(playText).split(/\s(?:rush\w*|run)\b/)[0] ?? ""} `;
+  const mentioned = new Set();
+  for (const athlete of roster.values()) if (athlete.position && ((athlete.name.length >= 5 && beforeRush.includes(` ${athlete.name} `)) || (athlete.short.length >= 3 && beforeRush.includes(` ${athlete.short} `)))) mentioned.add(athlete.position);
   return mentioned;
 };
 const positionForAthlete = (roster, athleteId) => roster.get(String(athleteId))?.position ?? null;
@@ -148,30 +156,37 @@ for (const week of weeks) {
       const offensiveStats = sourceStats.filter(stat => normal(stat.team) === normal(offense) && Number(stat.stat) !== 0);
       const mentionedPositions = positionsMentionedInText(play.playText, positions);
       const passerPositions = passerPositionsInText(play.playText, positions);
+      const rusherPositions = rusherPositionsInText(play.playText, positions);
       const touchdownPositions = positionsForStats(offensiveStats, positions, type => type.includes("touchdown"));
-      const completionPositions = positionsForStats(offensiveStats, positions, type => type.includes("completion") || type.includes("passing touchdown"));
+      const passingTouchdownPositions = positionsForStats(offensiveStats, positions, type => type.includes("passing touchdown"));
+      const rushingTouchdownPositions = positionsForStats(offensiveStats, positions, type => type.includes("rushing touchdown"));
       const receptionPositions = positionsForStats(offensiveStats, positions, type => type.includes("reception"));
       const rushPositions = positionsForStats(offensiveStats, positions, type => type.includes("rush"));
       const addOffensive = (position, event, points, summary) => {
         if (position && offensivePositions.includes(position)) add(catalog, offense, position, event, points, summary);
       };
-      const passingTouchdown = play.scoring && (playType.includes("passing touchdown") || completionPositions.has("QB"));
-      const rushingTouchdown = play.scoring && (playType.includes("rushing touchdown") || rushPositions.size > 0);
+      const playText = nameKey(play.playText);
+      const isTwoPoint = /two[ -]?point/.test(`${playType} ${playText}`);
+      const isInvalidated = /(no play|nullified by penalty|reversed|overturned)/.test(`${playType} ${playText}`);
+      const isInterceptionReturn = playType.includes("interception");
+      const hasOffensiveTouchdownText = /(touchdown|\btd\b)/.test(`${playType} ${playText}`);
+      const passingTouchdown = !isTwoPoint && !isInvalidated && !isInterceptionReturn && (passingTouchdownPositions.has("QB") || (touchdownPositions.has("QB") && receptionPositions.size > 0) || (hasOffensiveTouchdownText && /\bpass\b/.test(`${playType} ${playText}`)));
+      const rushingTouchdown = !isTwoPoint && !isInvalidated && !passingTouchdown && (rushingTouchdownPositions.size > 0 || (hasOffensiveTouchdownText && /\b(rush\w*|run)\b/.test(`${playType} ${playText}`)));
       if (passingTouchdown) {
-        if (touchdownPositions.has("QB") || completionPositions.has("QB") || mentionedPositions.has("QB")) addOffensive("QB", "TOUCHDOWN", pointForTouchdown(scoringDistance), { touchdowns: 1, passing_touchdowns: 1 });
+        if (passingTouchdownPositions.has("QB") || (touchdownPositions.has("QB") && receptionPositions.size > 0) || passerPositions.has("QB")) addOffensive("QB", "TOUCHDOWN", pointForTouchdown(scoringDistance), { touchdowns: 1, passing_touchdowns: 1 });
         const scorers = offensivePositions.filter(position => position !== "QB" && touchdownPositions.has(position));
         const fallbackScorers = offensivePositions.filter(position => position !== "QB" && receptionPositions.has(position));
         (scorers.length > 0 ? scorers : fallbackScorers.length > 0 ? fallbackScorers : offensivePositions.filter(position => position !== "QB" && mentionedPositions.has(position))).forEach(position => addOffensive(position, "TOUCHDOWN", pointForTouchdown(scoringDistance), { touchdowns: 1 }));
       } else if (rushingTouchdown) {
-        const scorers = offensivePositions.filter(position => touchdownPositions.has(position));
+        const scorers = offensivePositions.filter(position => rushingTouchdownPositions.has(position) || touchdownPositions.has(position));
         const fallbackScorers = offensivePositions.filter(position => rushPositions.has(position));
-        (scorers.length > 0 ? scorers : fallbackScorers.length > 0 ? fallbackScorers : offensivePositions.filter(position => mentionedPositions.has(position))).forEach(position => addOffensive(position, "TOUCHDOWN", pointForTouchdown(scoringDistance), { touchdowns: 1 }));
+        (scorers.length > 0 ? scorers : fallbackScorers.length > 0 ? fallbackScorers : offensivePositions.filter(position => rusherPositions.has(position))).forEach(position => addOffensive(position, "TOUCHDOWN", pointForTouchdown(scoringDistance), { touchdowns: 1 }));
       }
-      const qbInterception = offensiveStats.some(stat => positionForAthlete(positions, stat.athleteId) === "QB" && String(stat.statType).toLowerCase().includes("interception")) || (/interception/.test(playType) && passerPositions.has("QB"));
+      const qbInterception = !isInvalidated && (offensiveStats.some(stat => positionForAthlete(positions, stat.athleteId) === "QB" && String(stat.statType).toLowerCase().includes("interception")) || (/interception/.test(playType) && passerPositions.has("QB")));
       if (qbInterception) add(catalog, offense, "QB", "INTERCEPTION_THROWN", -3, { interceptions: 1 });
       const successfulTwoPoint = /two point (pass|rush)/.test(playType) && !/(failed|fail|no good|incomplete)/.test(nameKey(play.playText));
       if (successfulTwoPoint && playType.includes("pass")) {
-        if (completionPositions.has("QB") || mentionedPositions.has("QB")) addOffensive("QB", "TWO_POINT_CONVERSION", 4, { two_point_conversions: 1, passing_two_point_conversions: 1 });
+        if (passerPositions.has("QB")) addOffensive("QB", "TWO_POINT_CONVERSION", 4, { two_point_conversions: 1, passing_two_point_conversions: 1 });
         offensivePositions.filter(position => position !== "QB" && (receptionPositions.has(position) || mentionedPositions.has(position))).forEach(position => addOffensive(position, "TWO_POINT_CONVERSION", 4, { two_point_conversions: 1 }));
       } else if (successfulTwoPoint && playType.includes("rush")) {
         offensivePositions.filter(position => rushPositions.has(position) || mentionedPositions.has(position)).forEach(position => addOffensive(position, "TWO_POINT_CONVERSION", 4, { two_point_conversions: 1 }));
