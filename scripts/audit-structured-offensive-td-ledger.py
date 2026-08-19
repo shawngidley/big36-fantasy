@@ -59,11 +59,12 @@ for athlete in game_rosters.select(['game_id', 'full_name', 'position_href']).to
 
 def school_for_pos_team(game, pos_team):
     target = normalize(pos_team)
+    candidates = []
     for school in [game['homeTeam'], game['awayTeam']]:
         key = normalize(school)
         if key and (key in target or target in key):
-            return school
-    return None
+            candidates.append(school)
+    return max(candidates, key=lambda school: len(normalize(school)), default=None)
 
 
 def player_position(game_id, school, name):
@@ -147,14 +148,20 @@ def add_event(school, position, event_kind, row):
         entry['tier_events_missing_distance'] += 1
     else:
         entry['tier_points'] += 6 if distance <= 9 else 8 if distance <= 29 else 10 if distance <= 59 else 12
-    entry['events'].append({
+    event = {
         'game_id': int(row['game_id']),
         'id': int(row['id']) if row.get('id') is not None else None,
         'text': row.get('text'),
         'distance': distance,
         'pass_td': bool(row.get('pass_td')),
         'rush_td': bool(row.get('rush_td')),
-    })
+    }
+    if row.get('_audit_passer_name'):
+        event['passer_name'] = row.get('_audit_passer_name')
+        event['passer_position'] = row.get('_audit_passer_position')
+        event['receiver_name'] = row.get('_audit_receiver_name')
+        event['receiver_position'] = row.get('_audit_receiver_position')
+    entry['events'].append(event)
 
 
 def add_conversion(school, position, conversion_kind, row, text):
@@ -214,10 +221,17 @@ for row in rows:
         passer_name, receiver_name = primary_pass_players(row)
         passer = player_position(game_id, school, passer_name)
         receiver = player_position(game_id, school, receiver_name)
+        audit_row = dict(row)
+        audit_row.update({
+            '_audit_passer_name': passer_name,
+            '_audit_passer_position': passer,
+            '_audit_receiver_name': receiver_name,
+            '_audit_receiver_position': receiver,
+        })
         if passer == 'QB':
-            add_event(school, 'QB', 'pass', row)
+            add_event(school, 'QB', 'pass', audit_row)
         if receiver in {'QB', 'RB', 'WR', 'TE'}:
-            add_event(school, receiver, 'receive', row)
+            add_event(school, receiver, 'receive', audit_row)
             if passer is None:
                 unassigned.append({'school_name': school, 'game_id': game_id, 'text': row.get('text'), 'passer': passer_name, 'passer_position': passer, 'receiver': receiver_name, 'receiver_position': receiver, 'kind': 'passer_unknown_receiver_credited'})
         elif passer is None:

@@ -111,3 +111,5 @@
 - [x] Verify every K/ST unit marked certified has complete evidence for each scored component and every held K/ST row exposes no usable total.
 - [x] Hold every K/ST total with a block or special-teams-safety component until an authoritative first-12-game component-control source is available.
 - [x] Add a K/ST publication verification that rejects any certified row with unverified block or special-teams-safety evidence and rejects any held numerical total.
+- [x] Correct overlapping school-name attribution in the historical offensive ledger and remeasure QB, RB, WR, and TE control reconciliation before publishing any additional totals.
+- [x] Publish the 28 newly complete QB, RB, WR, and TE historical totals from the corrected attribution ledger and verify remaining holds stay suppressed.
