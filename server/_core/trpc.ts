@@ -27,7 +27,7 @@ const requireUser = t.middleware(async opts => {
 
 export const protectedProcedure = t.procedure.use(requireUser);
 
-const commissionerEmails = new Set(["janssenmatt25@gmail.com"]);
+const commissionerEmails = new Set(["janssenmatt25@gmail.com", "shawngidley@gmail.com"]);
 const hasCommissionerAccess = (email: string | null | undefined, role: string | undefined) => role === "admin" || Boolean(email && commissionerEmails.has(email.trim().toLowerCase()));
 
 export const adminProcedure = t.procedure.use(

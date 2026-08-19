@@ -30,6 +30,7 @@ vi.mock("./supabase", () => ({
 }));
 
 import { appRouter } from "./routers";
+import { hashRegistrationPin } from "./registration";
 
 function createContext(role: "admin" | "user", email = "owner@example.com"): TrpcContext {
   return {
@@ -47,6 +48,19 @@ function createContext(role: "admin" | "user", email = "owner@example.com"): Trp
     req: { protocol: "https", headers: {} } as TrpcContext["req"],
     res: { clearCookie: vi.fn() } as unknown as TrpcContext["res"],
   };
+}
+
+function createCommissionerLoginContext() {
+  const setCookies: Array<{ name: string; value: string; options: Record<string, unknown> }> = [];
+  const ctx: TrpcContext = {
+    user: null,
+    req: { protocol: "https", headers: {} } as TrpcContext["req"],
+    res: {
+      cookie: (name: string, value: string, options: Record<string, unknown>) => setCookies.push({ name, value, options }),
+      clearCookie: vi.fn(),
+    } as unknown as TrpcContext["res"],
+  };
+  return { ctx, setCookies };
 }
 
 describe("Big 36 owner draft procedures", () => {
@@ -90,6 +104,21 @@ describe("Big 36 owner draft procedures", () => {
     const payload = mocks.supabaseRpc.mock.calls[0]?.[1] as { p_pin_hash: string };
     expect(payload.p_pin_hash).toMatch(/^scrypt\$/);
     expect(payload.p_pin_hash).not.toContain("482917");
+  });
+
+  it("issues a dedicated signed cookie for an authorized commissioner registration PIN and rejects unrelated emails", async () => {
+    mocks.supabaseRest
+      .mockResolvedValueOnce([{ id: "11111111-1111-4111-8111-111111111111", email: "janssenmatt25@gmail.com", pin_hash: hashRegistrationPin("482917") }])
+      .mockResolvedValueOnce([]);
+    const { ctx, setCookies } = createCommissionerLoginContext();
+    const caller = appRouter.createCaller(ctx);
+
+    await expect(caller.auth.commissionerLogin({ email: "JanssenMatt25@gmail.com", pin: "482917" })).resolves.toMatchObject({ success: true });
+    expect(setCookies).toHaveLength(1);
+    expect(setCookies[0]).toMatchObject({ name: "b36_commissioner_session", options: expect.objectContaining({ httpOnly: true, secure: true, sameSite: "none" }) });
+    expect(setCookies[0]?.value).not.toContain("482917");
+
+    await expect(caller.auth.commissionerLogin({ email: "owner@example.com", pin: "482917" })).rejects.toThrow("not recognized");
   });
 
   it("keeps private registration review commissioner-only", async () => {

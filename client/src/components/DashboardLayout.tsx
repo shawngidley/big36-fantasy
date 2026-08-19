@@ -19,13 +19,15 @@ import {
   SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { startLogin } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
+import { trpc } from "@/lib/trpc";
 import { ClipboardList, LayoutDashboard, LogOut, PanelLeft, Shield, Users } from "lucide-react";
-import { CSSProperties, useEffect, useRef, useState } from "react";
+import { CSSProperties, FormEvent, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Control room", path: "/commissioner" },
@@ -38,6 +40,15 @@ const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_WIDTH = 280;
 const MIN_WIDTH = 200;
 const MAX_WIDTH = 480;
+
+function CommissionerSignIn() {
+  const [email, setEmail] = useState("");
+  const [pin, setPin] = useState("");
+  const utils = trpc.useUtils();
+  const login = trpc.auth.commissionerLogin.useMutation({ onSuccess: async () => { await utils.auth.me.invalidate(); } });
+  const submit = (event: FormEvent) => { event.preventDefault(); login.mutate({ email, pin }); };
+  return <div className="flex min-h-screen items-center justify-center bg-background px-4"><form onSubmit={submit} className="w-full max-w-md rounded-2xl border border-border bg-card p-7 shadow-sm"><p className="section-kicker">36 Football commissioner</p><h1 className="mt-2 font-display text-3xl font-extrabold">Commissioner sign in</h1><p className="mt-3 text-sm leading-6 text-muted-foreground">Use the approved commissioner email and the PIN from your 36 Football registration. No Manus account is required.</p><div className="mt-6 space-y-4"><div className="space-y-2"><Label htmlFor="commissioner-email">Email</Label><Input id="commissioner-email" type="email" autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} required /></div><div className="space-y-2"><Label htmlFor="commissioner-pin">Registration PIN</Label><Input id="commissioner-pin" type="password" inputMode="numeric" autoComplete="current-password" value={pin} onChange={event => setPin(event.target.value)} required /></div></div>{login.error ? <p className="mt-4 text-sm font-medium text-destructive">The commissioner email or PIN is not recognized.</p> : null}<Button className="mt-6 w-full" type="submit" disabled={login.isPending}>{login.isPending ? "Signing in…" : "Sign in as commissioner"}</Button></form></div>;
+}
 
 export default function DashboardLayout({
   children,
@@ -59,27 +70,7 @@ export default function DashboardLayout({
   }
 
   if (!user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="flex flex-col items-center gap-8 p-8 max-w-md w-full">
-          <div className="flex flex-col items-center gap-6">
-            <h1 className="text-2xl font-semibold tracking-tight text-center">
-              Sign in to continue
-            </h1>
-            <p className="text-sm text-muted-foreground text-center max-w-sm">
-              Access to this dashboard requires authentication. Continue to launch the login flow.
-            </p>
-          </div>
-          <Button
-            onClick={() => startLogin()}
-            size="lg"
-            className="w-full shadow-lg hover:shadow-xl transition-all"
-          >
-            Sign in
-          </Button>
-        </div>
-      </div>
-    );
+    return <CommissionerSignIn />;
   }
 
   return (

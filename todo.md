@@ -152,9 +152,10 @@
 - [x] Resolve or document the hosting-layer social-preview override that currently replaces project Open Graph image metadata on the custom domain.
 - [x] Serve crawler-visible public HTML with the official league logo share metadata so hosting-layer preview injection cannot replace it.
 - [x] Serve a standards-compliant crawler share-card response for the root and registration links using the official league wordmark.
-- [ ] Add a non-Manus commissioner sign-in flow using approved Matt Janssen and Shawn Gidley registration emails with their existing hashed registration PINs.
-- [ ] Issue, validate, expire, and revoke a dedicated commissioner session without exposing registration credentials or reusing Manus OAuth.
-- [ ] Protect commissioner review and administration routes with the dedicated registration-backed commissioner session.
-- [ ] Add regression tests for commissioner PIN login, invalid credential denial, session expiry, and non-commissioner access denial.
+- [x] Add a non-Manus commissioner sign-in flow using approved Matt Janssen and Shawn Gidley registration emails with their existing hashed registration PINs.
+- [x] Issue, validate, expire, and revoke a dedicated commissioner session without exposing registration credentials or reusing Manus OAuth.
+- [x] Protect commissioner review and administration routes with the dedicated registration-backed commissioner session.
+- [x] Add regression tests for commissioner PIN login, invalid credential denial, session expiry, and non-commissioner access denial.
+- [x] Add router-level regression coverage for successful authorized commissioner PIN login and its secure session cookie.
 - [x] Reset scroll position to the top on every public and commissioner route transition.
 - [x] Add regression coverage for top-of-page navigation behavior on route changes.

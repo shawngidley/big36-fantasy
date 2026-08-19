@@ -1,5 +1,9 @@
 import { COOKIE_NAME } from "@shared/const";
+import { z } from "zod";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { COMMISSIONER_SESSION_COOKIE, COMMISSIONER_SESSION_MS, issueCommissionerSession, isAuthorizedCommissionerEmail, normalizeCommissionerEmail, readCommissionerSessionToken, revokeCommissionerSession } from "./commissioner-auth";
+import { verifyRegistrationPin } from "./registration";
+import { q, supabaseRest } from "./supabase";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { leagueRouter } from "./routers/league";
@@ -9,9 +13,23 @@ export const appRouter = router({
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
-    logout: publicProcedure.mutation(({ ctx }) => {
+    commissionerLogin: publicProcedure.input(z.object({ email: z.string().trim().email().max(254), pin: z.string().min(4).max(12) })).mutation(async ({ ctx, input }) => {
+      const email = normalizeCommissionerEmail(input.email);
+      const genericError = () => { throw new Error("The commissioner email or PIN is not recognized."); };
+      if (!isAuthorizedCommissionerEmail(email)) genericError();
+      const registrations = await supabaseRest<Array<{ id: string; email: string; pin_hash: string }>>("b36_owner_registrations", { query: { select: "id,email,pin_hash", email: q.eq(email), order: "created_at.desc", limit: "1" } });
+      const registration = registrations[0];
+      if (!registration || !verifyRegistrationPin(input.pin, registration.pin_hash)) genericError();
+      const session = await issueCommissionerSession(registration.id, email);
       const cookieOptions = getSessionCookieOptions(ctx.req);
+      ctx.res.cookie(COMMISSIONER_SESSION_COOKIE, session.token, { ...cookieOptions, maxAge: COMMISSIONER_SESSION_MS });
+      return { success: true as const, expiresAt: session.expiresAt.toISOString() };
+    }),
+    logout: publicProcedure.mutation(async ({ ctx }) => {
+      const cookieOptions = getSessionCookieOptions(ctx.req);
+      await revokeCommissionerSession(readCommissionerSessionToken(ctx.req.headers.cookie));
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      ctx.res.clearCookie(COMMISSIONER_SESSION_COOKIE, { ...cookieOptions, maxAge: -1 });
       return {
         success: true,
       } as const;
