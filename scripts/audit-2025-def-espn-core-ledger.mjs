@@ -72,6 +72,13 @@ const verifiedReturnDistanceOverrides = [
     distance: 17,
     source: 'Official ACC Stanford–California box score: https://theacc.com/boxscore.aspx?id=7ltyipP022aUJKmSgYVs3wXi7up73ghniwD5ElWyd07J7BNseBaMQePf0fY%2F3yUPMUbhWrVYP5TfIUpNsYa2ssf0yTPOhagwpaDLF49CwjACWH6biNTTkY3jWoHnqdhLMP7kuKdKDTTuDsu53B7yJ45m7o%2Be4BPQP4gJTRQj2uI%3D&path=football',
   },
+  {
+    school: 'Troy',
+    gameId: 401761608,
+    textMatch: /T\.\s*Robbins|Taleeq Robbins/i,
+    distance: 15,
+    source: 'Official American Conference Troy–Memphis box score: https://theamerican.org/boxscore.aspx?id=7ltyipP022aUJKmSgYVs3wXi7up73ghniwD5ElWyd07J7BNseBaMQePf0fY%2F3yUPYisLZcn5VgSLeeDJL1GqKQmkZ%2BtXTiHWNgO7jpx6OVuvaRBeww%2Bq41twCDfkcyIrAonKqfNidaDkZM4FmJ5fjlzNId1cTU0X8h49OvyWB8I%3D&path=football',
+  },
 ];
 const roleSchool = (play, role, teamById) => {
   const participant = (play.teamParticipants ?? []).find(item => item.type === role);
