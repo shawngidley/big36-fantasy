@@ -6,14 +6,13 @@ import { cn } from "@/lib/utils";
 
 const publicNav = [
   { label: "Join League", path: "/join" },
-  { label: "Prizes", path: "/prizes" },
-  { label: "Payment", path: "/payment" },
   { label: "Standings", path: "/standings" },
   { label: "Draft Board", path: "/draft" },
   { label: "2025 Research", path: "/research" },
   { label: "Leaders", path: "/leaders" },
   { label: "Weekly", path: "/weekly" },
   { label: "My Draft", path: "/my-draft" },
+  { label: "Prizes", path: "/prizes" },
 ];
 
 function Brand() {

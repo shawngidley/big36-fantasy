@@ -13,7 +13,6 @@ import Landing from "./pages/Landing";
 import Leaderboards from "./pages/Leaderboards";
 import MyDraft from "./pages/MyDraft";
 import NotFound from "./pages/NotFound";
-import Payment from "./pages/Payment";
 import Prizes from "./pages/Prizes";
 import Standings from "./pages/Standings";
 import Team from "./pages/Team";
@@ -24,7 +23,7 @@ function Router() {
     <Route path="/" component={Landing} />
     <Route path="/join" component={JoinLeague} />
     <Route path="/prizes" component={Prizes} />
-    <Route path="/payment" component={Payment} />
+    <Route path="/payment" component={Prizes} />
     <Route path="/standings" component={Standings} />
     <Route path="/draft" component={DraftBoard} />
     <Route path="/research" component={DraftResearch} />
