@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getFbsTeams: vi.fn(), getLiveScoreboard: vi.fn(), getRegularSeasonGames: vi.fn(), getRoster: vi.fn(), getWeekPlays: vi.fn(), getWeekPlayStats: vi.fn(),
-  getLeagueSnapshot: vi.fn(), getScoringRulesForEvent: vi.fn(), calculateEventScore: vi.fn(), mapLivePlayToCandidates: vi.fn(), eligibleGameIdsForSchool: vi.fn(), supabaseRest: vi.fn(),
+  getLeagueSnapshot: vi.fn(), getScoringRulesForEvent: vi.fn(), calculateEventScore: vi.fn(), mapLivePlayToCandidates: vi.fn(), eligibleGameIdsForSchool: vi.fn(), finalShutoutCandidates: vi.fn(), supabaseRest: vi.fn(),
 }));
 
 vi.mock("./cfbd", () => ({
@@ -11,7 +11,7 @@ vi.mock("./cfbd", () => ({
 }));
 vi.mock("./league-data", () => ({ getLeagueSnapshot: mocks.getLeagueSnapshot, getScoringRulesForEvent: mocks.getScoringRulesForEvent }));
 vi.mock("./league-scoring", () => ({ calculateEventScore: mocks.calculateEventScore }));
-vi.mock("./live-scoring", () => ({ eligibleGameIdsForSchool: mocks.eligibleGameIdsForSchool, mapLivePlayToCandidates: mocks.mapLivePlayToCandidates }));
+vi.mock("./live-scoring", () => ({ eligibleGameIdsForSchool: mocks.eligibleGameIdsForSchool, finalShutoutCandidates: mocks.finalShutoutCandidates, mapLivePlayToCandidates: mocks.mapLivePlayToCandidates }));
 vi.mock("./supabase", () => ({ supabaseRest: mocks.supabaseRest }));
 
 import { runGamedayRefresh } from "./gameday-refresh";
@@ -43,6 +43,7 @@ describe("36 Football gameday source reconciliation", () => {
     mocks.getWeekPlayStats.mockResolvedValue([]);
     mocks.getRoster.mockResolvedValue([]);
     mocks.eligibleGameIdsForSchool.mockReturnValue([101]);
+    mocks.finalShutoutCandidates.mockReturnValue([]);
     mocks.getScoringRulesForEvent.mockResolvedValue([]);
     mocks.calculateEventScore.mockReturnValue({ points: 9 });
   });

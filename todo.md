@@ -76,4 +76,7 @@
 - [ ] Define and obtain approval for the compact 36 Football PWA app-icon mark before creating the final app-icon assets.
 - [ ] Create and present a visual preview of the proposed compact 36 Football PWA app icon.
 - [ ] Create and present a distinct helmet-based PWA icon preview that avoids existing professional-football visual cues.
-- [ ] Publish and verify the approved restrained collegiate color refresh on the live 36football.com domain.
+- [ ] Create and present more distinctive 36 Football helmet-emblem concepts with league-specific 36 and serpentine geometry.
+- [x] Publish and verify the approved restrained collegiate color refresh on the live 36football.com domain.
+- [x] Audit official scoring rules, 2025 unit calculations, and live event attribution for accuracy across QB, RB, WR, TE, K/ST, and DEF.
+- [x] Replace incomplete CFBD player-stat dependence with robust event attribution, eliminate duplicated PAT/field-goal scoring, and rebuild the affected 2025 unit catalog.

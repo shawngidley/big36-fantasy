@@ -1,0 +1,4 @@
+{
+  "project_id": "fjzlwifohkehwymisaoh",
+  "query": "SELECT school_name, position, official_points, normalized_points, eligible_games, normalization_factor, event_counts, stat_summary FROM public.b36_draft_research_units WHERE season = 2025 ORDER BY school_name, position LIMIT 1000;"
+}

@@ -1,7 +1,7 @@
 import { getFbsTeams, getLiveScoreboard, getRegularSeasonGames, getRoster, getWeekPlays, getWeekPlayStats, type CfbdGame, type CfbdRosterAthlete } from "./cfbd";
 import { getLeagueSnapshot, getScoringRulesForEvent } from "./league-data";
 import { calculateEventScore } from "./league-scoring";
-import { eligibleGameIdsForSchool, mapLivePlayToCandidates, type LivePosition } from "./live-scoring";
+import { eligibleGameIdsForSchool, finalShutoutCandidates, mapLivePlayToCandidates, type LivePosition } from "./live-scoring";
 import { supabaseRest } from "./supabase";
 
 type AutomationConfig = { season: number; enabled: boolean; last_refresh_at: string | null; schedule_cron_task_uid: string | null };
@@ -64,30 +64,36 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
       const originalByKey = new Map(eventRows.filter(row => row.source_event_key && row.audit_action === "ENTRY").map(row => [row.source_event_key!, row]));
       for (const game of games) {
         const currentCandidateKeys = new Set<string>();
-        for (const school of [game.homeTeam, game.awayTeam]) {
-          const roster = rosters.get(school) ?? [];
-          const eligibleIds = eligibleGameIdsForSchool(schedule.games, school);
-          if (!eligibleIds.includes(game.id)) continue;
-          const candidates = plays.filter(play => play.gameId === game.id && play.offense === school).flatMap(play => mapLivePlayToCandidates({ play, stats: stats.filter(stat => stat.playId === play.id), roster, selectedSchoolPositions: selectedSchoolPositions.map(selection => ({ schoolName: selection.schoolName, position: selection.position })), provisional: !game.completed }));
-          candidates.forEach(candidate => currentCandidateKeys.add(candidate.sourceEventKey));
-          for (const candidate of candidates) {
-            const slot = selectedSchoolPositions.find(selection => selection.schoolName === candidate.schoolName && selection.position === candidate.position);
-            if (!slot) continue;
-            const rules = await getScoringRulesForEvent(candidate.eventType as never);
-            const score = calculateEventScore(rules, { eventType: candidate.eventType as never, position: candidate.position, statValue: candidate.statValue, yardDistance: candidate.yardDistance });
-            const original = originalByKey.get(candidate.sourceEventKey);
-            if (!original) {
-              await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: weekRow.id, draft_slot_id: slot.draftSlotId, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points, note: candidate.note, audit_action: "ENTRY", recorded_by_open_id: "cfbd-live-refresh", source_event_key: candidate.sourceEventKey, source_game_id: candidate.sourceGameId, is_provisional: !game.completed } });
-              knownKeys.add(candidate.sourceEventKey); insertedEvents += 1;
-            } else if (game.completed && sourceEventNeedsCorrection(original, { points: score.points, yardDistance: candidate.yardDistance, statValue: candidate.statValue })) {
-              const correctionKey = `${candidate.sourceEventKey}:correction:${score.points}:${candidate.yardDistance ?? "none"}:${candidate.statValue}`;
-              if (!knownKeys.has(correctionKey)) {
-                await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: original.week_id, draft_slot_id: original.draft_slot_id, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points - original.computed_points, note: `Official CFBD final correction updated source event ${candidate.sourceEventKey}`, audit_action: "CORRECTION", correction_of_event_id: original.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: correctionKey, source_game_id: candidate.sourceGameId, is_provisional: false } });
-                knownKeys.add(correctionKey); insertedEvents += 1;
-              }
-              await supabaseRest("b36_scoring_events", { method: "PATCH", query: { id: `eq.${original.id}` }, body: { is_provisional: false } });
+        const gameCandidates = [
+          ...[game.homeTeam, game.awayTeam].flatMap(school => {
+            const roster = rosters.get(school) ?? [];
+            const eligibleIds = eligibleGameIdsForSchool(schedule.games, school);
+            if (!eligibleIds.includes(game.id)) return [];
+            return plays.filter(play => play.gameId === game.id && play.offense === school).flatMap(play => mapLivePlayToCandidates({ play, stats: stats.filter(stat => stat.playId === play.id), roster, selectedSchoolPositions: selectedSchoolPositions.map(selection => ({ schoolName: selection.schoolName, position: selection.position })), provisional: !game.completed }));
+          }),
+          ...finalShutoutCandidates({ game, selectedSchoolPositions: selectedSchoolPositions.map(selection => ({ schoolName: selection.schoolName, position: selection.position })), provisional: !game.completed }),
+        ];
+        gameCandidates.forEach(candidate => currentCandidateKeys.add(candidate.sourceEventKey));
+        for (const candidate of gameCandidates) {
+          const slot = selectedSchoolPositions.find(selection => selection.schoolName === candidate.schoolName && selection.position === candidate.position);
+          if (!slot) continue;
+          const rules = await getScoringRulesForEvent(candidate.eventType as never);
+          const score = calculateEventScore(rules, { eventType: candidate.eventType as never, position: candidate.position, statValue: candidate.statValue, yardDistance: candidate.yardDistance });
+          const original = originalByKey.get(candidate.sourceEventKey);
+          if (!original) {
+            await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: weekRow.id, draft_slot_id: slot.draftSlotId, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points, note: candidate.note, audit_action: "ENTRY", recorded_by_open_id: "cfbd-live-refresh", source_event_key: candidate.sourceEventKey, source_game_id: candidate.sourceGameId, is_provisional: !game.completed } });
+            knownKeys.add(candidate.sourceEventKey); insertedEvents += 1;
+          } else if (game.completed && sourceEventNeedsCorrection(original, { points: score.points, yardDistance: candidate.yardDistance, statValue: candidate.statValue })) {
+            const correctionKey = `${candidate.sourceEventKey}:correction:${score.points}:${candidate.yardDistance ?? "none"}:${candidate.statValue}`;
+            if (!knownKeys.has(correctionKey)) {
+              await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: original.week_id, draft_slot_id: original.draft_slot_id, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points - original.computed_points, note: `Official CFBD final correction updated source event ${candidate.sourceEventKey}`, audit_action: "CORRECTION", correction_of_event_id: original.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: correctionKey, source_game_id: candidate.sourceGameId, is_provisional: false } });
+              knownKeys.add(correctionKey); insertedEvents += 1;
             }
+            await supabaseRest("b36_scoring_events", { method: "PATCH", query: { id: `eq.${original.id}` }, body: { is_provisional: false } });
           }
+        }
+        for (const school of [game.homeTeam, game.awayTeam]) {
+          if (!eligibleGameIdsForSchool(schedule.games, school).includes(game.id)) continue;
         }
         if (game.completed) {
           const originalEvents = eventRows.filter(row => row.source_game_id === game.id && row.source_event_key && row.audit_action === "ENTRY");
