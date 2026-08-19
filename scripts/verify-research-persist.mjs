@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 
-const result = JSON.parse(await readFile("/home/ubuntu/.mcp/tool-results/2026-08-19_00-44-47.779829321_supabase_execute_sql_313a367e.json", "utf8")).result;
+const resultPath = process.argv[2] ?? "/home/ubuntu/.mcp/tool-results/2026-08-19_00-44-47.779829321_supabase_execute_sql_313a367e.json";
+const result = JSON.parse(await readFile(resultPath, "utf8")).result;
 const payload = result.match(/<untrusted-data-[^>]+>\n([\s\S]*?)\n<\/untrusted-data-/)?.[1];
 if (!payload) throw new Error("Could not extract the persisted catalog result.");
 const persisted = JSON.parse(payload);

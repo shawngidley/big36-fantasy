@@ -40,7 +40,8 @@ function positionsMentionedInText(playText: string | null | undefined, roster: C
   for (const athlete of roster) {
     const position = positions.get(athlete.id);
     const name = normalizeText(`${athlete.firstName ?? ""} ${athlete.lastName ?? ""}`);
-    if (position && name.length >= 5 && text.includes(` ${name} `)) mentioned.add(position);
+    const shortName = normalizeText(`${String(athlete.firstName ?? "").slice(0, 1)} ${athlete.lastName ?? ""}`);
+    if (position && ((name.length >= 5 && text.includes(` ${name} `)) || (shortName.length >= 3 && text.includes(` ${shortName} `)))) mentioned.add(position);
   }
   return mentioned;
 }

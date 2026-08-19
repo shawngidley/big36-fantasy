@@ -73,7 +73,7 @@ const positionsMentionedInText = (playText, roster) => {
   const text = ` ${nameKey(playText)} `;
   const mentioned = new Set();
   for (const athlete of roster.values()) {
-    if (athlete.position && athlete.name.length >= 5 && text.includes(` ${athlete.name} `)) mentioned.add(athlete.position);
+    if (athlete.position && ((athlete.name.length >= 5 && text.includes(` ${athlete.name} `)) || (athlete.short.length >= 3 && text.includes(` ${athlete.short} `)))) mentioned.add(athlete.position);
   }
   return mentioned;
 };
@@ -113,7 +113,7 @@ for (const school of schools.values()) {
 const rosters = new Map();
 for (const school of schools.values()) {
   const roster = await cached(`roster_${normal(school).replace(/[^a-z0-9]+/g, "_")}`, () => get("/roster", { team: school, year: season }));
-  rosters.set(normal(school), new Map(roster.map(player => [String(player.id), { position: rosterPosition(player.position), name: nameKey(`${player.firstName ?? ""} ${player.lastName ?? ""}`) }])));
+  rosters.set(normal(school), new Map(roster.map(player => [String(player.id), { position: rosterPosition(player.position), name: nameKey(`${player.firstName ?? ""} ${player.lastName ?? ""}`), short: nameKey(`${String(player.firstName ?? "").slice(0, 1)} ${player.lastName ?? ""}`) }])));
 }
 
 const weeks = [...new Set(games.map(game => game.week))].sort((a, b) => a - b);

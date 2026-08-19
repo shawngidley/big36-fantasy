@@ -80,3 +80,4 @@
 - [x] Publish and verify the approved restrained collegiate color refresh on the live 36football.com domain.
 - [x] Audit official scoring rules, 2025 unit calculations, and live event attribution for accuracy across QB, RB, WR, TE, K/ST, and DEF.
 - [x] Replace incomplete CFBD player-stat dependence with robust event attribution, eliminate duplicated PAT/field-goal scoring, and rebuild the affected 2025 unit catalog.
+- [x] Reconcile and correct the Texas QB 2025 research card against official passing/rushing touchdown records under the first-12-regular-season-game rule.
