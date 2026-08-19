@@ -89,6 +89,8 @@
 - [ ] Rebuild 2025 QB attribution from official CFBD per-game player box scores while retaining play-by-play only for verified touchdown-distance tiers.
 - [ ] Reconcile first-12-game QB touchdown tiers against cached public ESPN scoring summaries before certifying and publishing the full 2025 QB catalog.
 - [ ] Resolve the remaining nine QB first-12-game touchdown-tier exceptions using certified CFBD player boxes and ESPN scoring-event evidence before updating point totals.
+- [ ] Certify every first-12-game RB, WR, TE, K/ST, and DEF research unit against authoritative statistics and touchdown-tier or special-teams event evidence before updating published scoring.
+- [x] Publish certified first-12-game visible-stat overlays for all RB, WR, TE, K/ST, and DEF cards, and hold any point total lacking complete tier or event-ownership evidence.
 - [x] Preserve the nine source-limited historical QB tier point totals without inference and label the future complete-play-by-play requirement for final certification.
 - [x] Publish and verify certified CFBD first-12-game QB touchdown and interception stat lines on all public research cards while retaining the nine-school tier-points audit as a separate holdout.
 - [x] Remove or clearly separate legacy QB event-ledger counts from certified QB stat cards so public research values are not contradictory.
