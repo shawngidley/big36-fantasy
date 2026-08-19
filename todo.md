@@ -78,6 +78,7 @@
 - [x] Create and present a distinct helmet-based PWA icon preview that avoids existing professional-football visual cues.
 - [x] Create and present more distinctive 36 Football helmet-emblem concepts with league-specific 36 and serpentine geometry.
 - [ ] Create a true helmet-only compact PWA icon from the approved artwork, use the full lockup where space allows, and verify the favicon, manifest, Apple icon, and public header on 36football.com.
+- [ ] Remove the residual FOOTBALL wordmark from the installed-app compact PWA crop and verify the corrected device-facing icon asset.
 - [x] Publish and verify the approved restrained collegiate color refresh on the live 36football.com domain.
 - [x] Audit official scoring rules, 2025 unit calculations, and live event attribution for accuracy across QB, RB, WR, TE, K/ST, and DEF.
 - [x] Replace incomplete CFBD player-stat dependence with robust event attribution, eliminate duplicated PAT/field-goal scoring, and rebuild the affected 2025 unit catalog.
