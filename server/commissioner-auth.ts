@@ -80,7 +80,9 @@ export function commissionerUser(email: string): User {
 export function ownerUser(email: string): User {
   const normalized = normalizeCommissionerEmail(email);
   const now = new Date();
-  return { id: 0, openId: `b36-owner:${normalized}`, email: normalized, name: normalized, loginMethod: "registration_pin", role: "user", createdAt: now, updatedAt: now, lastSignedIn: now };
+  const commissioner = isAuthorizedCommissionerEmail(normalized);
+  const name = normalized === "janssenmatt25@gmail.com" ? "Matt Janssen" : normalized === "shawngidley@gmail.com" ? "Shawn Gidley" : normalized;
+  return { id: 0, openId: `b36-owner:${normalized}`, email: normalized, name, loginMethod: "registration_pin", role: commissioner ? "admin" : "user", createdAt: now, updatedAt: now, lastSignedIn: now };
 }
 
 export async function issueCommissionerSession(registrationId: string, email: string) {

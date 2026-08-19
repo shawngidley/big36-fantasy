@@ -17,6 +17,11 @@ describe("registration-backed commissioner authentication", () => {
     expect(ownerUser("owner@example.com")).toMatchObject({ role: "user", loginMethod: "registration_pin", openId: "b36-owner:owner@example.com" });
   });
 
+  it("elevates the two authorized commissioners when they use their normal owner session", () => {
+    expect(ownerUser("shawngidley@gmail.com")).toMatchObject({ role: "admin", loginMethod: "registration_pin", openId: "b36-owner:shawngidley@gmail.com" });
+    expect(ownerUser("janssenmatt25@gmail.com")).toMatchObject({ role: "admin", loginMethod: "registration_pin", openId: "b36-owner:janssenmatt25@gmail.com" });
+  });
+
   it("signs verifiable, expiring commissioner session tokens and hashes them before persistence", async () => {
     const token = await signCommissionerToken("janssenmatt25@gmail.com", "session-123", 60_000);
     const parsed = await verifyCommissionerToken(token);

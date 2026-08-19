@@ -168,4 +168,9 @@
 - [x] Keep /join as the dedicated owner program-registration page rather than the root landing page.
 - [x] Persist approved owner sign-in safely across return visits and provide a clear league-site sign-out action.
 - [x] Remove and test the request-context Manus OAuth fallback so only league-issued owner or commissioner sessions authorize private access.
-- [ ] Republish and verify 36football.com so the root serves the current owner email-and-PIN sign-in while /join serves registration.
+- [x] Republish and verify 36football.com so the root serves the current owner email-and-PIN sign-in while /join serves registration.
+- [x] Verify Shawn Gidley’s registration-backed commissioner eligibility independently of owner-program approval without reading private credentials.
+- [x] Clarify and, if needed, correct the separate owner approval and commissioner sign-in routing behavior.
+- [x] Elevate Shawn Gidley and Matt Janssen normal approved league email-and-PIN sessions to commissioner access without a separate login.
+- [x] Add regression coverage that unified commissioner sessions authorize Commish while ordinary owner sessions remain blocked.
+- [x] Clarify on the normal owner sign-in page that authorized commissioners use the same league email-and-PIN form and then open Commish.

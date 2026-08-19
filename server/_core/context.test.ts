@@ -48,4 +48,10 @@ describe("league session context", () => {
     expect(mocks.resolveCommissioner).toHaveBeenCalledOnce();
     expect(mocks.resolveOwner).toHaveBeenCalledOnce();
   });
+
+  it("preserves commissioner elevation when an authorized commissioner uses the normal owner session", async () => {
+    mocks.resolveOwner.mockResolvedValue({ ...owner, email: "shawngidley@gmail.com", openId: "b36-owner:shawngidley@gmail.com", role: "admin" });
+    const context = await createContext({ req: { headers: { cookie: "b36_owner_session=signed" } }, res: {} } as never);
+    expect(context.user).toMatchObject({ email: "shawngidley@gmail.com", role: "admin" });
+  });
 });
