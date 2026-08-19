@@ -86,7 +86,9 @@ def player_position(game_id, school, name):
             abbreviated_candidates = {
                 position
                 for player, positions in game_lookup.items()
-                if player.startswith(f'{initial} ') and player.endswith(f' {surname}')
+                if len(re.sub(r'\s+\b(?:jr|sr|ii|iii|iv|v)\.?$', '', player, flags=re.I).split()) >= 2
+                and re.sub(r'\s+\b(?:jr|sr|ii|iii|iv|v)\.?$', '', player, flags=re.I).split()[0].startswith(initial)
+                and re.sub(r'\s+\b(?:jr|sr|ii|iii|iv|v)\.?$', '', player, flags=re.I).split()[-1] == surname
                 for position in positions
             }
             if len(abbreviated_candidates) == 1:
@@ -260,7 +262,7 @@ for row in rows:
                     unassigned.append({'school_name': school, 'game_id': game_id, 'text': row.get('text'), 'conversion_clause': clause, 'kind': 'two_point_pass', 'passer_position': primary_position, 'receiver_position': secondary_position})
             elif primary_position in {'QB', 'RB', 'WR', 'TE'}:
                 add_conversion(school, primary_position, 'rush', row, clause)
-            else:
+            elif primary_position is None:
                 unassigned.append({'school_name': school, 'game_id': game_id, 'text': row.get('text'), 'conversion_clause': clause, 'kind': 'two_point_rush', 'rusher_position': primary_position})
 
 qb_controls = json.loads(Path('/tmp/qb_2025_espn_boxscore_certification.json').read_text())['rows']

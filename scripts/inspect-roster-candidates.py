@@ -10,6 +10,10 @@ position_by_href = {href: value.get('abbreviation') for href, value in identifie
 
 for event in exceptions:
     name = event.get('rusher') or event.get('receiver')
+    if not name and event.get('conversion_clause'):
+        clause = event['conversion_clause']
+        match = re.search(r'([A-Za-z.\' -]+?)\s+(?:pass|run|rush)', clause, flags=re.I)
+        name = match.group(1).strip() if match else ''
     if not name:
         continue
     cleaned = re.sub(r'\s+\d+\s+yd(?:s)?$', '', str(name), flags=re.I).strip()

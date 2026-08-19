@@ -113,3 +113,5 @@
 - [x] Add a K/ST publication verification that rejects any certified row with unverified block or special-teams-safety evidence and rejects any held numerical total.
 - [x] Correct overlapping school-name attribution in the historical offensive ledger and remeasure QB, RB, WR, and TE control reconciliation before publishing any additional totals.
 - [x] Publish the 28 newly complete QB, RB, WR, and TE historical totals from the corrected attribution ledger and verify remaining holds stay suppressed.
+- [x] Resolve deterministic initial-based roster abbreviations and non-draftable conversion scorers in the historical offensive ledger before reconsidering affected holds.
+- [x] Publish the four newly complete conversion-reconciled offensive totals and verify all remaining holds stay numerically suppressed.
