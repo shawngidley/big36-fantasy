@@ -36,10 +36,15 @@ describe("Big 36 public live-results snapshot", () => {
     await expect(getDraftResearchCatalog("QB")).resolves.toMatchObject([{ schoolName: "Utah State", officialPoints: null, normalizedPoints: null }]);
   });
 
-  it("returns no usable K/ST point total through the public research query when a component remains held", async () => {
-    mocks.supabaseRest.mockResolvedValueOnce([{ season: 2025, school_name: "Georgia Tech", position: "K_ST", official_points: 174, eligible_games: 12, normalization_factor: 1, normalized_points: 174, event_counts: { BLOCK: 1 }, stat_summary: { historical_points_hold: true, historical_points_hold_reason: "Block cross-check incomplete" }, source_note: "Held", calculated_at: "2026-08-19T00:00:00.000Z" }]);
-    await expect(getDraftResearchCatalog("K_ST")).resolves.toMatchObject([{ schoolName: "Georgia Tech", officialPoints: null, normalizedPoints: null }]);
-  });
+	it("returns no usable K/ST point total through the public research query when a component remains held", async () => {
+	  mocks.supabaseRest.mockResolvedValueOnce([{ season: 2025, school_name: "Georgia Tech", position: "K_ST", official_points: 174, eligible_games: 12, normalization_factor: 1, normalized_points: 174, event_counts: { BLOCK: 1 }, stat_summary: { historical_points_hold: true, historical_points_hold_reason: "Block cross-check incomplete" }, source_note: "Held", calculated_at: "2026-08-19T00:00:00.000Z" }]);
+	  await expect(getDraftResearchCatalog("K_ST")).resolves.toMatchObject([{ schoolName: "Georgia Tech", officialPoints: null, normalizedPoints: null }]);
+	});
+
+	it("exposes a clearly labeled provisional DEF value without treating it as a certified historical total", () => {
+	  const unit = publicDraftResearchUnit({ season: 2025, school_name: "Air Force", position: "DEF", official_points: 48, eligible_games: 12, normalization_factor: 1, normalized_points: 48, event_counts: { SACK: 15, INTERCEPTION: 7 }, stat_summary: { historical_points_certified: false, historical_points_hold: false, historical_points_provisional: true }, source_note: "Provisional estimate", calculated_at: "2026-08-19T00:00:00.000Z" });
+	  expect(unit).toMatchObject({ schoolName: "Air Force", officialPoints: 48, normalizedPoints: 48, statSummary: { historical_points_provisional: true, historical_points_certified: false } });
+	});
 
   it("uses authoritative Year 1 touchdown rules when the database rule table is empty", async () => {
     mocks.supabaseRest.mockResolvedValueOnce([]);
