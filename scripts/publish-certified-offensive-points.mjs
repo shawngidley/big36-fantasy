@@ -49,7 +49,7 @@ const changes = ledger.rows.filter(row => positions.includes(row.position)).map(
     historical_points_certified: certified,
     historical_points_hold: !certified,
     historical_points_source: row.position === 'TE'
-      ? 'cfbfastR normalized 2025 play-by-play for touchdown goal-line tiers and conversions; TE touchdown tiers are doubled under the approved 12/16/20/24 rule; CFBD first-12-game player box scores for turnovers'
+      ? 'cfbfastR normalized 2025 play-by-play for touchdown events and conversions; every TE touchdown is worth the commissioner-approved flat 12 points; CFBD first-12-game player box scores for turnovers'
       : 'cfbfastR normalized 2025 play-by-play for touchdown goal-line tiers and conversions; CFBD first-12-game player box scores for turnovers',
     historical_points_hold_reason: certified ? null : holdReasons.join('; '),
     historical_points_scope: 'First 12 eligible 2025 regular-season games',
@@ -80,7 +80,7 @@ const changes = ledger.rows.filter(row => positions.includes(row.position)).map(
     stat_summary: nextSummary,
     source_note: certified
       ? row.position === 'TE'
-        ? 'Certified 2025 first-12-game total: normalized cfbfastR scoring-event tiers and conversions reconciled to CFBD official player box-score controls; TE touchdown tiers use the approved 12/16/20/24 schedule.'
+        ? 'Certified 2025 first-12-game total: normalized cfbfastR scoring events and conversions reconciled to CFBD official player box-score controls; every TE touchdown is worth the approved flat 12 points.'
         : 'Certified 2025 first-12-game total: normalized cfbfastR scoring-event tiers and conversions reconciled to CFBD official player box-score controls.'
       : 'Historical tiered total held pending complete event ownership and control reconciliation; no unsupported point total is displayed.',
     changed,

@@ -4,7 +4,10 @@ export type YearOneRule = { label: string; eventType: ScoringEventType; position
 
 const offensivePositions = ["QB", "RB", "WR", "TE"] as const;
 const touchdownRules = (position: (typeof offensivePositions)[number]): YearOneRule[] => {
-  const [short, medium, long, explosive] = position === "TE" ? [12, 16, 20, 24] : [6, 8, 10, 12];
+  // Commissioner-approved Year 1 exception: a TE touchdown is always worth
+  // 12 points, regardless of its goal-line distance. The yard bands remain so
+  // the live scorer can resolve a rule consistently for every event.
+  const [short, medium, long, explosive] = position === "TE" ? [12, 12, 12, 12] : [6, 8, 10, 12];
   return [
     { label: `${position} touchdown 1–9 yards`, eventType: "TOUCHDOWN", positionScope: position, minYards: 1, maxYards: 9, flatPoints: short },
     { label: `${position} touchdown 10–29 yards`, eventType: "TOUCHDOWN", positionScope: position, minYards: 10, maxYards: 29, flatPoints: medium },

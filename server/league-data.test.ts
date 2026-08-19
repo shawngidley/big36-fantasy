@@ -49,7 +49,7 @@ describe("Big 36 public live-results snapshot", () => {
   it("uses authoritative Year 1 touchdown rules when the database rule table is empty", async () => {
     mocks.supabaseRest.mockResolvedValueOnce([]);
     const rules = await getScoringRulesForEvent("TOUCHDOWN");
-    expect(rules.filter(rule => rule.positionScope === "TE").map(rule => rule.flatPoints)).toEqual([12, 16, 20, 24]);
+    expect(rules.filter(rule => rule.positionScope === "TE").map(rule => rule.flatPoints)).toEqual([12, 12, 12, 12]);
     expect(rules.filter(rule => rule.positionScope === "QB").map(rule => rule.flatPoints)).toEqual([6, 8, 10, 12]);
   });
 
