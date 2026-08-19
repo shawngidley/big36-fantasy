@@ -51,6 +51,13 @@ const verifiedReturnDistanceOverrides = [
     distance: 15,
     source: 'Official Kansas State–TCU box score: https://www.kstatesports.com/sports/football/stats/2025/tcu/boxscore/18889',
   },
+  {
+    school: 'Miami (OH)',
+    gameId: 401762875,
+    textMatch: /J\.Agee|Jermaine Agee/i,
+    distance: 0,
+    source: 'Official Miami (OH)–Ball State box score: https://miamiredhawks.com/sports/football/stats/2025/ball-state/boxscore/20202',
+  },
 ];
 const roleSchool = (play, role, teamById) => {
   const participant = (play.teamParticipants ?? []).find(item => item.type === role);
