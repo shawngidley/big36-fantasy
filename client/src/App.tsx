@@ -4,9 +4,11 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Commissioner from "./pages/Commissioner";
+import CommissionerRegistrations from "./pages/CommissionerRegistrations";
 import DraftBoard from "./pages/DraftBoard";
 import DraftResearch from "./pages/DraftResearch";
 import Home from "./pages/Home";
+import JoinLeague from "./pages/JoinLeague";
 import Leaderboards from "./pages/Leaderboards";
 import MyDraft from "./pages/MyDraft";
 import NotFound from "./pages/NotFound";
@@ -17,6 +19,7 @@ import Weekly from "./pages/Weekly";
 function Router() {
   return <Switch>
     <Route path="/" component={Home} />
+    <Route path="/join" component={JoinLeague} />
     <Route path="/standings" component={Standings} />
     <Route path="/draft" component={DraftBoard} />
     <Route path="/research" component={DraftResearch} />
@@ -25,6 +28,7 @@ function Router() {
     <Route path="/my-draft" component={MyDraft} />
     <Route path="/team/:ownerId" component={Team} />
     <Route path="/commissioner" component={Commissioner} />
+    <Route path="/commissioner/registrations" component={CommissionerRegistrations} />
     <Route path="/404" component={NotFound} />
     <Route component={NotFound} />
   </Switch>;

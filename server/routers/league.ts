@@ -10,11 +10,18 @@ import { adminProcedure, protectedProcedure, publicProcedure, router } from "../
 import { yearOneRules } from "../year-one-rules";
 import { runGamedayRefresh } from "../gameday-refresh";
 import { syncFbsPoolAndSchedule } from "../gameday-refresh";
+import { decodeRegistrationLogo, hashRegistrationPin, normalizeRegistrationEmail, normalizeRegistrationPhone } from "../registration";
+import { storagePut } from "../storage";
 
 const positionSchema = z.enum(positions);
 const eventTypeSchema = z.enum(scoringEventTypes);
 const uuid = z.string().uuid();
 const asError = (error: unknown): never => { throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "The requested Big 36 action could not be completed." }); };
+const registrationTable = "b36_owner_registrations";
+const registrationInput = z.object({
+  displayName: z.string().trim().min(2).max(120), teamName: z.string().trim().min(2).max(120), nickname: z.string().trim().max(80).nullable().optional(), programIdentity: z.string().trim().max(240).nullable().optional(), inspiration: z.string().trim().max(240).nullable().optional(), primaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).nullable().optional(), accentColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).nullable().optional(), brandingNotes: z.string().trim().max(1000).nullable().optional(), rivalryPreference: z.string().trim().max(120).nullable().optional(), email: z.string().trim().email().max(254), phone: z.string().trim().min(10).max(32), pin: z.string().min(4).max(12), logoDataUrl: z.string().max(2_000_000).nullable().optional(),
+});
+type RegistrationRow = { id: string; display_name: string; team_name: string; nickname: string | null; program_identity: string | null; inspiration: string | null; primary_color: string | null; accent_color: string | null; branding_notes: string | null; rivalry_preference: string | null; email: string; phone_e164: string; logo_key: string | null; logo_url: string | null; status: "PENDING" | "APPROVED" | "DECLINED"; assigned_owner_id: string | null; review_note: string | null; created_at: string; reviewed_at: string | null };
 
 export const leagueRouter = router({
   snapshot: publicProcedure.query(() => getLeagueSnapshot()),
@@ -23,6 +30,22 @@ export const leagueRouter = router({
     const owner = (await getLeagueSnapshot()).owners.find(item => item.id === input.ownerId);
     if (!owner) throw new TRPCError({ code: "NOT_FOUND", message: "Big 36 team not found." });
     return owner;
+  }),
+  submitRegistration: publicProcedure.input(registrationInput).mutation(async ({ input }) => {
+    try {
+      const email = normalizeRegistrationEmail(input.email); const phone = normalizeRegistrationPhone(input.phone);
+      const [emailMatches, phoneMatches] = await Promise.all([
+        supabaseRest<Array<Pick<RegistrationRow, "id">>>(registrationTable, { query: { select: "id", email: q.eq(email), limit: "1" } }),
+        supabaseRest<Array<Pick<RegistrationRow, "id">>>(registrationTable, { query: { select: "id", phone_e164: q.eq(phone), limit: "1" } }),
+      ]);
+      if (emailMatches.length || phoneMatches.length) throw new Error("A registration already uses that email address or phone number.");
+      const logo = input.logoDataUrl ? decodeRegistrationLogo(input.logoDataUrl) : null;
+      const storedLogo = logo ? await storagePut(`owner-registrations/${crypto.randomUUID()}.${logo.extension}`, logo.bytes, logo.contentType) : null;
+      const inserted = await supabaseRest<Array<Pick<RegistrationRow, "id">>>(registrationTable, { method: "POST", body: { display_name: input.displayName.trim(), team_name: input.teamName.trim(), nickname: input.nickname?.trim() || null, program_identity: input.programIdentity?.trim() || null, inspiration: input.inspiration?.trim() || null, primary_color: input.primaryColor ?? null, accent_color: input.accentColor ?? null, branding_notes: input.brandingNotes?.trim() || null, rivalry_preference: input.rivalryPreference?.trim() || null, email, phone_e164: phone, pin_hash: hashRegistrationPin(input.pin), logo_key: storedLogo?.key ?? null, logo_url: storedLogo?.url ?? null } });
+      const registrationId = inserted[0]?.id;
+      if (registrationId) await supabaseRest("b36_audit_events", { method: "POST", body: { action: "OWNER_REGISTRATION_SUBMITTED", entity_type: registrationTable, entity_id: registrationId, detail: { includes_logo: Boolean(storedLogo) } } });
+      return { success: true as const };
+    } catch (error) { asError(error); }
   }),
   myDraft: protectedProcedure.query(({ ctx }) => getDraftOwnerState(ctx.user.openId, ctx.user.email)),
   submitMyPick: protectedProcedure.input(z.object({ position: positionSchema, schoolName: z.string().trim().min(2).max(120) })).mutation(async ({ ctx, input }) => {
@@ -38,6 +61,26 @@ export const leagueRouter = router({
     } catch (error) { asError(error); }
   }),
   admin: router({
+    ownerRegistrations: adminProcedure.query(() => supabaseRest<RegistrationRow[]>(registrationTable, { query: { select: "id,display_name,team_name,nickname,program_identity,inspiration,primary_color,accent_color,branding_notes,rivalry_preference,email,phone_e164,logo_key,logo_url,status,assigned_owner_id,review_note,created_at,reviewed_at", order: "created_at.desc" } })),
+    reviewOwnerRegistration: adminProcedure.input(z.object({ registrationId: uuid, status: z.enum(["APPROVED", "DECLINED"]), ownerId: uuid.nullable(), reviewNote: z.string().trim().max(1000).nullable().optional() })).mutation(async ({ ctx, input }) => {
+      try {
+        const registrations = await supabaseRest<RegistrationRow[]>(registrationTable, { query: { select: "id,display_name,team_name,nickname,program_identity,inspiration,primary_color,accent_color,branding_notes,rivalry_preference,email,phone_e164,logo_key,logo_url,status,assigned_owner_id,review_note,created_at,reviewed_at", id: q.eq(input.registrationId), limit: "1" } });
+        const registration = registrations[0];
+        if (!registration) throw new Error("Registration not found.");
+        if (registration.status !== "PENDING") throw new Error("This registration has already been reviewed.");
+        if (input.status === "APPROVED") {
+          if (!input.ownerId) throw new Error("Choose the program slot that this registration should claim.");
+          const snapshot = await getLeagueSnapshot(); const owner = snapshot.owners.find(item => item.id === input.ownerId);
+          if (!owner) throw new Error("Choose an existing 36 Football program slot.");
+          const duplicateTeam = snapshot.owners.find(item => item.id !== owner.id && item.teamName.trim().toLowerCase() === registration.team_name.trim().toLowerCase());
+          if (duplicateTeam) throw new Error("Another program already uses that team name.");
+          await supabaseRest("b36_owners", { method: "PATCH", query: { id: q.eq(owner.id) }, body: { display_name: registration.display_name, team_name: registration.team_name, nickname: registration.nickname, program_identity: registration.program_identity, email: registration.email, logo_url: registration.logo_url, primary_color: registration.primary_color, accent_color: registration.accent_color, branding_notes: registration.branding_notes, rivalry_preference: registration.rivalry_preference } });
+        }
+        await supabaseRest(registrationTable, { method: "PATCH", query: { id: q.eq(registration.id) }, body: { status: input.status, assigned_owner_id: input.status === "APPROVED" ? input.ownerId : null, review_note: input.reviewNote ?? null, reviewed_by_open_id: ctx.user.openId, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() } });
+        await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: input.status === "APPROVED" ? "OWNER_REGISTRATION_APPROVED" : "OWNER_REGISTRATION_DECLINED", entity_type: registrationTable, entity_id: registration.id, detail: { owner_id: input.status === "APPROVED" ? input.ownerId : null } } });
+        return { success: true as const };
+      } catch (error) { asError(error); }
+    }),
     initializeSixDivisions: adminProcedure.mutation(async ({ ctx }) => {
       const existing = await supabaseRest<Array<{ id: string }>>("b36_divisions", { query: { select: "id" } });
       if (existing.length) throw new TRPCError({ code: "CONFLICT", message: "Divisions are already configured." });

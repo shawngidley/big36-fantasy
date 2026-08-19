@@ -29,6 +29,7 @@ import { Button } from "./ui/button";
 
 const menuItems = [
   { icon: LayoutDashboard, label: "Control room", path: "/commissioner" },
+  { icon: ClipboardList, label: "Owner registrations", path: "/commissioner/registrations" },
   { icon: Users, label: "League standings", path: "/standings" },
   { icon: ClipboardList, label: "Draft board", path: "/draft" },
 ];

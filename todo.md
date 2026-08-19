@@ -116,3 +116,13 @@
 - [x] Resolve deterministic initial-based roster abbreviations and non-draftable conversion scorers in the historical offensive ledger before reconsidering affected holds.
 - [x] Publish the four newly complete conversion-reconciled offensive totals and verify all remaining holds stay numerically suppressed.
 - [x] Exclude the independently verified Notre Dame defensive-lineman-to-safety touchdown from offensive-unit hold accounting without changing any draftable unit score.
+- [ ] Correct live reversal-event arithmetic so a finalized removed event offsets its exact original signed score, including negative turnovers.
+- [ ] Add regression coverage for live corrections and reversals across positive and negative scoring events.
+- [ ] Prepare an auditable first-live-game rehearsal checklist for the August 29, 2026 CFBD refresh verification.
+- [x] Add a public shareable owner-registration route with required owner name, team name, email, phone number, and self-selected PIN fields.
+- [x] Support an optional team-logo image upload in registration, stored through managed file storage and reviewed before public use.
+- [x] Collect optional program-creation preferences for nickname, identity, inspiration, color palette, branding notes, and future rivalry interest.
+- [x] Preserve approved program-identity details for future histories, records, rivalries, traditions, and all-time league views without exposing private contact data.
+- [x] Store owner registration contacts securely and store only a salted PIN hash, never the submitted PIN.
+- [x] Add commissioner-only review of submitted registrations and safe owner assignment without exposing private contacts publicly.
+- [x] Validate registration input, duplicate handling, and mobile/desktop sign-up behavior with regression tests.

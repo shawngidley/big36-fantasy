@@ -80,6 +80,27 @@ describe("Big 36 owner draft procedures", () => {
     expect(mocks.supabaseRpc).not.toHaveBeenCalled();
   });
 
+  it("accepts a public program registration while hashing its PIN and normalizing private contact data", async () => {
+    mocks.supabaseRest
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "33333333-3333-4333-8333-333333333333" }])
+      .mockResolvedValueOnce([]);
+    const caller = appRouter.createCaller(createContext("user"));
+
+    await expect(caller.league.submitRegistration({ displayName: "Jordan Owner", teamName: "Lakewood College", nickname: "Night Owls", programIdentity: "Lakeside underdogs", inspiration: "Lakewood", primaryColor: "#B84A12", accentColor: "#17120E", brandingNotes: "Tough and traditional", rivalryPreference: "River City", email: "Jordan@Example.com", phone: "(555) 555-0182", pin: "482917", logoDataUrl: null })).resolves.toEqual({ success: true });
+    expect(mocks.supabaseRest).toHaveBeenNthCalledWith(3, "b36_owner_registrations", expect.objectContaining({ method: "POST", body: expect.objectContaining({ email: "jordan@example.com", phone_e164: "+5555550182", team_name: "Lakewood College", nickname: "Night Owls", primary_color: "#B84A12" }) }));
+    const insert = mocks.supabaseRest.mock.calls[2]?.[1]?.body as { pin_hash: string };
+    expect(insert.pin_hash).toMatch(/^scrypt\$/);
+    expect(insert.pin_hash).not.toContain("482917");
+  });
+
+  it("keeps private registration review commissioner-only", async () => {
+    const ownerCaller = appRouter.createCaller(createContext("user"));
+    await expect(ownerCaller.league.admin.ownerRegistrations()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(mocks.supabaseRest).not.toHaveBeenCalled();
+  });
+
   it("allows only the commissioner to open a position round", async () => {
     mocks.supabaseRest.mockResolvedValue([]);
     const ownerCaller = appRouter.createCaller(createContext("user"));
