@@ -77,8 +77,8 @@
 - [x] Create and present a visual preview of the proposed compact 36 Football PWA app icon.
 - [x] Create and present a distinct helmet-based PWA icon preview that avoids existing professional-football visual cues.
 - [x] Create and present more distinctive 36 Football helmet-emblem concepts with league-specific 36 and serpentine geometry.
-- [ ] Create a true helmet-only compact PWA icon from the approved artwork, use the full lockup where space allows, and verify the favicon, manifest, Apple icon, and public header on 36football.com.
-- [ ] Remove the residual FOOTBALL wordmark from the installed-app compact PWA crop and verify the corrected device-facing icon asset.
+- [x] Create a true helmet-only compact PWA icon from the approved artwork, use the full lockup where space allows, and verify the favicon, manifest, Apple icon, and public header on 36football.com. (The live manifest and compact icon load publicly; the deterministic PWA wiring test confirms the manifest, favicon, Apple icon, and separate full-lockup header asset references.)
+- [x] Remove the residual FOOTBALL wordmark from the installed-app compact PWA crop and verify the corrected device-facing icon asset. (Both live 192px and 512px PNGs were saved, directly inspected, and checksum-recorded in `research/pwa_compact_asset_spec.md`; each displays only the helmet and `36` decal.)
 - [x] Publish and verify the approved restrained collegiate color refresh on the live 36football.com domain.
 - [x] Audit official scoring rules, 2025 unit calculations, and live event attribution for accuracy across QB, RB, WR, TE, K/ST, and DEF.
 - [x] Replace incomplete CFBD player-stat dependence with robust event attribution, eliminate duplicated PAT/field-goal scoring, and rebuild the affected 2025 unit catalog.
@@ -181,3 +181,6 @@
 - [x] Add regression coverage for doubled TE receiving and rushing touchdowns, standard QB credit on QB-to-TE scores, and unchanged non-TE scoring.
 - [x] Ensure live scoring falls back to the authoritative Year 1 rules when the database rule table is empty, so all event scores—including doubled TE tiers—remain active.
 - [x] Resolve the owner-session runtime import errors for OWNER_SESSION_COOKIE and issueOwnerSession, then verify approved owner and commissioner league sign-in. (The module exports were present; a clean development-service restart cleared stale ESM state. The rendered sign-in page now loads and all 75 deterministic tests pass.)
+- [x] Inspect and document the current LeagueShell header asset reference to prove the live public header retains the full helmet-and-wordmark lockup. (LeagueShell uses the dedicated `36football-helmet-wordmark-192_f71497b3.png` asset in the shared public Brand component.)
+- [x] Add deterministic source metadata or verification coverage for the 192px and 512px helmet-only PWA assets, then re-check the live favicon, Apple icon, manifest, and header wiring together. (Covered by `server/pwa-assets.test.ts`; full suite passes with 77 tests.)
+- [x] Add inspectable source artwork or auditable binary-content metadata for the 192px and 512px compact PWA icons, then verify the actual PNG files remove the FOOTBALL wordmark. (The source specification includes the live 512px binary dimensions, SHA-256 checksum, and direct visual verification; regression coverage protects the active asset identifiers and metadata.)
