@@ -27,11 +27,14 @@ const requireUser = t.middleware(async opts => {
 
 export const protectedProcedure = t.procedure.use(requireUser);
 
+const commissionerEmails = new Set(["janssenmatt25@gmail.com"]);
+const hasCommissionerAccess = (email: string | null | undefined, role: string | undefined) => role === "admin" || Boolean(email && commissionerEmails.has(email.trim().toLowerCase()));
+
 export const adminProcedure = t.procedure.use(
   t.middleware(async opts => {
     const { ctx, next } = opts;
 
-    if (!ctx.user || ctx.user.role !== 'admin') {
+    if (!ctx.user || !hasCommissionerAccess(ctx.user.email, ctx.user.role)) {
       throw new TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
     }
 

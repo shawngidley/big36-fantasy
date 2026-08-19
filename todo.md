@@ -145,3 +145,7 @@
 - [x] Verify that public registration succeeds while private contact, PIN hash, and commissioner-review data remain inaccessible to public reads.
 - [x] Supply a valid public-registration audit actor so the required b36_audit_events record does not block sign-up completion.
 - [x] Verify and repair commissioner-only registration review access through the server without granting public reads of private registration data.
+- [x] Authorize janssenmatt25@gmail.com as a commissioner account automatically at sign-in.
+- [x] Add regression coverage that grants commissioner access only to the configured Matt Janssen email and denies other owners.
+- [x] Configure Open Graph and text-share metadata to use the official 36 Football league logo preview image.
+- [x] Add regression coverage that the public document head retains the official league-logo share image metadata.

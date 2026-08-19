@@ -31,13 +31,13 @@ vi.mock("./supabase", () => ({
 
 import { appRouter } from "./routers";
 
-function createContext(role: "admin" | "user"): TrpcContext {
+function createContext(role: "admin" | "user", email = "owner@example.com"): TrpcContext {
   return {
     user: {
       id: 1,
       openId: "owner-open-id",
       name: "League Owner",
-      email: "owner@example.com",
+      email,
       loginMethod: "email",
       role,
       createdAt: new Date(),
@@ -96,6 +96,13 @@ describe("Big 36 owner draft procedures", () => {
     const ownerCaller = appRouter.createCaller(createContext("user"));
     await expect(ownerCaller.league.admin.ownerRegistrations()).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(mocks.supabaseRest).not.toHaveBeenCalled();
+  });
+
+  it("grants commissioner review access to the configured Matt Janssen email without changing other owner access", async () => {
+    mocks.supabaseRest.mockResolvedValue([]);
+    const mattCaller = appRouter.createCaller(createContext("user", "janssenmatt25@gmail.com"));
+    await expect(mattCaller.league.admin.ownerRegistrations()).resolves.toEqual([]);
+    expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_owner_registrations", expect.any(Object));
   });
 
   it("keeps the root registration landing open until all 36 registrations are approved", async () => {
