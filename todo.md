@@ -89,9 +89,20 @@
 - [ ] Rebuild 2025 QB attribution from official CFBD per-game player box scores while retaining play-by-play only for verified touchdown-distance tiers.
 - [ ] Reconcile first-12-game QB touchdown tiers against cached public ESPN scoring summaries before certifying and publishing the full 2025 QB catalog.
 - [ ] Resolve the remaining nine QB first-12-game touchdown-tier exceptions using certified CFBD player boxes and ESPN scoring-event evidence before updating point totals.
+- [ ] Obtain and reconcile complete historical scoring-play evidence for every source-limited touchdown, special-teams, and defensive event before releasing any held 2025 tiered point total.
+- [ ] Confirm the intended offensive touchdown-distance tiers by position and align the live scorer, historical builder, and published point ledger before further certification.
+- [ ] Lock the commissioner-confirmed deployed 6/8/10/12 offensive touchdown tiers across the live scorer, historical builder, and certified point rebuild.
+- [ ] Confirm whether successful two-point conversions earn points and, if so, define their unit and quarterback attribution before the historical scoring ledger is rebuilt.
+- [ ] Apply +4 passing two-point credit to both QB and receiver positions, and +4 rushing two-point credit only to the scorer, across live scoring and historical reconstruction.
 - [ ] Certify every first-12-game RB, WR, TE, K/ST, and DEF research unit against authoritative statistics and touchdown-tier or special-teams event evidence before updating published scoring.
 - [x] Publish certified first-12-game visible-stat overlays for all RB, WR, TE, K/ST, and DEF cards, and hold any point total lacking complete tier or event-ownership evidence.
 - [x] Preserve the nine source-limited historical QB tier point totals without inference and label the future complete-play-by-play requirement for final certification.
 - [x] Publish and verify certified CFBD first-12-game QB touchdown and interception stat lines on all public research cards while retaining the nine-school tier-points audit as a separate holdout.
 - [x] Remove or clearly separate legacy QB event-ledger counts from certified QB stat cards so public research values are not contradictory.
 - [x] Integrate the approved full helmet-and-wordmark artwork into the shared website header and initial PWA metadata.
+- [x] Publish only fully reconciled 2025 QB, RB, WR, and TE tiered totals, including certified turnover deductions, while retaining unsupported totals as held.
+- [x] Update public research cards to distinguish certified historical totals from deliberately held historical totals without displaying unsupported points.
+- [x] Suppress numerical historical point totals for every held QB, RB, WR, and TE unit in the research API and Supabase catalog.
+- [x] Verify that any research record marked as historically held exposes no usable point total through the public API.
+- [x] Clear stored point values for held QB, RB, WR, and TE historical units in the Supabase research catalog.
+- [x] Verify held historical units have no numerical point value in either Supabase storage or the public research response.

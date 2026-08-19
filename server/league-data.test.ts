@@ -7,7 +7,7 @@ vi.mock("./supabase", () => ({
   supabaseRest: mocks.supabaseRest,
 }));
 
-import { completedScheduleNormalization, getLeagueSnapshot, overallRankAtEvent } from "./league-data";
+import { completedScheduleNormalization, getDraftResearchCatalog, getLeagueSnapshot, overallRankAtEvent, publicDraftResearchUnit } from "./league-data";
 
 describe("Big 36 public live-results snapshot", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -24,6 +24,16 @@ describe("Big 36 public live-results snapshot", () => {
     const completedEleven = Array.from({ length: 11 }, (_, index) => ({ season: 2026, season_type: "regular", completed: true, home_team: "Hawaii", away_team: `Opponent ${index}` }));
     expect(completedScheduleNormalization("Hawaii", completedEleven)).toBeCloseTo(12 / 11);
     expect(completedScheduleNormalization("Hawaii", [...completedEleven, { season: 2026, season_type: "regular", completed: false, home_team: "Hawaii", away_team: "Future Opponent" }])).toBe(1);
+  });
+
+  it("suppresses point totals for a research unit held pending historical event reconciliation", () => {
+    const unit = publicDraftResearchUnit({ season: 2025, school_name: "Utah State", position: "QB", official_points: 255, eligible_games: 12, normalization_factor: 1, normalized_points: 255, event_counts: {}, stat_summary: { historical_points_hold: true }, source_note: "Held", calculated_at: "2026-08-19T00:00:00.000Z" });
+    expect(unit).toMatchObject({ schoolName: "Utah State", officialPoints: null, normalizedPoints: null });
+  });
+
+  it("returns no usable point total through the public research query for a held record", async () => {
+    mocks.supabaseRest.mockResolvedValueOnce([{ season: 2025, school_name: "Utah State", position: "QB", official_points: 255, eligible_games: 12, normalization_factor: 1, normalized_points: 255, event_counts: {}, stat_summary: { historical_points_hold: true }, source_note: "Held", calculated_at: "2026-08-19T00:00:00.000Z" }]);
+    await expect(getDraftResearchCatalog("QB")).resolves.toMatchObject([{ schoolName: "Utah State", officialPoints: null, normalizedPoints: null }]);
   });
 
   it("builds team totals, standings, weekly scores, and position leaders from Supabase records", async () => {

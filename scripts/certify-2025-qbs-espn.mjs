@@ -71,7 +71,7 @@ for (const { school } of teams) {
   const selected = selectedBySchool.get(school) ?? [];
   const boxes = new Map((await cachedCfbdBoxscores(school)).map(box => [Number(box.id), box]));
   const events = [];
-  const totals = { passing_touchdowns: 0, rushing_touchdowns: 0, interceptions: 0, tier_events_without_cfbd_match: 0 };
+  const totals = { passing_touchdowns: 0, rushing_touchdowns: 0, interceptions: 0, fumbles_lost: 0, tier_events_without_cfbd_match: 0 };
   for (const game of selected) {
     const summary = summaries.get(Number(game.id));
     const competitors = summary?.header?.competitions?.[0]?.competitors ?? [];
@@ -82,6 +82,7 @@ for (const { school } of teams) {
     }).map(competitor => String(competitor.team?.id)));
     const teamBox = boxes.get(Number(game.id))?.teams?.find(item => normal(item.team) === normal(school));
     totals.interceptions += boxStat(teamBox, "passing", "int", rosterContext, true);
+    totals.fumbles_lost += boxStat(teamBox, "fumbles", "lost", rosterContext, true);
     const scoringPlays = summary?.scoringPlays ?? [];
     for (const play of scoringPlays) {
       if (!schoolTeamIds.has(String(play.team?.id))) continue;
@@ -105,8 +106,9 @@ for (const { school } of teams) {
     sum.passing_touchdowns += boxStat(teamBox, "passing", "td", rosterContext, true);
     sum.rushing_touchdowns += boxStat(teamBox, "rushing", "td", rosterContext, true);
     sum.interceptions += boxStat(teamBox, "passing", "int", rosterContext, true);
+    sum.fumbles_lost += boxStat(teamBox, "fumbles", "lost", rosterContext, true);
     return sum;
-  }, { passing_touchdowns: 0, rushing_touchdowns: 0, interceptions: 0 });
+  }, { passing_touchdowns: 0, rushing_touchdowns: 0, interceptions: 0, fumbles_lost: 0 });
   rows.push({ school_name: school, eligible_games: selected.length, official_boxscore: boxTotals, espn_scoring_summary: totals, events, boxscore_match: boxTotals.passing_touchdowns === totals.passing_touchdowns && boxTotals.rushing_touchdowns === totals.rushing_touchdowns && boxTotals.interceptions === totals.interceptions });
 }
 const report = { season, generated_at: new Date().toISOString(), rows };
