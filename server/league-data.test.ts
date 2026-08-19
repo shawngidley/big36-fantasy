@@ -42,8 +42,8 @@ describe("Big 36 public live-results snapshot", () => {
 	});
 
 	it("exposes a clearly labeled provisional DEF value without treating it as a certified historical total", () => {
-	  const unit = publicDraftResearchUnit({ season: 2025, school_name: "Air Force", position: "DEF", official_points: 48, eligible_games: 12, normalization_factor: 1, normalized_points: 48, event_counts: { SACK: 15, INTERCEPTION: 7 }, stat_summary: { historical_points_certified: false, historical_points_hold: false, historical_points_provisional: true }, source_note: "Provisional estimate", calculated_at: "2026-08-19T00:00:00.000Z" });
-	  expect(unit).toMatchObject({ schoolName: "Air Force", officialPoints: 48, normalizedPoints: 48, statSummary: { historical_points_provisional: true, historical_points_certified: false } });
+		  const unit = publicDraftResearchUnit({ season: 2025, school_name: "Air Force", position: "DEF", official_points: 48, eligible_games: 12, normalization_factor: 1, normalized_points: 48, event_counts: { SACK: 15, INTERCEPTION: 7 }, stat_summary: { historical_points_certified: false, historical_points_hold: false, historical_points_provisional: true, provisional_def_estimated_td_count: 2 }, source_note: "Provisional estimate", calculated_at: "2026-08-19T00:00:00.000Z" });
+		  expect(unit).toMatchObject({ schoolName: "Air Force", officialPoints: 48, normalizedPoints: 48, statSummary: { historical_points_provisional: true, historical_points_certified: false, provisional_def_estimated_td_count: 2 } });
 	});
 
   it("uses authoritative Year 1 touchdown rules when the database rule table is empty", async () => {
