@@ -30,7 +30,20 @@ const add = (school, event, points, evidence) => {
   if (!item) return;
   item.points += points; item.events[event] += 1; item.event_points[event] += points; item.evidence.push(evidence);
 };
-const opposingSchool = (game, offense) => normal(game.homeTeam) === normal(offense) ? game.awayTeam : game.homeTeam;
+const verifiedSupplementalEvents = [
+  {
+    school: 'Eastern Michigan',
+    gameId: 401761594,
+    event: 'SACK',
+    points: 1,
+    text: 'Brad Jackson sacked by Messiah Blair for a loss of 9 yards to the Texas State 41; fumble on the play.',
+    source: 'Official Eastern Michigan–Texas State game book: https://dxbhsrqyrr690.cloudfront.net/sidearm.nextgen.sites/emueagles.com/stats/football/2025/pdf/20250830104119-41229.pdf',
+  },
+];
+const roleSchool = (play, role, teamById) => {
+  const participant = (play.teamParticipants ?? []).find(item => item.type === role);
+  return teamById.get(String(participant?.id ?? teamIdFromRef(participant?.team?.$ref))) ?? null;
+};
 for (const school of schools) {
   for (const game of games.filter(game => selectedBySchool.get(school)?.has(Number(game.id)))) {
     const opponentPoints = normal(game.homeTeam) === normal(school) ? Number(game.awayPoints) : Number(game.homePoints);
@@ -43,12 +56,11 @@ for (const [gameId, game] of selectedGames) {
   const teamById = new Map(competitors.map(competitor => [String(competitor.team?.id), competitor.homeAway === 'home' ? game.homeTeam : game.awayTeam]));
   const core = JSON.parse(await readFile(`/tmp/espn_core_2025_scoring_plays/${gameId}.json`, 'utf8'));
   for (const play of core.items ?? []) {
-    const school = teamById.get(teamIdFromRef(play.team?.$ref));
-    if (!school) continue;
-    const defense = opposingSchool(game, school);
-    const sourceSchoolSelected = selectedBySchool.get(school)?.has(gameId) ?? false;
+    const offense = roleSchool(play, 'offense', teamById);
+    const defense = roleSchool(play, 'defense', teamById);
+    if (!offense || !defense) continue;
     const defendingSchoolSelected = selectedBySchool.get(defense)?.has(gameId) ?? false;
-    if (!sourceSchoolSelected && !defendingSchoolSelected) continue;
+    if (!defendingSchoolSelected) continue;
     if (!selectedBySchool.get(defense)?.has(gameId)) continue;
     const type = normal(play.type?.text);
     const text = String(play.text ?? '');
@@ -56,15 +68,19 @@ for (const [gameId, game] of selectedGames) {
     if (type === 'sack' && defendingSchoolSelected) add(defense, 'SACK', 1, { game_id: gameId, event: 'SACK', text });
     const interception = type === 'interception' || type === 'interception return touchdown' || type === 'pass interception return';
     const fumbleRecovery = type.startsWith('fumble recovery') || type === 'fumble return touchdown';
-    if (interception && sourceSchoolSelected) add(school, 'INTERCEPTION', 3, { game_id: gameId, event: 'INTERCEPTION', text });
-    if (fumbleRecovery && sourceSchoolSelected) add(school, 'FUMBLE_RECOVERY', 3, { game_id: gameId, event: 'FUMBLE_RECOVERY', text });
-    if (sourceSchoolSelected && play.scoringPlay && Number(play.scoreValue) === 6 && (interception || fumbleRecovery)) {
+    if (interception) add(defense, 'INTERCEPTION', 3, { game_id: gameId, event: 'INTERCEPTION', text });
+    if (fumbleRecovery && play.isTurnover) add(defense, 'FUMBLE_RECOVERY', 3, { game_id: gameId, event: 'FUMBLE_RECOVERY', text });
+    if (play.scoringPlay && Number(play.scoreValue) === 6 && (interception || (fumbleRecovery && play.isTurnover))) {
       const distance = returnDistance(text);
-      if (distance === null) ledger.get(school).unresolved.push({ game_id: gameId, reason: 'Defensive touchdown has no explicit return distance in ESPN core text', text });
-      else add(school, 'DEFENSIVE_TOUCHDOWN', defensiveTouchdownPoints(Number(distance)), { game_id: gameId, event: 'DEFENSIVE_TOUCHDOWN', text });
+      if (distance === null) ledger.get(defense).unresolved.push({ game_id: gameId, reason: 'Defensive touchdown has no explicit return distance in ESPN core text', text });
+      else add(defense, 'DEFENSIVE_TOUCHDOWN', defensiveTouchdownPoints(Number(distance)), { game_id: gameId, event: 'DEFENSIVE_TOUCHDOWN', text });
     }
-    if (sourceSchoolSelected && play.scoringPlay && Number(play.scoreValue) === 2 && type === 'safety' && !/punt[^.]{0,90}blocked/i.test(text)) add(school, 'DEFENSIVE_SAFETY', 6, { game_id: gameId, event: 'DEFENSIVE_SAFETY', text });
+    if (play.scoringPlay && Number(play.scoreValue) === 2 && type === 'safety' && !/punt[^.]{0,90}blocked/i.test(text)) add(defense, 'DEFENSIVE_SAFETY', 6, { game_id: gameId, event: 'DEFENSIVE_SAFETY', text });
   }
+}
+for (const event of verifiedSupplementalEvents) {
+  if (!selectedBySchool.get(event.school)?.has(event.gameId)) continue;
+  add(event.school, event.event, event.points, { game_id: event.gameId, event: event.event, text: event.text, source: event.source, evidence_class: 'official_game_book_supplement' });
 }
 const rows = schools.map(school => {
   const item = ledger.get(school);
