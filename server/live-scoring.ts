@@ -16,6 +16,12 @@ export function gameCountsForSchool(games: CfbdGame[], schoolName: string, gameI
   return eligibleGameIdsForSchool(games, schoolName).includes(gameId);
 }
 
+export function isSupersededInterceptionPlay(play: CfbdPlay, nextPlay: CfbdPlay | undefined) {
+  const isInterception = /interception/i.test(String(play.playType ?? ""));
+  const sameClock = play.period === nextPlay?.period && play.clock?.minutes === nextPlay?.clock?.minutes && play.clock?.seconds === nextPlay?.clock?.seconds;
+  return Boolean(isInterception && nextPlay && play.gameId === nextPlay.gameId && play.driveId && play.driveId === nextPlay.driveId && play.offense === nextPlay.offense && sameClock && !/interception/i.test(String(nextPlay.playType ?? "")) && Number(nextPlay.playNumber ?? 0) > Number(play.playNumber ?? 0));
+}
+
 export function finalShutoutCandidates(input: { game: CfbdGame; selectedSchoolPositions: Array<{ schoolName: string; position: LivePosition }>; provisional?: boolean }): ScoringCandidate[] {
   const { game } = input;
   if (!game.completed) return [];
@@ -42,6 +48,18 @@ function positionsMentionedInText(playText: string | null | undefined, roster: C
     const name = normalizeText(`${athlete.firstName ?? ""} ${athlete.lastName ?? ""}`);
     const shortName = normalizeText(`${String(athlete.firstName ?? "").slice(0, 1)} ${athlete.lastName ?? ""}`);
     if (position && ((name.length >= 5 && text.includes(` ${name} `)) || (shortName.length >= 3 && text.includes(` ${shortName} `)))) mentioned.add(position);
+  }
+  return mentioned;
+}
+
+function passerPositionsInText(playText: string | null | undefined, roster: CfbdRosterAthlete[], positions: Map<number, LivePosition | null>) {
+  const beforePass = ` ${normalizeText(playText).split(" pass ")[0] ?? ""} `;
+  const mentioned = new Set<LivePosition>();
+  for (const athlete of roster) {
+    const position = positions.get(athlete.id);
+    const name = normalizeText(`${athlete.firstName ?? ""} ${athlete.lastName ?? ""}`);
+    const shortName = normalizeText(`${String(athlete.firstName ?? "").slice(0, 1)} ${athlete.lastName ?? ""}`);
+    if (position && ((name.length >= 5 && beforePass.includes(` ${name} `)) || (shortName.length >= 3 && beforePass.includes(` ${shortName} `)))) mentioned.add(position);
   }
   return mentioned;
 }
@@ -85,6 +103,7 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   for (const stat of scoringStats) statsByAthlete.set(stat.athleteId, [...(statsByAthlete.get(stat.athleteId) ?? []), stat]);
   const playType = String(play.playType ?? "").toLowerCase();
   const mentionedPositions = positionsMentionedInText(play.playText, roster, positions);
+  const passerPositions = passerPositionsInText(play.playText, roster, positions);
   const athletePositionsFor = (matcher: (type: string) => boolean) => new Set(Array.from(statsByAthlete.entries()).flatMap(([athleteId, stats]) => matcher(stats.map(stat => stat.statType.toLowerCase()).join(" ")) ? [positions.get(athleteId)] : []).filter((position): position is LivePosition => Boolean(position)));
   const explicitTouchdownPositions = athletePositionsFor(type => type.includes("touchdown"));
   const passingTouchdown = play.scoring && (playType.includes("passing touchdown") || athletePositionsFor(type => type.includes("passing touchdown")).has("QB"));
@@ -119,10 +138,11 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
       scorer.forEach(position => offensiveCandidate(position, "TWO_POINT_CONVERSION"));
     }
   }
+  const qbInterception = scoringStats.some(stat => positions.get(stat.athleteId) === "QB" && stat.statType.toLowerCase().includes("interception")) || (/interception/.test(playType) && passerPositions.has("QB"));
+  if (qbInterception && eligibleSelection(schoolName, "QB")) candidates.push({ sourceEventKey: `${play.id}:INTERCEPTION_THROWN:QB`, sourceGameId: play.gameId, schoolName, position: "QB", eventType: "INTERCEPTION_THROWN", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · quarterback interception` });
   for (const stat of scoringStats) {
     const position = positions.get(stat.athleteId);
     const type = stat.statType.toLowerCase();
-    if (position === "QB" && eligibleSelection(schoolName, "QB") && type.includes("interception")) candidates.push(statFor("INTERCEPTION_THROWN", stat, "QB", schoolName));
     if (position && eligibleSelection(schoolName, position) && type.includes("fumble") && type.includes("lost")) candidates.push(statFor("FUMBLE_LOST", stat, position, schoolName));
   }
   if (eligibleSelection(schoolName, "K_ST") && (playType.includes("field goal good") || playType.includes("made field goal"))) candidates.push({ sourceEventKey: `${play.id}:FIELD_GOAL:K_ST`, sourceGameId: play.gameId, schoolName, position: "K_ST", eventType: "FIELD_GOAL", statValue: 1, yardDistance: play.yardsGained ?? null, provisional, note: `CFBD play ${play.id} · made field goal` });

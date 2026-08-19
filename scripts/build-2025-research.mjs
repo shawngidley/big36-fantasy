@@ -77,8 +77,19 @@ const positionsMentionedInText = (playText, roster) => {
   }
   return mentioned;
 };
+const passerPositionsInText = (playText, roster) => {
+  const beforePass = ` ${nameKey(playText).split(" pass ")[0] ?? ""} `;
+  const mentioned = new Set();
+  for (const athlete of roster.values()) if (athlete.position && ((athlete.name.length >= 5 && beforePass.includes(` ${athlete.name} `)) || (athlete.short.length >= 3 && beforePass.includes(` ${athlete.short} `)))) mentioned.add(athlete.position);
+  return mentioned;
+};
 const positionForAthlete = (roster, athleteId) => roster.get(String(athleteId))?.position ?? null;
 const positionsForStats = (stats, roster, matcher) => new Set(stats.flatMap(stat => matcher(String(stat.statType).toLowerCase()) ? [positionForAthlete(roster, stat.athleteId)] : []).filter(Boolean));
+const isSupersededInterceptionPlay = (play, nextPlay) => {
+  const isInterception = /interception/i.test(String(play.playType ?? ""));
+  const sameClock = play.period === nextPlay?.period && play.clock?.minutes === nextPlay?.clock?.minutes && play.clock?.seconds === nextPlay?.clock?.seconds;
+  return Boolean(isInterception && nextPlay && play.gameId === nextPlay.gameId && play.driveId && play.driveId === nextPlay.driveId && play.offense === nextPlay.offense && sameClock && !/interception/i.test(String(nextPlay.playType ?? "")) && Number(nextPlay.playNumber ?? 0) > Number(play.playNumber ?? 0));
+};
 
 function entry(catalog, school, position) {
   const key = `${normal(school)}::${position}`;
@@ -124,7 +135,9 @@ for (const week of weeks) {
   ]);
   const statsByPlay = new Map();
   for (const stat of stats) statsByPlay.set(stat.playId, [...(statsByPlay.get(stat.playId) ?? []), stat]);
-  for (const play of plays) {
+  for (let index = 0; index < plays.length; index += 1) {
+    const play = plays[index];
+    if (isSupersededInterceptionPlay(play, plays[index + 1])) continue;
     const offense = schools.get(normal(play.offense));
     const defense = schools.get(normal(play.defense));
     const sourceStats = statsByPlay.get(play.id) ?? [];
@@ -134,6 +147,7 @@ for (const week of weeks) {
       const scoringDistance = play.yardsToGoal ?? null;
       const offensiveStats = sourceStats.filter(stat => normal(stat.team) === normal(offense) && Number(stat.stat) !== 0);
       const mentionedPositions = positionsMentionedInText(play.playText, positions);
+      const passerPositions = passerPositionsInText(play.playText, positions);
       const touchdownPositions = positionsForStats(offensiveStats, positions, type => type.includes("touchdown"));
       const completionPositions = positionsForStats(offensiveStats, positions, type => type.includes("completion") || type.includes("passing touchdown"));
       const receptionPositions = positionsForStats(offensiveStats, positions, type => type.includes("reception"));
@@ -153,6 +167,8 @@ for (const week of weeks) {
         const fallbackScorers = offensivePositions.filter(position => rushPositions.has(position));
         (scorers.length > 0 ? scorers : fallbackScorers.length > 0 ? fallbackScorers : offensivePositions.filter(position => mentionedPositions.has(position))).forEach(position => addOffensive(position, "TOUCHDOWN", pointForTouchdown(scoringDistance), { touchdowns: 1 }));
       }
+      const qbInterception = offensiveStats.some(stat => positionForAthlete(positions, stat.athleteId) === "QB" && String(stat.statType).toLowerCase().includes("interception")) || (/interception/.test(playType) && passerPositions.has("QB"));
+      if (qbInterception) add(catalog, offense, "QB", "INTERCEPTION_THROWN", -3, { interceptions: 1 });
       const successfulTwoPoint = /two point (pass|rush)/.test(playType) && !/(failed|fail|no good|incomplete)/.test(nameKey(play.playText));
       if (successfulTwoPoint && playType.includes("pass")) {
         if (completionPositions.has("QB") || mentionedPositions.has("QB")) addOffensive("QB", "TWO_POINT_CONVERSION", 4, { two_point_conversions: 1, passing_two_point_conversions: 1 });
@@ -163,7 +179,6 @@ for (const week of weeks) {
       for (const stat of offensiveStats) {
         const position = positionForAthlete(positions, stat.athleteId);
         const statType = String(stat.statType).toLowerCase();
-        if (position === "QB" && statType.includes("interception")) add(catalog, offense, "QB", "INTERCEPTION_THROWN", -3, { interceptions: 1 });
         if (position && ["QB", "RB", "WR", "TE"].includes(position) && statType.includes("fumble") && statType.includes("lost")) add(catalog, offense, position, "FUMBLE_LOST", -3, { fumbles_lost: 1 });
       }
       if (playType.includes("field goal good") || playType.includes("made field goal")) add(catalog, offense, "K_ST", "FIELD_GOAL", pointForFieldGoal(play.yardsGained ?? null), { field_goals_made: 1 });

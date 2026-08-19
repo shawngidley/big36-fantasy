@@ -12,6 +12,8 @@ The prior research build relied too heavily on CFBD player-stat rows for offensi
 
 A second verification, prompted by the Texas QB card, found that official CFBD play text frequently abbreviates athletes as forms such as **A. Manning**. The fallback matcher initially recognized only full names, which omitted valid touchdowns even after the player-stat coverage repair. The corrected matcher now accepts both normalized full names and first-initial-plus-surname forms while continuing to require a roster-position match.
 
+The Texas review also identified two missing quarterback interception events where CFBD provided an official interception play but no player-stat row. A third apparent interception was a reversed placeholder: the same Texas drive immediately continued at the same game clock, confirming that possession did not change. The corrected scorer now attributes named quarterback interception plays from official text, while excluding that narrow same-drive continuation pattern.
+
 The audit also verified two duplicate-risk paths. Passing touchdowns could be entered twice for QB in the prior historical build, and made field goals or PATs could be generated both from player-stat and play-text paths. Field-goal distance was additionally inconsistent between paths. CFBD play records expose the made-kick distance in `yardsGained` for the audited examples, so the corrected scorer uses that canonical value rather than a derived estimate.
 
 | Unit group | Corrected attribution path | Published-catalog impact |
@@ -31,7 +33,7 @@ The live mapper now uses the same canonical event logic, deduplicates every sour
 
 ## Rebuild verification
 
-The corrected builder recalculated all **816** school-position units and persisted them to Supabase. A post-rebuild comparison found **0 mismatches** between the recalculated totals and the stored catalog rows. For Texas, the first 12 regular-season games now correctly produce **25 QB-unit passing touchdowns, 33 total QB-unit touchdowns, five interceptions, and 241 official points**. The public research view renders the refreshed unit data.
+The corrected builder recalculated all **816** school-position units and persisted them to Supabase. A post-rebuild comparison found **0 mismatches** between the recalculated totals and the stored catalog rows. For Texas, the first 12 regular-season games now correctly produce **25 QB-unit passing touchdowns, 33 total QB-unit touchdowns, seven interceptions, and 235 official points**. The public research view renders the refreshed unit data.
 
 ## Remaining live-validation boundary
 

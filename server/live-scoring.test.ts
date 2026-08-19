@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { eligibleGameIdsForSchool, finalShutoutCandidates, gameCountsForSchool, hasMadePat, mapLivePlayToCandidates, specialTeamsTouchdownType } from "./live-scoring";
+import { eligibleGameIdsForSchool, finalShutoutCandidates, gameCountsForSchool, hasMadePat, isSupersededInterceptionPlay, mapLivePlayToCandidates, specialTeamsTouchdownType } from "./live-scoring";
 
 describe("36 Football automatic scoring map", () => {
   const games = Array.from({ length: 13 }, (_, index) => ({ id: index + 1, season: 2026, week: index + 1, seasonType: "regular", startDate: `2026-0${Math.min(index + 8, 9)}-${String(index + 1).padStart(2, "0")}T17:00:00Z`, completed: true, homeTeam: "Ohio State", awayTeam: "Opponent" }));
@@ -8,6 +8,12 @@ describe("36 Football automatic scoring map", () => {
     expect(gameCountsForSchool(games, "Ohio State", 12)).toBe(true);
     expect(gameCountsForSchool(games, "Ohio State", 13)).toBe(false);
   });
+  it("excludes a reversed interception placeholder when the same drive immediately continues for the offense", () => {
+    const interception = { id: 90, gameId: 9, driveId: "drive-4", playNumber: 7, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Interception", period: 4, clock: { minutes: 10, seconds: 36 } };
+    const continuation = { id: 91, gameId: 9, driveId: "drive-4", playNumber: 8, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Rush", period: 4, clock: { minutes: 10, seconds: 36 } };
+    expect(isSupersededInterceptionPlay(interception, continuation)).toBe(true);
+    expect(isSupersededInterceptionPlay(interception, { ...continuation, offense: "Opponent" })).toBe(false);
+  });
   it("credits both QB and receiver on a passing touchdown using snap yardline-to-goal", () => {
     const candidates = mapLivePlayToCandidates({ play: { id: 55, gameId: 9, offense: "Ohio State", defense: "Opponent", yardsToGoal: 31, scoring: true }, stats: [{ playId: 55, athleteId: 1, team: "Ohio State", statType: "Passing Touchdown", stat: 1 }, { playId: 55, athleteId: 2, team: "Ohio State", statType: "Reception", stat: 1 }], roster: [{ id: 1, position: "QB" }, { id: 2, position: "WR" }], selectedSchoolPositions: [{ schoolName: "Ohio State", position: "QB" }, { schoolName: "Ohio State", position: "WR" }] });
     expect(candidates.map(candidate => `${candidate.position}:${candidate.eventType}:${candidate.yardDistance}`)).toEqual(expect.arrayContaining(["QB:TOUCHDOWN:31", "WR:TOUCHDOWN:31"]));
@@ -15,6 +21,10 @@ describe("36 Football automatic scoring map", () => {
   it("resolves abbreviated official play text when player-stat rows are unavailable", () => {
     const candidates = mapLivePlayToCandidates({ play: { id: 551, gameId: 9, offense: "Ohio State", defense: "Opponent", yardsToGoal: 16, scoring: true, playType: "Passing Touchdown", playText: "A. Manning pass complete to R. Wingo for a touchdown" }, stats: [], roster: [{ id: 1, firstName: "Arch", lastName: "Manning", position: "QB" }, { id: 2, firstName: "Ryan", lastName: "Wingo", position: "WR" }], selectedSchoolPositions: [{ schoolName: "Ohio State", position: "QB" }, { schoolName: "Ohio State", position: "WR" }] });
     expect(candidates.filter(candidate => candidate.eventType === "TOUCHDOWN").map(candidate => candidate.position).sort()).toEqual(["QB", "WR"]);
+  });
+  it("resolves an abbreviated quarterback passer on an interception when the official player-stat row is unavailable", () => {
+    const candidates = mapLivePlayToCandidates({ play: { id: 552, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Pass Interception Return", playText: "A. Manning pass intercepted by Defender" }, stats: [], roster: [{ id: 1, firstName: "Arch", lastName: "Manning", position: "QB" }], selectedSchoolPositions: [{ schoolName: "Ohio State", position: "QB" }] });
+    expect(candidates).toEqual([expect.objectContaining({ position: "QB", eventType: "INTERCEPTION_THROWN", sourceEventKey: "552:INTERCEPTION_THROWN:QB" })]);
   });
   it("creates one touchdown per credited position when CFBD reports both reception and touchdown stats", () => {
     const candidates = mapLivePlayToCandidates({ play: { id: 56, gameId: 9, offense: "Ohio State", defense: "Opponent", yardsToGoal: 12, scoring: true, playType: "Passing Touchdown" }, stats: [{ playId: 56, athleteId: 1, team: "Ohio State", statType: "Completion", stat: 12 }, { playId: 56, athleteId: 1, team: "Ohio State", statType: "Touchdown", stat: 1 }, { playId: 56, athleteId: 2, team: "Ohio State", statType: "Reception", stat: 12 }, { playId: 56, athleteId: 2, team: "Ohio State", statType: "Touchdown", stat: 1 }], roster: [{ id: 1, position: "QB" }, { id: 2, position: "WR" }], selectedSchoolPositions: [{ schoolName: "Ohio State", position: "QB" }, { schoolName: "Ohio State", position: "WR" }] });
