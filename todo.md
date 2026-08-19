@@ -115,3 +115,4 @@
 - [x] Publish the 28 newly complete QB, RB, WR, and TE historical totals from the corrected attribution ledger and verify remaining holds stay suppressed.
 - [x] Resolve deterministic initial-based roster abbreviations and non-draftable conversion scorers in the historical offensive ledger before reconsidering affected holds.
 - [x] Publish the four newly complete conversion-reconciled offensive totals and verify all remaining holds stay numerically suppressed.
+- [x] Exclude the independently verified Notre Dame defensive-lineman-to-safety touchdown from offensive-unit hold accounting without changing any draftable unit score.

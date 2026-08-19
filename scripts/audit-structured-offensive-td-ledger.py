@@ -56,6 +56,13 @@ for athlete in game_rosters.select(['game_id', 'full_name', 'position_href']).to
         continue
     game_player_positions.setdefault(int(athlete['game_id']), {}).setdefault(name, set()).add(position)
 
+# ESPN core play 401754614190 identifies Josh Burnham as a DL and Luke Talich
+# as a safety on the same 84-yard touchdown. Neither is a draftable offensive
+# unit, so this exact-source override prevents a false unresolved QB/receiver hold.
+known_non_unit_overrides = {
+    (401754614, normalize('Josh Burnham')): 'NON_UNIT',
+}
+
 
 def school_for_pos_team(game, pos_team):
     target = normalize(pos_team)
@@ -73,6 +80,10 @@ def player_position(game_id, school, name):
     cleaned = re.sub(r'\s+\d+\s+yd(?:s)?$', '', str(name), flags=re.I)
     suffixless = re.sub(r'\s+\b(?:jr|sr|ii|iii|iv|v)\.?$', '', cleaned, flags=re.I)
     candidates_to_try = list(dict.fromkeys([normalize(cleaned), normalize(suffixless)]))
+    for candidate in candidates_to_try:
+        override = known_non_unit_overrides.get((int(game_id), candidate))
+        if override:
+            return override
     game_lookup = game_player_positions.get(int(game_id), {})
     lookup = roster_positions.get(normalize(school), {})
     for full in candidates_to_try:
