@@ -34,6 +34,8 @@ A follow-up first-12-game cfbstats Misc. Defense Game Log audit retrieved blocke
 
 The ESPN core DEF reconstruction did not produce a publishable defensive total. It recovered many defensive return distances, but none of the 136 units reconciled simultaneously to CFBD first-12-game box controls for sacks, interceptions, defensive touchdowns, and shutouts. A follow-on cfbfastR defensive-possession reconstruction resolved several sack and interception ownership gaps and reached 10 visible-control matches, but it still lacks complete fumble-recovery and defensive-touchdown component controls. All DEF historical point totals therefore remain explicitly held; the available sources are retained only as an audit trail pending a complete defensive event feed or independent component controls.
 
+Public cfbstats team game logs offer useful component checks but do not resolve the control issue. For example, its first 12 Texas game rows total 39 sacks and 13 interceptions, while the existing first-12 CFBD team-box controls report 36 sacks and 13 interceptions. Because the available sources disagree on a core defensive component, neither can safely override the other for publication. The DEF research catalog remains fully held.
+
 CFBS states that its advanced and complete packages include detailed every-play data for all FBS teams, with historical coverage available in the complete package. That makes it a practical escalation source for games where the public CFBD or ESPN evidence is incomplete. [2]
 
 Sportradar documents historical NCAA football availability from 2013 onward and season-year-accessible feeds. It is a commercial alternative that can be evaluated if a broader vendor relationship is preferred. [3]
