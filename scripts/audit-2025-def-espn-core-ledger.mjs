@@ -30,6 +30,7 @@ const add = (school, event, points, evidence) => {
   if (!item) return;
   item.points += points; item.events[event] += 1; item.event_points[event] += points; item.evidence.push(evidence);
 };
+const opposingSchool = (game, offense) => normal(game.homeTeam) === normal(offense) ? game.awayTeam : game.homeTeam;
 for (const school of schools) {
   for (const game of games.filter(game => selectedBySchool.get(school)?.has(Number(game.id)))) {
     const opponentPoints = normal(game.homeTeam) === normal(school) ? Number(game.awayPoints) : Number(game.homePoints);
@@ -43,21 +44,26 @@ for (const [gameId, game] of selectedGames) {
   const core = JSON.parse(await readFile(`/tmp/espn_core_2025_scoring_plays/${gameId}.json`, 'utf8'));
   for (const play of core.items ?? []) {
     const school = teamById.get(teamIdFromRef(play.team?.$ref));
-    if (!school || !selectedBySchool.get(school)?.has(gameId)) continue;
+    if (!school) continue;
+    const defense = opposingSchool(game, school);
+    const sourceSchoolSelected = selectedBySchool.get(school)?.has(gameId) ?? false;
+    const defendingSchoolSelected = selectedBySchool.get(defense)?.has(gameId) ?? false;
+    if (!sourceSchoolSelected && !defendingSchoolSelected) continue;
+    if (!selectedBySchool.get(defense)?.has(gameId)) continue;
     const type = normal(play.type?.text);
     const text = String(play.text ?? '');
     if (/\bno play\b/i.test(text)) continue;
-    if (type === 'sack') add(school, 'SACK', 1, { game_id: gameId, event: 'SACK', text });
+    if (type === 'sack' && defendingSchoolSelected) add(defense, 'SACK', 1, { game_id: gameId, event: 'SACK', text });
     const interception = type === 'interception' || type === 'interception return touchdown' || type === 'pass interception return';
     const fumbleRecovery = type.startsWith('fumble recovery') || type === 'fumble return touchdown';
-    if (interception) add(school, 'INTERCEPTION', 3, { game_id: gameId, event: 'INTERCEPTION', text });
-    if (fumbleRecovery) add(school, 'FUMBLE_RECOVERY', 3, { game_id: gameId, event: 'FUMBLE_RECOVERY', text });
-    if (play.scoringPlay && Number(play.scoreValue) === 6 && (interception || fumbleRecovery)) {
+    if (interception && sourceSchoolSelected) add(school, 'INTERCEPTION', 3, { game_id: gameId, event: 'INTERCEPTION', text });
+    if (fumbleRecovery && sourceSchoolSelected) add(school, 'FUMBLE_RECOVERY', 3, { game_id: gameId, event: 'FUMBLE_RECOVERY', text });
+    if (sourceSchoolSelected && play.scoringPlay && Number(play.scoreValue) === 6 && (interception || fumbleRecovery)) {
       const distance = returnDistance(text);
       if (distance === null) ledger.get(school).unresolved.push({ game_id: gameId, reason: 'Defensive touchdown has no explicit return distance in ESPN core text', text });
       else add(school, 'DEFENSIVE_TOUCHDOWN', defensiveTouchdownPoints(Number(distance)), { game_id: gameId, event: 'DEFENSIVE_TOUCHDOWN', text });
     }
-    if (play.scoringPlay && Number(play.scoreValue) === 2 && type === 'safety' && !/punt[^.]{0,90}blocked/i.test(text)) add(school, 'DEFENSIVE_SAFETY', 6, { game_id: gameId, event: 'DEFENSIVE_SAFETY', text });
+    if (sourceSchoolSelected && play.scoringPlay && Number(play.scoreValue) === 2 && type === 'safety' && !/punt[^.]{0,90}blocked/i.test(text)) add(school, 'DEFENSIVE_SAFETY', 6, { game_id: gameId, event: 'DEFENSIVE_SAFETY', text });
   }
 }
 const rows = schools.map(school => {
