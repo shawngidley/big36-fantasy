@@ -44,6 +44,13 @@ const verifiedReturnDistanceOverrides = [
     distance: 34,
     source: 'Official Air Force–Bucknell box score: https://goairforcefalcons.com/sports/football/stats/2025/bucknell/boxscore/21242',
   },
+  {
+    school: 'Kansas State',
+    gameId: 401756919,
+    textMatch: /Wesley Fair/i,
+    distance: 15,
+    source: 'Official Kansas State–TCU box score: https://www.kstatesports.com/sports/football/stats/2025/tcu/boxscore/18889',
+  },
 ];
 const roleSchool = (play, role, teamById) => {
   const participant = (play.teamParticipants ?? []).find(item => item.type === role);
