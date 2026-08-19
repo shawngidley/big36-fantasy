@@ -121,7 +121,7 @@
 - [x] Add route-level regression tests for positive-event and negative-turnover reversals through the actual scoring-event persistence pipeline.
 - [x] Add live source-correction regressions for positive and negative events that verify persisted deltas, standings effects, and audit behavior beyond manual reversals.
 - [x] Add downstream standings and public-ledger regressions for positive and negative final-source corrections, including before/after totals or rank movement.
-- [ ] Prepare an auditable first-live-game rehearsal checklist for the August 29, 2026 CFBD refresh verification.
+- [x] Prepare an auditable first-live-game rehearsal checklist for the August 29, 2026 CFBD refresh verification.
 - [x] Add a public shareable owner-registration route with required owner name, team name, email, phone number, and self-selected PIN fields.
 - [x] Support an optional team-logo image upload in registration, stored through managed file storage and reviewed before public use.
 - [x] Collect optional program-creation preferences for nickname, identity, inspiration, color palette, branding notes, and future rivalry interest.
@@ -130,4 +130,5 @@
 - [x] Add commissioner-only review of submitted registrations and safe owner assignment without exposing private contacts publicly.
 - [x] Validate registration input, duplicate handling, and mobile/desktop sign-up behavior with regression tests.
 - [x] Move the private registration section above optional program-identity preferences in the public owner sign-up flow.
-- [x] Remove all removable visible platform-attribution badges from public and commissioner pages, then verify the rendered experience.
+- [ ] Suppress the hosting-runtime “Made with Manus” badge on public and commissioner pages and verify the rendered experience.
+- [ ] Verify and refresh the 36football.com release so the latest registration ordering and program-creation changes are visible on the public domain.

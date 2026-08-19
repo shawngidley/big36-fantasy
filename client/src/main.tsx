@@ -10,6 +10,24 @@ import "./index.css";
 
 const queryClient = new QueryClient();
 
+function suppressRuntimeAttributionBadge(root: ParentNode = document) {
+  const candidates = root instanceof Element ? [root, ...Array.from(root.querySelectorAll<HTMLElement>("*"))] : Array.from(root.querySelectorAll<HTMLElement>("*"));
+  for (const element of candidates) {
+    if (!(element instanceof HTMLElement)) continue;
+    if (element.textContent?.trim().toLowerCase() !== "made with manus") continue;
+    element.style.setProperty("display", "none", "important");
+    element.setAttribute("aria-hidden", "true");
+  }
+}
+
+if (typeof window !== "undefined") {
+  suppressRuntimeAttributionBadge();
+  new MutationObserver(records => records.forEach(record => record.addedNodes.forEach(node => {
+    if (node instanceof Element) suppressRuntimeAttributionBadge(node);
+    else if (node.parentElement) suppressRuntimeAttributionBadge(node.parentElement);
+  }))).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+}
+
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;
   if (typeof window === "undefined") return;
