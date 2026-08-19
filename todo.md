@@ -174,3 +174,4 @@
 - [x] Elevate Shawn Gidley and Matt Janssen normal approved league email-and-PIN sessions to commissioner access without a separate login.
 - [x] Add regression coverage that unified commissioner sessions authorize Commish while ordinary owner sessions remain blocked.
 - [x] Clarify on the normal owner sign-in page that authorized commissioners use the same league email-and-PIN form and then open Commish.
+- [ ] Republish and verify 36football.com so the current unified normal-session commissioner guidance is visible on the public owner sign-in page.
