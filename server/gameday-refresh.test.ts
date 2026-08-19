@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isCollegeFootballGamedayWindow, sourceEventNeedsCorrection } from "./gameday-refresh";
+import { isCollegeFootballGamedayWindow, sourceEventNeedsCorrection, sourceEventReversalPoints } from "./gameday-refresh";
 
 describe("official source-event reconciliation", () => {
   const original = { computed_points: 10, yard_distance: 31, stat_value: 1 };
@@ -11,6 +11,11 @@ describe("official source-event reconciliation", () => {
   it("creates a correction when a final source event keeps its key but changes points, distance, or value", () => {
     expect(sourceEventNeedsCorrection(original, { points: 12, yardDistance: 61, statValue: 1 })).toBe(true);
     expect(sourceEventNeedsCorrection(original, { points: 10, yardDistance: 31, statValue: 2 })).toBe(true);
+  });
+
+  it("reverses the exact original signed delta rather than always subtracting points", () => {
+    expect(sourceEventReversalPoints(10)).toBe(-10);
+    expect(sourceEventReversalPoints(-3)).toBe(3);
   });
 });
 

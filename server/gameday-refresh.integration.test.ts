@@ -63,10 +63,27 @@ describe("36 Football gameday source reconciliation", () => {
     expect(writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST")?.options.body).toMatchObject({ audit_action: "REVERSAL", computed_points: -9, correction_of_event_id: "event-1" });
   });
 
+  it("restores points when a final source removes a previously recorded negative turnover", async () => {
+    const negativeTurnover = { ...original, event_type: "INTERCEPTION_THROWN", computed_points: -3, yard_distance: null };
+    const writes = arrange([negativeTurnover]);
+    mocks.mapLivePlayToCandidates.mockReturnValue([]);
+    await runGamedayRefresh({ force: true });
+    expect(writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST")?.options.body).toMatchObject({ audit_action: "REVERSAL", computed_points: 3, correction_of_event_id: "event-1" });
+  });
+
   it("records an idempotent same-key correction when the official final point value changes", async () => {
     const writes = arrange([original]);
     mocks.mapLivePlayToCandidates.mockReturnValue([candidate]);
     mocks.calculateEventScore.mockReturnValue({ points: 12 });
+    await runGamedayRefresh({ force: true });
+    expect(writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST")?.options.body).toMatchObject({ audit_action: "CORRECTION", computed_points: 3, correction_of_event_id: "event-1" });
+  });
+
+  it("records a signed positive correction when a negative source event is corrected to zero", async () => {
+    const negativeTurnover = { ...original, event_type: "INTERCEPTION_THROWN", computed_points: -3, yard_distance: null };
+    const writes = arrange([negativeTurnover]);
+    mocks.mapLivePlayToCandidates.mockReturnValue([candidate]);
+    mocks.calculateEventScore.mockReturnValue({ points: 0 });
     await runGamedayRefresh({ force: true });
     expect(writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST")?.options.body).toMatchObject({ audit_action: "CORRECTION", computed_points: 3, correction_of_event_id: "event-1" });
   });

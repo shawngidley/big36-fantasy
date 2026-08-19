@@ -28,7 +28,10 @@ describe("36 Football scoring engine", () => {
     expect(normalizeSchoolName("  Ohio   State ")).toBe("Ohio State");
     expect(() => assertSchoolPositionAvailable([{ ownerId: 2, schoolName: "Ohio State", position: "WR" }], { ownerId: 1, schoolName: " ohio  state ", position: "WR" })).toThrow("already locked");
   });
-  it("records an immutable reversal payload", () => expect(buildReversal({ id: 44, statValue: "1", computedPoints: "9" })).toEqual({ auditAction: "REVERSAL", correctionOfEventId: 44, statValue: "-1", computedPoints: "-9" }));
+  it("records immutable reversal payloads that offset both positive and negative source events", () => {
+    expect(buildReversal({ id: 44, statValue: "1", computedPoints: "9" })).toEqual({ auditAction: "REVERSAL", correctionOfEventId: 44, statValue: "-1", computedPoints: "-9" });
+    expect(buildReversal({ id: 45, statValue: "1", computedPoints: "-3" })).toEqual({ auditAction: "REVERSAL", correctionOfEventId: 45, statValue: "-1", computedPoints: "3" });
+  });
   it("ranks equal season totals alphabetically with numeric-aware team labels", () => {
     expect(rankBySeasonPoints([{ teamName: "Zebra Club", totalPoints: 82 }, { teamName: "Alpha Club", totalPoints: 82 }]).map(team => `${team.rank}:${team.teamName}`)).toEqual(["1:Alpha Club", "2:Zebra Club"]);
     expect(rankBySeasonPoints([{ teamName: "Team 10", totalPoints: 0 }, { teamName: "Team 2", totalPoints: 0 }, { teamName: "Team 1", totalPoints: 0 }, { teamName: "Team 9", totalPoints: 0 }]).map(team => team.teamName)).toEqual(["Team 1", "Team 2", "Team 9", "Team 10"]);

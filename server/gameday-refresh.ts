@@ -11,6 +11,10 @@ export function sourceEventNeedsCorrection(original: Pick<SourceEvent, "computed
   return original.computed_points !== next.points || original.yard_distance !== next.yardDistance || original.stat_value !== next.statValue;
 }
 
+export function sourceEventReversalPoints(originalPoints: number) {
+  return -originalPoints;
+}
+
 const sourceGameValues = (game: CfbdGame) => ({ cfbd_game_id: game.id, season: game.season, week_number: game.week, season_type: game.seasonType, start_date: game.startDate, completed: game.completed, home_team: game.homeTeam, away_team: game.awayTeam, home_classification: game.homeClassification ?? null, away_classification: game.awayClassification ?? null, home_points: game.homePoints ?? null, away_points: game.awayPoints ?? null, updated_at: new Date().toISOString() });
 
 export function isCollegeFootballGamedayWindow(now = new Date()) {
@@ -100,7 +104,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
           for (const original of originalEvents.filter(event => !currentCandidateKeys.has(event.source_event_key!))) {
             const reversalKey = `${original.source_event_key}:reversal`;
             if (reversedKeys.has(reversalKey)) continue;
-            await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: original.week_id, draft_slot_id: original.draft_slot_id, event_type: original.event_type, stat_value: original.stat_value, yard_distance: original.yard_distance, computed_points: -Math.abs(original.computed_points), note: `Official CFBD final correction reversed source event ${original.source_event_key}`, audit_action: "REVERSAL", correction_of_event_id: original.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: reversalKey, source_game_id: game.id, is_provisional: false } });
+            await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: original.week_id, draft_slot_id: original.draft_slot_id, event_type: original.event_type, stat_value: original.stat_value, yard_distance: original.yard_distance, computed_points: sourceEventReversalPoints(original.computed_points), note: `Official CFBD final correction reversed source event ${original.source_event_key}`, audit_action: "REVERSAL", correction_of_event_id: original.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: reversalKey, source_game_id: game.id, is_provisional: false } });
             reversedKeys.add(reversalKey); insertedEvents += 1;
           }
           for (const original of originalEvents.filter(event => currentCandidateKeys.has(event.source_event_key!))) {

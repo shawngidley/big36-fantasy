@@ -101,6 +101,22 @@ describe("Big 36 owner draft procedures", () => {
     expect(mocks.supabaseRest).not.toHaveBeenCalled();
   });
 
+  it("persists exact offsetting reversals for positive scores and negative turnovers", async () => {
+    const caller = appRouter.createCaller(createContext("admin"));
+    const touchdownId = "11111111-1111-4111-8111-111111111111";
+    const turnoverId = "22222222-2222-4222-8222-222222222222";
+    mocks.getScoreEvent
+      .mockResolvedValueOnce({ id: touchdownId, week_id: "week-1", draft_slot_id: "slot-1", event_type: "TOUCHDOWN", stat_value: 1, computed_points: 10, yard_distance: 42 })
+      .mockResolvedValueOnce({ id: turnoverId, week_id: "week-1", draft_slot_id: "slot-1", event_type: "INTERCEPTION_THROWN", stat_value: 1, computed_points: -3, yard_distance: null });
+    mocks.supabaseRest.mockResolvedValue([]);
+
+    await expect(caller.league.admin.reverseScoreEvent({ eventId: touchdownId, reason: "Provider removed touchdown" })).resolves.toEqual({ success: true });
+    await expect(caller.league.admin.reverseScoreEvent({ eventId: turnoverId, reason: "Provider removed interception" })).resolves.toEqual({ success: true });
+
+    expect(mocks.supabaseRest).toHaveBeenNthCalledWith(1, "b36_scoring_events", expect.objectContaining({ method: "POST", body: expect.objectContaining({ correction_of_event_id: touchdownId, stat_value: "-1", computed_points: "-10", audit_action: "REVERSAL" }) }));
+    expect(mocks.supabaseRest).toHaveBeenNthCalledWith(2, "b36_scoring_events", expect.objectContaining({ method: "POST", body: expect.objectContaining({ correction_of_event_id: turnoverId, stat_value: "-1", computed_points: "3", audit_action: "REVERSAL" }) }));
+  });
+
   it("allows only the commissioner to open a position round", async () => {
     mocks.supabaseRest.mockResolvedValue([]);
     const ownerCaller = appRouter.createCaller(createContext("user"));

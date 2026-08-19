@@ -41,6 +41,36 @@ describe("Big 36 public live-results snapshot", () => {
     await expect(getDraftResearchCatalog("K_ST")).resolves.toMatchObject([{ schoolName: "Georgia Tech", officialPoints: null, normalizedPoints: null }]);
   });
 
+  it("shows a negative live source correction as a public before-and-after ledger change with restored standings", async () => {
+    mocks.supabaseRest.mockImplementation(async (table: string) => {
+      if (table === "b36_divisions") return [{ id: "division-1", name: "Atlantic", sort_order: 1 }];
+      if (table === "b36_owners") return [
+        { id: "owner-a", manus_open_id: null, display_name: "Alpha Owner", team_name: "Alpha", email: "alpha@example.com", division_id: "division-1", is_commissioner: false },
+        { id: "owner-b", manus_open_id: null, display_name: "Bravo Owner", team_name: "Bravo", email: "bravo@example.com", division_id: "division-1", is_commissioner: false },
+      ];
+      if (table === "b36_draft_slots") return [
+        { id: "slot-a", owner_id: "owner-a", position: "QB", draft_position: 1, school_name: "Ohio State", selected_at: null, selected_by_open_id: null },
+        { id: "slot-b", owner_id: "owner-b", position: "QB", draft_position: 2, school_name: "Texas", selected_at: null, selected_by_open_id: null },
+      ];
+      if (table === "b36_scoring_weeks") return [{ id: "week-1", week_number: 1, label: "Week 1", status: "FINAL" }];
+      if (table === "b36_scoring_events") return [
+        { id: "source-turnover", week_id: "week-1", draft_slot_id: "slot-a", event_type: "INTERCEPTION_THROWN", stat_value: 1, yard_distance: null, computed_points: -3, note: "Provisional CFBD turnover", audit_action: "ENTRY", correction_of_event_id: null, recorded_by_open_id: "cfbd-live-refresh", created_at: "2026-09-05T18:00:00.000Z" },
+        { id: "source-correction", week_id: "week-1", draft_slot_id: "slot-a", event_type: "INTERCEPTION_THROWN", stat_value: 1, yard_distance: null, computed_points: 3, note: "Official CFBD final correction", audit_action: "CORRECTION", correction_of_event_id: "source-turnover", recorded_by_open_id: "cfbd-final-reconciliation", created_at: "2026-09-05T18:10:00.000Z" },
+      ];
+      if (table === "b36_automation_config") return [{ season: 2026 }];
+      return [];
+    });
+
+    const snapshot = await getLeagueSnapshot();
+    const correction = snapshot.events.find(event => event.id === "source-correction");
+
+    expect(correction).toMatchObject({ auditAction: "CORRECTION", computedPoints: 3, pointsBefore: -3, pointsAfter: 0, overallRankBefore: 2, overallRankAfter: 1 });
+    expect(snapshot.overallStandings.map(owner => ({ teamName: owner.teamName, totalPoints: owner.totalPoints, overallRank: owner.overallRank }))).toEqual([
+      { teamName: "Alpha", totalPoints: 0, overallRank: 1 },
+      { teamName: "Bravo", totalPoints: 0, overallRank: 2 },
+    ]);
+  });
+
   it("builds team totals, standings, weekly scores, and position leaders from Supabase records", async () => {
     mocks.supabaseRest
       .mockResolvedValueOnce([{ id: "division-1", name: "Atlantic", sort_order: 1 }])
