@@ -65,6 +65,13 @@ const verifiedReturnDistanceOverrides = [
     distance: 0,
     source: 'Official North Texas–Lamar box score: https://meangreensports.com/sports/football/stats/2025/lamar/boxscore/6743',
   },
+  {
+    school: 'Stanford',
+    gameId: 401754599,
+    textMatch: /D\.Davis|Darrius Davis/i,
+    distance: 17,
+    source: 'Official ACC Stanford–California box score: https://theacc.com/boxscore.aspx?id=7ltyipP022aUJKmSgYVs3wXi7up73ghniwD5ElWyd07J7BNseBaMQePf0fY%2F3yUPMUbhWrVYP5TfIUpNsYa2ssf0yTPOhagwpaDLF49CwjACWH6biNTTkY3jWoHnqdhLMP7kuKdKDTTuDsu53B7yJ45m7o%2Be4BPQP4gJTRQj2uI%3D&path=football',
+  },
 ];
 const roleSchool = (play, role, teamById) => {
   const participant = (play.teamParticipants ?? []).find(item => item.type === role);

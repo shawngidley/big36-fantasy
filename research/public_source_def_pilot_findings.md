@@ -35,3 +35,5 @@ After parsing all available ESPN return, fumble-return, interception-return, and
 ## Official game-book follow-up
 
 The official North Texas–Lamar box score identifies Ethan Wesloski’s score as a **0-yard fumble recovery** at 00:27. Source: <https://meangreensports.com/sports/football/stats/2025/lamar/boxscore/6743>. As with the verified Miami (OH) zero-yard recovery, this is a short defensive-touchdown tier for the provisional ledger and does not make the overall DEF total certified.
+
+The official ACC Stanford–California box score identifies Darrius Davis’s score as a **17-yard fumble recovery** at 00:58 of the second quarter. Source: <https://theacc.com/boxscore.aspx?id=7ltyipP022aUJKmSgYVs3wXi7up73ghniwD5ElWyd07J7BNseBaMQePf0fY%2F3yUPMUbhWrVYP5TfIUpNsYa2ssf0yTPOhagwpaDLF49CwjACWH6biNTTkY3jWoHnqdhLMP7kuKdKDTTuDsu53B7yJ45m7o%2Be4BPQP4gJTRQj2uI%3D&path=football>. This is a verified short defensive-touchdown tier for the provisional ledger; it does not certify the overall Stanford DEF total.
