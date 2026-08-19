@@ -81,18 +81,15 @@ describe("Big 36 owner draft procedures", () => {
   });
 
   it("accepts a public program registration while hashing its PIN and normalizing private contact data", async () => {
-    mocks.supabaseRest
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([{ id: "33333333-3333-4333-8333-333333333333" }])
-      .mockResolvedValueOnce([]);
+    mocks.supabaseRpc.mockResolvedValueOnce("33333333-3333-4333-8333-333333333333");
     const caller = appRouter.createCaller(createContext("user"));
 
     await expect(caller.league.submitRegistration({ displayName: "Jordan Owner", teamName: "Lakewood College", nickname: "Night Owls", programIdentity: "Lakeside underdogs", inspiration: "Lakewood", primaryColor: "#B84A12", accentColor: "#17120E", brandingNotes: "Tough and traditional", rivalryPreference: "River City", email: "Jordan@Example.com", phone: "(555) 555-0182", pin: "482917", logoDataUrl: null })).resolves.toEqual({ success: true });
-    expect(mocks.supabaseRest).toHaveBeenNthCalledWith(3, "b36_owner_registrations", expect.objectContaining({ method: "POST", body: expect.objectContaining({ email: "jordan@example.com", phone_e164: "+5555550182", team_name: "Lakewood College", nickname: "Night Owls", primary_color: "#B84A12" }) }));
-    const insert = mocks.supabaseRest.mock.calls[2]?.[1]?.body as { pin_hash: string };
-    expect(insert.pin_hash).toMatch(/^scrypt\$/);
-    expect(insert.pin_hash).not.toContain("482917");
+    expect(mocks.supabaseRest).not.toHaveBeenCalled();
+    expect(mocks.supabaseRpc).toHaveBeenCalledWith("b36_submit_owner_registration", expect.objectContaining({ p_email: "jordan@example.com", p_phone_e164: "+5555550182", p_team_name: "Lakewood College", p_nickname: "Night Owls", p_primary_color: "#B84A12" }));
+    const payload = mocks.supabaseRpc.mock.calls[0]?.[1] as { p_pin_hash: string };
+    expect(payload.p_pin_hash).toMatch(/^scrypt\$/);
+    expect(payload.p_pin_hash).not.toContain("482917");
   });
 
   it("keeps private registration review commissioner-only", async () => {
@@ -103,12 +100,12 @@ describe("Big 36 owner draft procedures", () => {
 
   it("keeps the root registration landing open until all 36 registrations are approved", async () => {
     const caller = appRouter.createCaller(createContext("user"));
-    mocks.supabaseRest.mockResolvedValueOnce(Array.from({ length: 35 }, (_, index) => ({ id: `approved-${index}` })));
+    mocks.supabaseRpc.mockResolvedValueOnce({ approvedCount: 35, capacity: 36, registrationOpen: true });
     await expect(caller.league.registrationLanding()).resolves.toEqual({ approvedCount: 35, capacity: 36, registrationOpen: true });
 
-    mocks.supabaseRest.mockResolvedValueOnce(Array.from({ length: 36 }, (_, index) => ({ id: `approved-${index}` })));
+    mocks.supabaseRpc.mockResolvedValueOnce({ approvedCount: 36, capacity: 36, registrationOpen: false });
     await expect(caller.league.registrationLanding()).resolves.toEqual({ approvedCount: 36, capacity: 36, registrationOpen: false });
-    expect(mocks.supabaseRest).toHaveBeenLastCalledWith("b36_owner_registrations", expect.objectContaining({ query: expect.objectContaining({ status: "eq.APPROVED", limit: "36" }) }));
+    expect(mocks.supabaseRpc).toHaveBeenLastCalledWith("b36_registration_landing_status", {});
   });
 
   it("persists exact offsetting reversals for positive scores and negative turnovers", async () => {

@@ -141,3 +141,5 @@
 - [x] Publish and verify a fresh 36football.com release containing the registration landing, Prizes, and Payment pages.
 - [x] Move Prizes to the far-right public navigation position immediately after My Draft and remove Payment from the header.
 - [x] Move the official Venmo payment information into the Prizes page beneath the payout structure.
+- [ ] Repair the public registration persistence path so valid program submissions do not receive a b36_owner_registrations permission-denied error.
+- [ ] Verify that public registration succeeds while private contact, PIN hash, and commissioner-review data remain inaccessible to public reads.

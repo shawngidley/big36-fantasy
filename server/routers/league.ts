@@ -25,10 +25,7 @@ type RegistrationRow = { id: string; display_name: string; team_name: string; ni
 
 export const leagueRouter = router({
   snapshot: publicProcedure.query(() => getLeagueSnapshot()),
-  registrationLanding: publicProcedure.query(async () => {
-    const approved = await supabaseRest<Array<Pick<RegistrationRow, "id">>>(registrationTable, { query: { select: "id", status: q.eq("APPROVED"), limit: "36" } });
-    return { approvedCount: approved.length, capacity: 36, registrationOpen: approved.length < 36 };
-  }),
+  registrationLanding: publicProcedure.query(() => supabaseRpc<{ approvedCount: number; capacity: number; registrationOpen: boolean }>("b36_registration_landing_status", {})),
   research: publicProcedure.input(z.object({ position: positionSchema.optional() }).optional()).query(({ input }) => getDraftResearchCatalog(input?.position)),
   owner: publicProcedure.input(z.object({ ownerId: uuid })).query(async ({ input }) => {
     const owner = (await getLeagueSnapshot()).owners.find(item => item.id === input.ownerId);
@@ -38,16 +35,11 @@ export const leagueRouter = router({
   submitRegistration: publicProcedure.input(registrationInput).mutation(async ({ input }) => {
     try {
       const email = normalizeRegistrationEmail(input.email); const phone = normalizeRegistrationPhone(input.phone);
-      const [emailMatches, phoneMatches] = await Promise.all([
-        supabaseRest<Array<Pick<RegistrationRow, "id">>>(registrationTable, { query: { select: "id", email: q.eq(email), limit: "1" } }),
-        supabaseRest<Array<Pick<RegistrationRow, "id">>>(registrationTable, { query: { select: "id", phone_e164: q.eq(phone), limit: "1" } }),
-      ]);
-      if (emailMatches.length || phoneMatches.length) throw new Error("A registration already uses that email address or phone number.");
       const logo = input.logoDataUrl ? decodeRegistrationLogo(input.logoDataUrl) : null;
       const storedLogo = logo ? await storagePut(`owner-registrations/${crypto.randomUUID()}.${logo.extension}`, logo.bytes, logo.contentType) : null;
-      const inserted = await supabaseRest<Array<Pick<RegistrationRow, "id">>>(registrationTable, { method: "POST", body: { display_name: input.displayName.trim(), team_name: input.teamName.trim(), nickname: input.nickname?.trim() || null, program_identity: input.programIdentity?.trim() || null, inspiration: input.inspiration?.trim() || null, primary_color: input.primaryColor ?? null, accent_color: input.accentColor ?? null, branding_notes: input.brandingNotes?.trim() || null, rivalry_preference: input.rivalryPreference?.trim() || null, email, phone_e164: phone, pin_hash: hashRegistrationPin(input.pin), logo_key: storedLogo?.key ?? null, logo_url: storedLogo?.url ?? null } });
-      const registrationId = inserted[0]?.id;
-      if (registrationId) await supabaseRest("b36_audit_events", { method: "POST", body: { action: "OWNER_REGISTRATION_SUBMITTED", entity_type: registrationTable, entity_id: registrationId, detail: { includes_logo: Boolean(storedLogo) } } });
+      await supabaseRpc<string>("b36_submit_owner_registration", {
+        p_display_name: input.displayName.trim(), p_team_name: input.teamName.trim(), p_nickname: input.nickname?.trim() || "", p_program_identity: input.programIdentity?.trim() || "", p_inspiration: input.inspiration?.trim() || "", p_primary_color: input.primaryColor ?? "", p_accent_color: input.accentColor ?? "", p_branding_notes: input.brandingNotes?.trim() || "", p_rivalry_preference: input.rivalryPreference?.trim() || "", p_email: email, p_phone_e164: phone, p_pin_hash: hashRegistrationPin(input.pin), p_logo_key: storedLogo?.key ?? "", p_logo_url: storedLogo?.url ?? "",
+      });
       return { success: true as const };
     } catch (error) { asError(error); }
   }),
