@@ -1,6 +1,10 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
+/* Hosting runtime attribution containers are not part of the league experience. */
+#manus-previewer-root,
+#manus-previewer-content-root { display: none !important; }
+
 /* 36 Football restrained collegiate editorial palette — production refresh. */
 
 @custom-variant dark (&:is(.dark *));

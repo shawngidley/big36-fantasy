@@ -15,17 +15,26 @@ function suppressRuntimeAttributionBadge(root: ParentNode = document) {
   for (const element of candidates) {
     if (!(element instanceof HTMLElement)) continue;
     if (element.textContent?.trim().toLowerCase() !== "made with manus") continue;
-    element.style.setProperty("display", "none", "important");
-    element.setAttribute("aria-hidden", "true");
+    let target: HTMLElement = element;
+    for (let depth = 0; depth < 4 && target.parentElement; depth += 1) {
+      if (getComputedStyle(target).position === "fixed") break;
+      target = target.parentElement;
+    }
+    target.style.setProperty("display", "none", "important");
+    target.style.setProperty("visibility", "hidden", "important");
+    target.setAttribute("aria-hidden", "true");
   }
 }
 
 if (typeof window !== "undefined") {
   suppressRuntimeAttributionBadge();
-  new MutationObserver(records => records.forEach(record => record.addedNodes.forEach(node => {
-    if (node instanceof Element) suppressRuntimeAttributionBadge(node);
-    else if (node.parentElement) suppressRuntimeAttributionBadge(node.parentElement);
-  }))).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+  new MutationObserver(records => records.forEach(record => {
+    if (record.type === "attributes" && record.target instanceof Element) suppressRuntimeAttributionBadge(record.target);
+    record.addedNodes.forEach(node => {
+      if (node instanceof Element) suppressRuntimeAttributionBadge(node);
+      else if (node.parentElement) suppressRuntimeAttributionBadge(node.parentElement);
+    });
+  })).observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["class", "style"] });
 }
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
