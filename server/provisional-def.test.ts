@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { calculateProvisionalDef } from '../scripts/provisional-def-calculation.mjs';
+import { returnDistance } from '../scripts/def-return-distance.mjs';
 
 describe('provisional 2025 DEF calculation', () => {
   it('uses certified first-12-game controls for sacks, interceptions, touchdown count, and shutouts while estimating unavailable touchdown tiers neutrally', () => {
@@ -20,5 +21,10 @@ describe('provisional 2025 DEF calculation', () => {
     });
     expect(result.points).toBe(14);
     expect(result.components.estimatedDefensiveTouchdowns).toBe(0);
+  });
+
+  it('recognizes an explicit fumble-return distance when ESPN uses its compact scoring description', () => {
+    expect(returnDistance('Kam Franklin 80 Yd Fumble Return (Drew Henderson Kick)')).toBe('80');
+    expect(returnDistance('Jacob Bradford 20 Yd Fumble Return (Drew Henderson Kick)')).toBe('20');
   });
 });

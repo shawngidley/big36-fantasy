@@ -1,14 +1,10 @@
 import { readFile, writeFile } from 'node:fs/promises';
 
+import { returnDistance } from './def-return-distance.mjs';
+
 const normal = value => String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 const teamIdFromRef = ref => String(ref ?? '').match(/\/teams\/(\d+)/)?.[1] ?? null;
 const defensiveTouchdownPoints = distance => distance <= 19 ? 9 : distance <= 59 ? 12 : 15;
-const returnDistance = text => {
-  const clean = String(text ?? '');
-  return clean.match(/return(?:ed)?\s+(?:for\s+)?(\d+)\s+(?:yd(?:s)?|yards?)/i)?.[1]
-    ?? clean.match(/(\d+)\s+(?:yd(?:s)?|yards?)\s+return/i)?.[1]
-    ?? null;
-};
 const teams = JSON.parse(await readFile('/tmp/cfbd_2025_fbs_teams.json', 'utf8'));
 const games = JSON.parse(await readFile('/tmp/big36_2025_cfbd_cache/regular_games.json', 'utf8'));
 const controls = JSON.parse(await readFile('/tmp/non_qb_2025_boxscore_certification.json', 'utf8')).rows;

@@ -21,3 +21,9 @@ The pilot now includes the official Eastern Michigan–Texas State game-book PDF
 ## Current decision rule
 
 An additional DEF total may be published only after the public event ledger and the authoritative first-12-game control agree on sacks, turnovers, defensive touchdowns, and shutouts. A public game log or season total alone is not sufficient evidence for a tiered defensive touchdown total.
+
+## Louisiana Tech follow-up
+
+Louisiana Tech is the highest current provisional DEF touchdown-tier uncertainty, with nine defensive touchdowns receiving a neutral provisional tier in the 2025 estimate. Its official cumulative-statistics page is available at https://latechsports.com/sports/football/stats/2025 and links the program’s official cumulative-statistics PDF. The page reports a completed 13-game season, so its aggregate controls must be reduced to the league’s first 12 eligible regular-season games before they can amend a research estimate or support certification.
+
+Direct PDF review confirms that the official cumulative report is labeled as a 13-game overall record and includes an individual interception-return table. It lists 22 Louisiana Tech defensive interceptions in the full report, while identifying each credited returner. This is valuable primary evidence for a per-game reconstruction, but it cannot directly replace the league’s first-12-game control without excluding the thirteenth contest.
