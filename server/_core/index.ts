@@ -9,6 +9,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { scheduledGamedayRefresh } from "../scheduled-gameday";
 import { serveStatic, setupVite } from "./vite";
+import { registerSharePreview } from "../share-preview";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -38,6 +39,7 @@ async function startServer() {
   registerStorageProxy(app);
   registerOAuthRoutes(app);
   app.post("/api/scheduled/gameday-refresh", scheduledGamedayRefresh);
+  registerSharePreview(app);
   // tRPC API
   app.use(
     "/api/trpc",

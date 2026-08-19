@@ -147,5 +147,8 @@
 - [x] Verify and repair commissioner-only registration review access through the server without granting public reads of private registration data.
 - [x] Authorize janssenmatt25@gmail.com as a commissioner account automatically at sign-in.
 - [x] Add regression coverage that grants commissioner access only to the configured Matt Janssen email and denies other owners.
-- [x] Configure Open Graph and text-share metadata to use the official 36 Football league logo preview image.
-- [x] Add regression coverage that the public document head retains the official league-logo share image metadata.
+- [ ] Configure the effective hosted Open Graph and text-share preview to use the official 36 Football league logo image.
+- [x] Add regression coverage that the project document head retains the official league-logo share image metadata.
+- [ ] Resolve or document the hosting-layer social-preview override that currently replaces project Open Graph image metadata on the custom domain.
+- [ ] Serve crawler-visible public HTML with the official league logo share metadata so hosting-layer preview injection cannot replace it.
+- [ ] Serve a standards-compliant crawler share-card response for the root and registration links using the official league wordmark.
