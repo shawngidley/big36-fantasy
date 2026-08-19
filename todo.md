@@ -138,3 +138,4 @@
 - [x] Add public Prizes and Payment header tabs with the approved inaugural payout structure and Matt Janssen Venmo payment method.
 - [x] Switch the root landing page from program registration to standings after all 36 owner registrations are commissioner-approved.
 - [x] Add regression coverage for the public approved-registration count that controls the root landing transition.
+- [ ] Publish and verify a fresh 36football.com release containing the registration landing, Prizes, and Payment pages.
