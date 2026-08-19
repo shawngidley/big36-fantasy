@@ -11,30 +11,51 @@ import "./index.css";
 const queryClient = new QueryClient();
 
 function suppressRuntimeAttributionBadge(root: ParentNode = document) {
-  const candidates = root instanceof Element ? [root, ...Array.from(root.querySelectorAll<HTMLElement>("*"))] : Array.from(root.querySelectorAll<HTMLElement>("*"));
-  for (const element of candidates) {
-    if (!(element instanceof HTMLElement)) continue;
-    if (element.textContent?.trim().toLowerCase() !== "made with manus") continue;
-    let target: HTMLElement = element;
-    for (let depth = 0; depth < 4 && target.parentElement; depth += 1) {
-      if (getComputedStyle(target).position === "fixed") break;
-      target = target.parentElement;
+  const hostingWatermark = document.querySelector("manus-content-root")?.shadowRoot?.querySelector<HTMLElement>("footer-watermark");
+  if (hostingWatermark) {
+    hostingWatermark.style.setProperty("display", "none", "important");
+    hostingWatermark.style.setProperty("visibility", "hidden", "important");
+    hostingWatermark.setAttribute("aria-hidden", "true");
+  }
+  const roots: ParentNode[] = [root];
+  for (let index = 0; index < roots.length; index += 1) {
+    const currentRoot = roots[index];
+    const candidates = currentRoot instanceof Element ? [currentRoot, ...Array.from(currentRoot.querySelectorAll<HTMLElement>("*"))] : Array.from(currentRoot.querySelectorAll<HTMLElement>("*"));
+    for (const element of candidates) {
+      if (!(element instanceof HTMLElement)) continue;
+      if (element.shadowRoot) roots.push(element.shadowRoot);
+      if (element.textContent?.trim().toLowerCase() !== "made with manus") continue;
+      let target: HTMLElement = element;
+      for (let depth = 0; depth < 4 && target.parentElement; depth += 1) {
+        if (getComputedStyle(target).position === "fixed") break;
+        target = target.parentElement;
+      }
+      target.style.setProperty("display", "none", "important");
+      target.style.setProperty("visibility", "hidden", "important");
+      target.setAttribute("aria-hidden", "true");
     }
-    target.style.setProperty("display", "none", "important");
-    target.style.setProperty("visibility", "hidden", "important");
-    target.setAttribute("aria-hidden", "true");
   }
 }
 
 if (typeof window !== "undefined") {
+  const observedRoots = new WeakSet<Node>();
+  let observeRuntimeBadgeRoots: (root: ParentNode) => void;
+  const observer = new MutationObserver(() => {
+    suppressRuntimeAttributionBadge();
+    observeRuntimeBadgeRoots(document);
+  });
+  observeRuntimeBadgeRoots = (root: ParentNode) => {
+    if (!observedRoots.has(root)) {
+      observedRoots.add(root);
+      observer.observe(root, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["class", "style"] });
+    }
+    const descendants = root.querySelectorAll<HTMLElement>("*");
+    descendants.forEach(element => { if (element.shadowRoot) observeRuntimeBadgeRoots(element.shadowRoot); });
+  };
   suppressRuntimeAttributionBadge();
-  new MutationObserver(records => records.forEach(record => {
-    if (record.type === "attributes" && record.target instanceof Element) suppressRuntimeAttributionBadge(record.target);
-    record.addedNodes.forEach(node => {
-      if (node instanceof Element) suppressRuntimeAttributionBadge(node);
-      else if (node.parentElement) suppressRuntimeAttributionBadge(node.parentElement);
-    });
-  })).observe(document.documentElement, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ["class", "style"] });
+  observeRuntimeBadgeRoots(document);
+  const retryId = window.setInterval(() => suppressRuntimeAttributionBadge(), 250);
+  window.setTimeout(() => window.clearInterval(retryId), 10_000);
 }
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
