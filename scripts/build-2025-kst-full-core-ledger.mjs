@@ -6,6 +6,8 @@ const fieldGoalPoints = distance => distance <= 29 ? 3 : distance <= 39 ? 6 : di
 const teams = JSON.parse(await readFile('/tmp/cfbd_2025_fbs_teams.json', 'utf8'));
 const games = JSON.parse(await readFile('/tmp/big36_2025_cfbd_cache/regular_games.json', 'utf8'));
 const controls = JSON.parse(await readFile('/tmp/non_qb_2025_boxscore_certification.json', 'utf8')).rows;
+const blockReconciliation = JSON.parse(await readFile('/tmp/cfbfastr_espn_2025_kst_block_reconciliation.json', 'utf8'));
+const safetyReconciliation = JSON.parse(await readFile('/tmp/cfbfastr_espn_2025_kst_safety_reconciliation.json', 'utf8'));
 const schools = teams.map(team => team.school);
 const selectedBySchool = new Map();
 const selectedGames = new Map();
@@ -18,6 +20,9 @@ for (const school of schools) {
   selected.forEach(game => selectedGames.set(Number(game.id), game));
 }
 const controlBySchool = new Map(controls.filter(row => row.position === 'K_ST').map(row => [row.school_name, row.control]));
+const blockReconciliationBySchool = new Map(blockReconciliation.rows.map(row => [row.school_name, row]));
+const unmatchedSafetyBySchool = new Map();
+for (const item of safetyReconciliation.matches.filter(item => !item.matched)) unmatchedSafetyBySchool.set(item.school_name, (unmatchedSafetyBySchool.get(item.school_name) ?? 0) + 1);
 const ledger = new Map(schools.map(school => [school, { school_name: school, points: 0, events: { FIELD_GOAL: 0, EXTRA_POINT: 0, RETURN_TOUCHDOWN: 0, BLOCK: 0, SPECIAL_TEAMS_SAFETY: 0 }, event_points: { FIELD_GOAL: 0, EXTRA_POINT: 0, RETURN_TOUCHDOWN: 0, BLOCK: 0, SPECIAL_TEAMS_SAFETY: 0 }, unresolved: [], evidence: [] }]));
 const seen = new Set();
 const add = (school, event, points, evidence) => {
@@ -73,8 +78,10 @@ const rows = schools.map(school => {
     return_touchdowns: { control: Number(control.kick_return_touchdowns ?? 0) + Number(control.punt_return_touchdowns ?? 0), ledger: regularReturns },
   };
   const matchesVisibleControls = Object.values(comparisons).every(value => value.control === value.ledger);
-  const requiresUnreconciledComponentControl = Number(item.events.BLOCK ?? 0) > 0 || Number(item.events.SPECIAL_TEAMS_SAFETY ?? 0) > 0;
-  return { ...item, comparisons, matches_visible_controls: matchesVisibleControls, requires_unreconciled_component_control: requiresUnreconciledComponentControl, certifiable: matchesVisibleControls && !requiresUnreconciledComponentControl && !item.unresolved.length };
+  const unmatchedBlocks = Number(blockReconciliationBySchool.get(school)?.unmatched?.length ?? 0);
+  const unmatchedSafeties = Number(unmatchedSafetyBySchool.get(school) ?? 0);
+  const requiresUnreconciledComponentControl = Number(item.events.BLOCK ?? 0) > 0 || Number(item.events.SPECIAL_TEAMS_SAFETY ?? 0) > 0 || unmatchedBlocks > 0 || unmatchedSafeties > 0;
+  return { ...item, comparisons, matches_visible_controls: matchesVisibleControls, unmatched_blocks: unmatchedBlocks, unmatched_special_teams_safeties: unmatchedSafeties, requires_unreconciled_component_control: requiresUnreconciledComponentControl, certifiable: matchesVisibleControls && !requiresUnreconciledComponentControl && !item.unresolved.length };
 });
 const output = { season: 2025, summary: { units: rows.length, visible_control_matches: rows.filter(row => row.matches_visible_controls).length, certifiable_units: rows.filter(row => row.certifiable).length, unresolved_units: rows.filter(row => row.unresolved.length).length }, rows };
 await writeFile('/tmp/espn_core_2025_kst_full_ledger.json', JSON.stringify(output, null, 2));

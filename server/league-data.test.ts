@@ -36,6 +36,11 @@ describe("Big 36 public live-results snapshot", () => {
     await expect(getDraftResearchCatalog("QB")).resolves.toMatchObject([{ schoolName: "Utah State", officialPoints: null, normalizedPoints: null }]);
   });
 
+  it("returns no usable K/ST point total through the public research query when a component remains held", async () => {
+    mocks.supabaseRest.mockResolvedValueOnce([{ season: 2025, school_name: "Georgia Tech", position: "K_ST", official_points: 174, eligible_games: 12, normalization_factor: 1, normalized_points: 174, event_counts: { BLOCK: 1 }, stat_summary: { historical_points_hold: true, historical_points_hold_reason: "Block cross-check incomplete" }, source_note: "Held", calculated_at: "2026-08-19T00:00:00.000Z" }]);
+    await expect(getDraftResearchCatalog("K_ST")).resolves.toMatchObject([{ schoolName: "Georgia Tech", officialPoints: null, normalizedPoints: null }]);
+  });
+
   it("builds team totals, standings, weekly scores, and position leaders from Supabase records", async () => {
     mocks.supabaseRest
       .mockResolvedValueOnce([{ id: "division-1", name: "Atlantic", sort_order: 1 }])
