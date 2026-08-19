@@ -6,7 +6,10 @@ const supabaseUrl = process.env.SUPABASE_URL?.replace(/\/$/, '');
 const supabaseKey = process.env.SUPABASE_SECRET_KEY;
 if (!supabaseUrl || !supabaseKey) throw new Error('Supabase credentials are required.');
 
-const positions = ['QB', 'RB', 'WR', 'TE'];
+const requestedPosition = process.env.POSITION?.trim().toUpperCase();
+const allPositions = ['QB', 'RB', 'WR', 'TE'];
+if (requestedPosition && !allPositions.includes(requestedPosition)) throw new Error(`POSITION must be one of ${allPositions.join(', ')}.`);
+const positions = requestedPosition ? [requestedPosition] : allPositions;
 const ledger = JSON.parse(await readFile('/tmp/cfbfastR_2025_offensive_td_ledger.json', 'utf8'));
 const qbCertification = JSON.parse(await readFile('/tmp/qb_2025_espn_boxscore_certification.json', 'utf8'));
 const nonQbCertification = JSON.parse(await readFile('/tmp/non_qb_2025_boxscore_certification.json', 'utf8'));
@@ -45,7 +48,9 @@ const changes = ledger.rows.filter(row => positions.includes(row.position)).map(
     ...(current.stat_summary ?? {}),
     historical_points_certified: certified,
     historical_points_hold: !certified,
-    historical_points_source: 'cfbfastR normalized 2025 play-by-play for touchdown goal-line tiers and conversions; CFBD first-12-game player box scores for turnovers',
+    historical_points_source: row.position === 'TE'
+      ? 'cfbfastR normalized 2025 play-by-play for touchdown goal-line tiers and conversions; TE touchdown tiers are doubled under the approved 12/16/20/24 rule; CFBD first-12-game player box scores for turnovers'
+      : 'cfbfastR normalized 2025 play-by-play for touchdown goal-line tiers and conversions; CFBD first-12-game player box scores for turnovers',
     historical_points_hold_reason: certified ? null : holdReasons.join('; '),
     historical_points_scope: 'First 12 eligible 2025 regular-season games',
   };
@@ -74,7 +79,9 @@ const changes = ledger.rows.filter(row => positions.includes(row.position)).map(
     event_counts: nextEventCounts,
     stat_summary: nextSummary,
     source_note: certified
-      ? 'Certified 2025 first-12-game total: normalized cfbfastR scoring-event tiers and conversions reconciled to CFBD official player box-score controls.'
+      ? row.position === 'TE'
+        ? 'Certified 2025 first-12-game total: normalized cfbfastR scoring-event tiers and conversions reconciled to CFBD official player box-score controls; TE touchdown tiers use the approved 12/16/20/24 schedule.'
+        : 'Certified 2025 first-12-game total: normalized cfbfastR scoring-event tiers and conversions reconciled to CFBD official player box-score controls.'
       : 'Historical tiered total held pending complete event ownership and control reconciliation; no unsupported point total is displayed.',
     changed,
   };

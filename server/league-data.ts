@@ -2,6 +2,7 @@ import type { Position, ScoringEventType } from "../drizzle/schema";
 import { rankBySeasonPoints } from "./league-scoring";
 import { ownerCanDraft } from "./serpentine-draft";
 import { q, supabaseRest } from "./supabase";
+import { yearOneRules } from "./year-one-rules";
 
 export const b36Positions = ["QB", "RB", "WR", "TE", "K_ST", "DEF"] as const;
 const positionLabel: Record<Position, string> = { QB: "QB", RB: "RB", WR: "WR", TE: "TE", K_ST: "K/ST", DEF: "DEF" };
@@ -23,6 +24,21 @@ const slotPath = "b36_draft_slots";
 
 const asNumber = (value: number | string | null) => value === null ? null : Number(value);
 const normalizeSchoolName = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+
+function fallbackYearOneRules(eventType?: ScoringEventType) {
+  return yearOneRules
+    .filter(rule => !eventType || rule.eventType === eventType)
+    .map((rule, index) => ({
+      id: -(index + 1),
+      eventType: rule.eventType,
+      positionScope: rule.positionScope,
+      minYards: rule.minYards,
+      maxYards: rule.maxYards,
+      flatPoints: rule.flatPoints,
+      pointsPerUnit: null,
+      isActive: "true" as const,
+    }));
+}
 
 function tiedLeaders<T extends { totalPoints: number }>(entries: T[]) {
   const topScore = entries[0]?.totalPoints;
@@ -151,7 +167,10 @@ export async function getLeagueSnapshot() {
     draftSlotId: turn.draft_slot_id,
   }));
 
-  return { divisions, owners, overallStandings, weeks: weekRows.map(week => ({ id: week.id, weekNumber: week.week_number, label: week.label, status: week.status })), weeklySummaries, rules: ruleRows.map(rule => ({ id: rule.id, label: rule.label, eventType: rule.event_type, positionScope: rule.position_scope, minYards: asNumber(rule.min_yards), maxYards: asNumber(rule.max_yards), flatPoints: asNumber(rule.flat_points), pointsPerUnit: asNumber(rule.points_per_unit), isActive: rule.is_active ? "true" : "false" })), leaderboard, events, champions, draftTurns, draftState: { status: state.status, activePosition: null, updatedAt: state.updated_at, currentTurn: activeTurn ? { id: activeTurn.id, ownerId: activeTurn.owner_id, teamName: turnOwner?.teamName ?? "Unassigned team", draftPosition: activeTurn.global_pick, roundNumber: activeTurn.round_number, expiresAt: activeTurn.expires_at } : null }, totals: { ownerCount: owners.length, divisionCount: divisions.length, draftPickCount: slotRows.filter(slot => slot.school_name).length, scoringEventCount: events.length } };
+  const rules = ruleRows.length
+    ? ruleRows.map(rule => ({ id: rule.id, label: rule.label, eventType: rule.event_type, positionScope: rule.position_scope, minYards: asNumber(rule.min_yards), maxYards: asNumber(rule.max_yards), flatPoints: asNumber(rule.flat_points), pointsPerUnit: asNumber(rule.points_per_unit), isActive: rule.is_active ? "true" : "false" }))
+    : yearOneRules.map((rule, index) => ({ id: `fallback-${index + 1}`, label: rule.label, eventType: rule.eventType, positionScope: rule.positionScope, minYards: rule.minYards, maxYards: rule.maxYards, flatPoints: rule.flatPoints, pointsPerUnit: null, isActive: "true" as const }));
+  return { divisions, owners, overallStandings, weeks: weekRows.map(week => ({ id: week.id, weekNumber: week.week_number, label: week.label, status: week.status })), weeklySummaries, rules, leaderboard, events, champions, draftTurns, draftState: { status: state.status, activePosition: null, updatedAt: state.updated_at, currentTurn: activeTurn ? { id: activeTurn.id, ownerId: activeTurn.owner_id, teamName: turnOwner?.teamName ?? "Unassigned team", draftPosition: activeTurn.global_pick, roundNumber: activeTurn.round_number, expiresAt: activeTurn.expires_at } : null }, totals: { ownerCount: owners.length, divisionCount: divisions.length, draftPickCount: slotRows.filter(slot => slot.school_name).length, scoringEventCount: events.length } };
 }
 
 export function publicDraftResearchUnit(row: ResearchUnitRow) {
@@ -210,7 +229,9 @@ export async function getDraftSlotByGroup(schoolName: string, position: Position
 
 export async function getScoringRulesForEvent(eventType: ScoringEventType) {
   const rows = await supabaseRest<RuleRow[]>("b36_scoring_rules", { query: { select: "*", event_type: q.eq(eventType), is_active: q.eq(true) } });
-  return rows.map(rule => ({ id: Number.parseInt(rule.id.replace(/-/g, "").slice(0, 8), 16), eventType: rule.event_type, positionScope: rule.position_scope, minYards: asNumber(rule.min_yards), maxYards: asNumber(rule.max_yards), flatPoints: asNumber(rule.flat_points), pointsPerUnit: asNumber(rule.points_per_unit), isActive: "true" as const }));
+  return rows.length
+    ? rows.map(rule => ({ id: Number.parseInt(rule.id.replace(/-/g, "").slice(0, 8), 16), eventType: rule.event_type, positionScope: rule.position_scope, minYards: asNumber(rule.min_yards), maxYards: asNumber(rule.max_yards), flatPoints: asNumber(rule.flat_points), pointsPerUnit: asNumber(rule.points_per_unit), isActive: "true" as const }))
+    : fallbackYearOneRules(eventType);
 }
 
 export async function getScoreEvent(eventId: string) {

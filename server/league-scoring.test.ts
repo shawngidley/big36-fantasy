@@ -6,7 +6,10 @@ describe("36 Football scoring engine", () => {
   const rules = yearOneRules.map((rule, index) => ({ ...rule, id: index + 1, pointsPerUnit: null, isActive: "true" as const }));
   it("uses the complete offensive touchdown tiers and two-point value", () => {
     expect(calculateEventScore(rules, { eventType: "TOUCHDOWN", position: "WR", statValue: 1, yardDistance: 7 })).toMatchObject({ points: 6 });
-    expect(calculateEventScore(rules, { eventType: "TOUCHDOWN", position: "TE", statValue: 1, yardDistance: 24 })).toMatchObject({ points: 8 });
+    expect(calculateEventScore(rules, { eventType: "TOUCHDOWN", position: "TE", statValue: 1, yardDistance: 7 })).toMatchObject({ points: 12 });
+    expect(calculateEventScore(rules, { eventType: "TOUCHDOWN", position: "TE", statValue: 1, yardDistance: 24 })).toMatchObject({ points: 16 });
+    expect(calculateEventScore(rules, { eventType: "TOUCHDOWN", position: "TE", statValue: 1, yardDistance: 45 })).toMatchObject({ points: 20 });
+    expect(calculateEventScore(rules, { eventType: "TOUCHDOWN", position: "TE", statValue: 1, yardDistance: 70 })).toMatchObject({ points: 24 });
     expect(calculateEventScore(rules, { eventType: "TOUCHDOWN", position: "RB", statValue: 1, yardDistance: 45 })).toMatchObject({ points: 10 });
     expect(calculateEventScore(rules, { eventType: "TOUCHDOWN", position: "QB", statValue: 1, yardDistance: 70 })).toMatchObject({ points: 12 });
     expect(calculateEventScore(rules, { eventType: "TWO_POINT_CONVERSION", position: "WR", statValue: 1 })).toMatchObject({ points: 4 });

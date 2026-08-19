@@ -160,7 +160,8 @@ def add_event(school, position, event_kind, row):
     if distance is None:
         entry['tier_events_missing_distance'] += 1
     else:
-        entry['tier_points'] += 6 if distance <= 9 else 8 if distance <= 29 else 10 if distance <= 59 else 12
+        base_points = 6 if distance <= 9 else 8 if distance <= 29 else 10 if distance <= 59 else 12
+        entry['tier_points'] += base_points * 2 if position == 'TE' else base_points
     event = {
         'game_id': int(row['game_id']),
         'id': int(row['id']) if row.get('id') is not None else None,

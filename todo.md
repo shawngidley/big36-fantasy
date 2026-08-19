@@ -174,4 +174,9 @@
 - [x] Elevate Shawn Gidley and Matt Janssen normal approved league email-and-PIN sessions to commissioner access without a separate login.
 - [x] Add regression coverage that unified commissioner sessions authorize Commish while ordinary owner sessions remain blocked.
 - [x] Clarify on the normal owner sign-in page that authorized commissioners use the same league email-and-PIN form and then open Commish.
-- [ ] Republish and verify 36football.com so the current unified normal-session commissioner guidance is visible on the public owner sign-in page.
+- [x] Republish and verify 36football.com so the current unified normal-session commissioner guidance is visible on the public owner sign-in page.
+- [x] Double TE touchdown tier scoring to 12/16/20/24 points for all TE scoring touchdowns while preserving standard QB passing-touchdown credit.
+- [x] Apply the doubled TE touchdown tiers to live event scoring, manual corrections, and public scoring rules.
+- [x] Recompute and publish only fully supported historical TE totals under the doubled touchdown rule while preserving explicit holds.
+- [x] Add regression coverage for doubled TE receiving and rushing touchdowns, standard QB credit on QB-to-TE scores, and unchanged non-TE scoring.
+- [x] Ensure live scoring falls back to the authoritative Year 1 rules when the database rule table is empty, so all event scores—including doubled TE tiers—remain active.

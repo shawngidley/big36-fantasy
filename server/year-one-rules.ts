@@ -3,12 +3,15 @@ import type { Position, ScoringEventType } from "../drizzle/schema";
 export type YearOneRule = { label: string; eventType: ScoringEventType; positionScope: "ALL" | Position; minYards: number | null; maxYards: number | null; flatPoints: number };
 
 const offensivePositions = ["QB", "RB", "WR", "TE"] as const;
-const touchdownRules = (position: (typeof offensivePositions)[number]): YearOneRule[] => [
-  { label: `${position} touchdown 1–9 yards`, eventType: "TOUCHDOWN", positionScope: position, minYards: 1, maxYards: 9, flatPoints: 6 },
-  { label: `${position} touchdown 10–29 yards`, eventType: "TOUCHDOWN", positionScope: position, minYards: 10, maxYards: 29, flatPoints: 8 },
-  { label: `${position} touchdown 30–59 yards`, eventType: "TOUCHDOWN", positionScope: position, minYards: 30, maxYards: 59, flatPoints: 10 },
-  { label: `${position} touchdown 60+ yards`, eventType: "TOUCHDOWN", positionScope: position, minYards: 60, maxYards: null, flatPoints: 12 },
-];
+const touchdownRules = (position: (typeof offensivePositions)[number]): YearOneRule[] => {
+  const [short, medium, long, explosive] = position === "TE" ? [12, 16, 20, 24] : [6, 8, 10, 12];
+  return [
+    { label: `${position} touchdown 1–9 yards`, eventType: "TOUCHDOWN", positionScope: position, minYards: 1, maxYards: 9, flatPoints: short },
+    { label: `${position} touchdown 10–29 yards`, eventType: "TOUCHDOWN", positionScope: position, minYards: 10, maxYards: 29, flatPoints: medium },
+    { label: `${position} touchdown 30–59 yards`, eventType: "TOUCHDOWN", positionScope: position, minYards: 30, maxYards: 59, flatPoints: long },
+    { label: `${position} touchdown 60+ yards`, eventType: "TOUCHDOWN", positionScope: position, minYards: 60, maxYards: null, flatPoints: explosive },
+  ];
+};
 const conversionAndTurnoverRules = (position: (typeof offensivePositions)[number]): YearOneRule[] => [
   { label: `${position} successful two-point conversion`, eventType: "TWO_POINT_CONVERSION", positionScope: position, minYards: null, maxYards: null, flatPoints: 4 },
   { label: `${position} fumble lost`, eventType: "FUMBLE_LOST", positionScope: position, minYards: null, maxYards: null, flatPoints: -3 },
