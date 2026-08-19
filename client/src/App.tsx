@@ -13,6 +13,7 @@ import JoinLeague from "./pages/JoinLeague";
 import Landing from "./pages/Landing";
 import Leaderboards from "./pages/Leaderboards";
 import MyDraft from "./pages/MyDraft";
+import MyTeam from "./pages/MyTeam";
 import NotFound from "./pages/NotFound";
 import Prizes from "./pages/Prizes";
 import Standings from "./pages/Standings";
@@ -31,6 +32,7 @@ function Router() {
     <Route path="/leaders" component={Leaderboards} />
     <Route path="/weekly" component={Weekly} />
     <Route path="/my-draft" component={MyDraft} />
+    <Route path="/my-team" component={MyTeam} />
     <Route path="/team/:ownerId" component={Team} />
     <Route path="/commissioner" component={Commissioner} />
     <Route path="/commissioner/registrations" component={CommissionerRegistrations} />

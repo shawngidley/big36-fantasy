@@ -10,7 +10,7 @@ import { adminProcedure, protectedProcedure, publicProcedure, router } from "../
 import { yearOneRules } from "../year-one-rules";
 import { runGamedayRefresh } from "../gameday-refresh";
 import { syncFbsPoolAndSchedule } from "../gameday-refresh";
-import { decodeRegistrationLogo, hashRegistrationPin, normalizeRegistrationEmail, normalizeRegistrationPhone } from "../registration";
+import { decodeRegistrationLogo, hashRegistrationPin, normalizeRegistrationEmail, normalizeRegistrationPhone, verifyRegistrationPin } from "../registration";
 import { storagePut } from "../storage";
 
 const positionSchema = z.enum(positions);
@@ -20,6 +20,21 @@ const asError = (error: unknown): never => { throw new TRPCError({ code: "BAD_RE
 const registrationTable = "b36_owner_registrations";
 const registrationInput = z.object({
   displayName: z.string().trim().min(2).max(120), teamName: z.string().trim().min(2).max(120), nickname: z.string().trim().max(80).nullable().optional(), programIdentity: z.string().trim().max(240).nullable().optional(), inspiration: z.string().trim().max(240).nullable().optional(), primaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).nullable().optional(), accentColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).nullable().optional(), brandingNotes: z.string().trim().max(1000).nullable().optional(), rivalryPreference: z.string().trim().max(120).nullable().optional(), email: z.string().trim().email().max(254), phone: z.string().trim().min(10).max(32), pin: z.string().min(4).max(12), logoDataUrl: z.string().max(2_000_000).nullable().optional(),
+});
+const ownerProfileInput = z.object({
+  displayName: z.string().trim().min(2).max(120),
+  teamName: z.string().trim().min(2).max(120),
+  nickname: z.string().trim().max(80).nullable().optional(),
+  programIdentity: z.string().trim().max(240).nullable().optional(),
+  inspiration: z.string().trim().max(240).nullable().optional(),
+  primaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).nullable().optional(),
+  accentColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).nullable().optional(),
+  brandingNotes: z.string().trim().max(1000).nullable().optional(),
+  rivalryPreference: z.string().trim().max(120).nullable().optional(),
+  phone: z.string().trim().min(10).max(32),
+  currentPin: z.string().min(4).max(12).nullable().optional(),
+  newPin: z.string().min(4).max(12).nullable().optional(),
+  logoDataUrl: z.string().max(2_000_000).nullable().optional(),
 });
 type RegistrationRow = { id: string; display_name: string; team_name: string; nickname: string | null; program_identity: string | null; inspiration: string | null; primary_color: string | null; accent_color: string | null; branding_notes: string | null; rivalry_preference: string | null; email: string; phone_e164: string; logo_key: string | null; logo_url: string | null; status: "PENDING" | "APPROVED" | "DECLINED"; assigned_owner_id: string | null; review_note: string | null; created_at: string; reviewed_at: string | null };
 
@@ -40,6 +55,56 @@ export const leagueRouter = router({
       await supabaseRpc<string>("b36_submit_owner_registration", {
         p_display_name: input.displayName.trim(), p_team_name: input.teamName.trim(), p_nickname: input.nickname?.trim() || "", p_program_identity: input.programIdentity?.trim() || "", p_inspiration: input.inspiration?.trim() || "", p_primary_color: input.primaryColor ?? "", p_accent_color: input.accentColor ?? "", p_branding_notes: input.brandingNotes?.trim() || "", p_rivalry_preference: input.rivalryPreference?.trim() || "", p_email: email, p_phone_e164: phone, p_pin_hash: hashRegistrationPin(input.pin), p_logo_key: storedLogo?.key ?? "", p_logo_url: storedLogo?.url ?? "",
       });
+      return { success: true as const };
+    } catch (error) { asError(error); }
+  }),
+  myProfile: protectedProcedure.query(async ({ ctx }) => {
+    const email = normalizeRegistrationEmail(ctx.user.email ?? "");
+    const registrations = await supabaseRest<RegistrationRow[]>(registrationTable, { query: { select: "id,display_name,team_name,nickname,program_identity,inspiration,primary_color,accent_color,branding_notes,rivalry_preference,email,phone_e164,logo_key,logo_url,status,assigned_owner_id,review_note,created_at,reviewed_at", email: q.eq(email), status: q.eq("APPROVED"), order: "reviewed_at.desc", limit: "1" } });
+    const registration = registrations[0];
+    if (!registration?.assigned_owner_id) throw new TRPCError({ code: "FORBIDDEN", message: "Your approved 36 Football program is not linked yet." });
+    const owner = (await getLeagueSnapshot()).owners.find(item => item.id === registration.assigned_owner_id);
+    return {
+      registration: {
+        id: registration.id,
+        ownerId: registration.assigned_owner_id,
+        displayName: registration.display_name,
+        teamName: registration.team_name,
+        nickname: registration.nickname,
+        programIdentity: registration.program_identity,
+        inspiration: registration.inspiration,
+        primaryColor: registration.primary_color,
+        accentColor: registration.accent_color,
+        brandingNotes: registration.branding_notes,
+        rivalryPreference: registration.rivalry_preference,
+        email: registration.email,
+        phone: registration.phone_e164,
+        logoUrl: registration.logo_url,
+      },
+      owner: owner ?? null,
+    };
+  }),
+  updateMyProfile: protectedProcedure.input(ownerProfileInput).mutation(async ({ ctx, input }) => {
+    try {
+      const email = normalizeRegistrationEmail(ctx.user.email ?? "");
+      const registrations = await supabaseRest<Array<RegistrationRow & { pin_hash: string }>>(registrationTable, { query: { select: "id,display_name,team_name,nickname,program_identity,inspiration,primary_color,accent_color,branding_notes,rivalry_preference,email,phone_e164,logo_key,logo_url,status,assigned_owner_id,review_note,created_at,reviewed_at,pin_hash", email: q.eq(email), status: q.eq("APPROVED"), order: "reviewed_at.desc", limit: "1" } });
+      const registration = registrations[0];
+      if (!registration?.assigned_owner_id) throw new Error("Your approved 36 Football program is not linked yet.");
+      if (input.newPin && (!input.currentPin || !verifyRegistrationPin(input.currentPin, registration.pin_hash))) throw new Error("Enter your current PIN before setting a new one.");
+      const snapshot = await getLeagueSnapshot();
+      const duplicateTeam = snapshot.owners.find(owner => owner.id !== registration.assigned_owner_id && owner.teamName.trim().toLowerCase() === input.teamName.trim().toLowerCase());
+      if (duplicateTeam) throw new Error("Another 36 Football program already uses that team name.");
+      const logo = input.logoDataUrl ? decodeRegistrationLogo(input.logoDataUrl) : null;
+      const storedLogo = logo ? await storagePut(`owner-profiles/${registration.assigned_owner_id}/${crypto.randomUUID()}.${logo.extension}`, logo.bytes, logo.contentType) : null;
+      const values = {
+        display_name: input.displayName.trim(), team_name: input.teamName.trim(), nickname: input.nickname?.trim() || null, program_identity: input.programIdentity?.trim() || null,
+        inspiration: input.inspiration?.trim() || null, primary_color: input.primaryColor ?? null, accent_color: input.accentColor ?? null,
+        branding_notes: input.brandingNotes?.trim() || null, rivalry_preference: input.rivalryPreference?.trim() || null,
+        phone_e164: normalizeRegistrationPhone(input.phone), ...(storedLogo ? { logo_key: storedLogo.key, logo_url: storedLogo.url } : {}),
+      };
+      await supabaseRest("b36_owners", { method: "PATCH", query: { id: q.eq(registration.assigned_owner_id) }, body: { display_name: values.display_name, team_name: values.team_name, nickname: values.nickname, program_identity: values.program_identity, inspiration: values.inspiration, primary_color: values.primary_color, accent_color: values.accent_color, branding_notes: values.branding_notes, rivalry_preference: values.rivalry_preference, ...(storedLogo ? { logo_url: storedLogo.url } : {}) } });
+      await supabaseRest(registrationTable, { method: "PATCH", query: { id: q.eq(registration.id) }, body: { ...values, ...(input.newPin ? { pin_hash: hashRegistrationPin(input.newPin) } : {}), updated_at: new Date().toISOString() } });
+      await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "OWNER_PROFILE_UPDATED", entity_type: "b36_owners", entity_id: registration.assigned_owner_id, detail: { registration_id: registration.id, logo_updated: Boolean(storedLogo), pin_updated: Boolean(input.newPin) } } });
       return { success: true as const };
     } catch (error) { asError(error); }
   }),

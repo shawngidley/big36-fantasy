@@ -13,6 +13,7 @@ const publicNav = [
   { label: "Leaders", path: "/leaders" },
   { label: "Weekly", path: "/weekly" },
   { label: "My Draft", path: "/my-draft" },
+  { label: "My Team", path: "/my-team" },
   { label: "Prizes", path: "/prizes" },
 ];
 

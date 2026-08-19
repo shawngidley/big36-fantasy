@@ -137,6 +137,38 @@ describe("Big 36 owner draft procedures", () => {
     await expect(caller.auth.ownerLogin({ email: "pending@example.com", pin: "482917" })).rejects.toThrow("not recognized");
   });
 
+  it("returns only the signed-in owner's approved program profile and saves its self-service settings", async () => {
+    const registration = { id: "22222222-2222-4222-8222-222222222222", display_name: "League Owner", team_name: "Lakewood College", nickname: "Night Owls", program_identity: "Lakeside underdogs", inspiration: "Lakewood", primary_color: "#B84A12", accent_color: "#17120E", branding_notes: "Tough and traditional", rivalry_preference: "River City", email: "owner@example.com", phone_e164: "+5555550182", logo_key: null, logo_url: null, status: "APPROVED", assigned_owner_id: "33333333-3333-4333-8333-333333333333", review_note: null, created_at: "2026-08-01T00:00:00.000Z", reviewed_at: "2026-08-02T00:00:00.000Z", pin_hash: hashRegistrationPin("482917") };
+    mocks.getLeagueSnapshot.mockResolvedValue({ owners: [{ id: registration.assigned_owner_id, teamName: registration.team_name }], divisions: [], totals: { ownerCount: 1 } });
+    mocks.supabaseRest
+      .mockResolvedValueOnce([{ ...registration }])
+      .mockResolvedValueOnce([{ ...registration }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    const caller = appRouter.createCaller(createContext("user"));
+
+    await expect(caller.league.myProfile()).resolves.toMatchObject({ registration: { ownerId: registration.assigned_owner_id, teamName: "Lakewood College", phone: "+5555550182" } });
+    await expect(caller.league.updateMyProfile({ displayName: "Jordan Owner", teamName: "Lakewood College", nickname: "Night Owls", programIdentity: "Lakeside underdogs", inspiration: "Lakewood", primaryColor: "#B84A12", accentColor: "#17120E", brandingNotes: "Tough and traditional", rivalryPreference: "River City", phone: "(555) 555-0182", currentPin: null, newPin: null, logoDataUrl: null })).resolves.toEqual({ success: true });
+    expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_owners", expect.objectContaining({ method: "PATCH", query: { id: "eq.33333333-3333-4333-8333-333333333333" }, body: expect.objectContaining({ display_name: "Jordan Owner", team_name: "Lakewood College" }) }));
+    expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_audit_events", expect.objectContaining({ method: "POST", body: expect.objectContaining({ action: "OWNER_PROFILE_UPDATED", entity_id: registration.assigned_owner_id }) }));
+  });
+
+  it("rejects profile changes for an account without an approved assigned program", async () => {
+    mocks.supabaseRest.mockResolvedValueOnce([]);
+    const caller = appRouter.createCaller(createContext("user"));
+    await expect(caller.league.myProfile()).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("requires the existing PIN before an owner can set a new profile PIN", async () => {
+    const registration = { id: "22222222-2222-4222-8222-222222222222", display_name: "League Owner", team_name: "Lakewood College", nickname: null, program_identity: null, inspiration: null, primary_color: null, accent_color: null, branding_notes: null, rivalry_preference: null, email: "owner@example.com", phone_e164: "+5555550182", logo_key: null, logo_url: null, status: "APPROVED", assigned_owner_id: "33333333-3333-4333-8333-333333333333", review_note: null, created_at: "2026-08-01T00:00:00.000Z", reviewed_at: "2026-08-02T00:00:00.000Z", pin_hash: hashRegistrationPin("482917") };
+    mocks.supabaseRest.mockResolvedValueOnce([registration]);
+    const caller = appRouter.createCaller(createContext("user"));
+
+    await expect(caller.league.updateMyProfile({ displayName: "League Owner", teamName: "Lakewood College", nickname: null, programIdentity: null, inspiration: null, primaryColor: null, accentColor: null, brandingNotes: null, rivalryPreference: null, phone: "(555) 555-0182", currentPin: "1111", newPin: "482918", logoDataUrl: null })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("current PIN") });
+    expect(mocks.getLeagueSnapshot).not.toHaveBeenCalled();
+  });
+
   it("keeps private registration review commissioner-only", async () => {
     const ownerCaller = appRouter.createCaller(createContext("user"));
     await expect(ownerCaller.league.admin.ownerRegistrations()).rejects.toMatchObject({ code: "FORBIDDEN" });
