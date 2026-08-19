@@ -106,3 +106,6 @@
 - [x] Verify that any research record marked as historically held exposes no usable point total through the public API.
 - [x] Clear stored point values for held QB, RB, WR, and TE historical units in the Supabase research catalog.
 - [x] Verify held historical units have no numerical point value in either Supabase storage or the public research response.
+- [ ] Publish only fully reconciled 2025 K/ST historical totals from the complete ESPN core event ledger and retain all other K/ST totals as held.
+- [ ] Reconcile K/ST block and special-teams-safety components against authoritative first-12-game controls before any dependent K/ST total is certified.
+- [ ] Verify every K/ST unit marked certified has complete evidence for each scored component and every held K/ST row exposes no usable total.
