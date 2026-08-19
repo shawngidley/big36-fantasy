@@ -147,8 +147,14 @@
 - [x] Verify and repair commissioner-only registration review access through the server without granting public reads of private registration data.
 - [x] Authorize janssenmatt25@gmail.com as a commissioner account automatically at sign-in.
 - [x] Add regression coverage that grants commissioner access only to the configured Matt Janssen email and denies other owners.
-- [ ] Configure the effective hosted Open Graph and text-share preview to use the official 36 Football league logo image.
+- [x] Configure the effective hosted Open Graph and text-share preview to use the official 36 Football league logo image.
 - [x] Add regression coverage that the project document head retains the official league-logo share image metadata.
-- [ ] Resolve or document the hosting-layer social-preview override that currently replaces project Open Graph image metadata on the custom domain.
-- [ ] Serve crawler-visible public HTML with the official league logo share metadata so hosting-layer preview injection cannot replace it.
-- [ ] Serve a standards-compliant crawler share-card response for the root and registration links using the official league wordmark.
+- [x] Resolve or document the hosting-layer social-preview override that currently replaces project Open Graph image metadata on the custom domain.
+- [x] Serve crawler-visible public HTML with the official league logo share metadata so hosting-layer preview injection cannot replace it.
+- [x] Serve a standards-compliant crawler share-card response for the root and registration links using the official league wordmark.
+- [ ] Add a non-Manus commissioner sign-in flow using approved Matt Janssen and Shawn Gidley registration emails with their existing hashed registration PINs.
+- [ ] Issue, validate, expire, and revoke a dedicated commissioner session without exposing registration credentials or reusing Manus OAuth.
+- [ ] Protect commissioner review and administration routes with the dedicated registration-backed commissioner session.
+- [ ] Add regression tests for commissioner PIN login, invalid credential denial, session expiry, and non-commissioner access denial.
+- [x] Reset scroll position to the top on every public and commissioner route transition.
+- [x] Add regression coverage for top-of-page navigation behavior on route changes.
