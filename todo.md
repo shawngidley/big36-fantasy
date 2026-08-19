@@ -132,3 +132,9 @@
 - [x] Move the private registration section above optional program-identity preferences in the public owner sign-up flow.
 - [ ] Suppress the hosting-runtime “Made with Manus” badge on public and commissioner pages and verify the rendered experience.
 - [ ] Verify and refresh the 36football.com release so the latest registration ordering and program-creation changes are visible on the public domain.
+- [x] Rename the Program identity section to Program details and move Team nickname to its first field.
+- [x] Remove the Private registration heading while retaining all contact and PIN fields.
+- [x] Route the 36football.com homepage to the public program-registration experience instead of the current league marketing homepage.
+- [x] Add public Prizes and Payment header tabs with the approved inaugural payout structure and Matt Janssen Venmo payment method.
+- [x] Switch the root landing page from program registration to standings after all 36 owner registrations are commissioner-approved.
+- [x] Add regression coverage for the public approved-registration count that controls the root landing transition.

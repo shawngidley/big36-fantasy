@@ -9,17 +9,22 @@ import DraftBoard from "./pages/DraftBoard";
 import DraftResearch from "./pages/DraftResearch";
 import Home from "./pages/Home";
 import JoinLeague from "./pages/JoinLeague";
+import Landing from "./pages/Landing";
 import Leaderboards from "./pages/Leaderboards";
 import MyDraft from "./pages/MyDraft";
 import NotFound from "./pages/NotFound";
+import Payment from "./pages/Payment";
+import Prizes from "./pages/Prizes";
 import Standings from "./pages/Standings";
 import Team from "./pages/Team";
 import Weekly from "./pages/Weekly";
 
 function Router() {
   return <Switch>
-    <Route path="/" component={Home} />
+    <Route path="/" component={Landing} />
     <Route path="/join" component={JoinLeague} />
+    <Route path="/prizes" component={Prizes} />
+    <Route path="/payment" component={Payment} />
     <Route path="/standings" component={Standings} />
     <Route path="/draft" component={DraftBoard} />
     <Route path="/research" component={DraftResearch} />

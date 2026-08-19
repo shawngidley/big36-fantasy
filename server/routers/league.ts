@@ -25,6 +25,10 @@ type RegistrationRow = { id: string; display_name: string; team_name: string; ni
 
 export const leagueRouter = router({
   snapshot: publicProcedure.query(() => getLeagueSnapshot()),
+  registrationLanding: publicProcedure.query(async () => {
+    const approved = await supabaseRest<Array<Pick<RegistrationRow, "id">>>(registrationTable, { query: { select: "id", status: q.eq("APPROVED"), limit: "36" } });
+    return { approvedCount: approved.length, capacity: 36, registrationOpen: approved.length < 36 };
+  }),
   research: publicProcedure.input(z.object({ position: positionSchema.optional() }).optional()).query(({ input }) => getDraftResearchCatalog(input?.position)),
   owner: publicProcedure.input(z.object({ ownerId: uuid })).query(async ({ input }) => {
     const owner = (await getLeagueSnapshot()).owners.find(item => item.id === input.ownerId);

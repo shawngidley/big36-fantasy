@@ -101,6 +101,16 @@ describe("Big 36 owner draft procedures", () => {
     expect(mocks.supabaseRest).not.toHaveBeenCalled();
   });
 
+  it("keeps the root registration landing open until all 36 registrations are approved", async () => {
+    const caller = appRouter.createCaller(createContext("user"));
+    mocks.supabaseRest.mockResolvedValueOnce(Array.from({ length: 35 }, (_, index) => ({ id: `approved-${index}` })));
+    await expect(caller.league.registrationLanding()).resolves.toEqual({ approvedCount: 35, capacity: 36, registrationOpen: true });
+
+    mocks.supabaseRest.mockResolvedValueOnce(Array.from({ length: 36 }, (_, index) => ({ id: `approved-${index}` })));
+    await expect(caller.league.registrationLanding()).resolves.toEqual({ approvedCount: 36, capacity: 36, registrationOpen: false });
+    expect(mocks.supabaseRest).toHaveBeenLastCalledWith("b36_owner_registrations", expect.objectContaining({ query: expect.objectContaining({ status: "eq.APPROVED", limit: "36" }) }));
+  });
+
   it("persists exact offsetting reversals for positive scores and negative turnovers", async () => {
     const caller = appRouter.createCaller(createContext("admin"));
     const touchdownId = "11111111-1111-4111-8111-111111111111";
