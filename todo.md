@@ -168,3 +168,4 @@
 - [x] Keep /join as the dedicated owner program-registration page rather than the root landing page.
 - [x] Persist approved owner sign-in safely across return visits and provide a clear league-site sign-out action.
 - [x] Remove and test the request-context Manus OAuth fallback so only league-issued owner or commissioner sessions authorize private access.
+- [ ] Republish and verify 36football.com so the root serves the current owner email-and-PIN sign-in while /join serves registration.
