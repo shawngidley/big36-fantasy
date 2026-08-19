@@ -1,0 +1,21 @@
+{
+  "name": "36 Football — Inaugural Season",
+  "short_name": "36 Football",
+  "description": "The official 36 Football league draft, standings, and live scoring ledger.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#15120f",
+  "theme_color": "#15120f",
+  "icons": [
+    {
+      "src": "/manus-storage/36football-helmet-icon-192_4695226d.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/manus-storage/36football-helmet-icon-512_fa45e922.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

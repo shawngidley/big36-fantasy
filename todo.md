@@ -73,10 +73,11 @@
 - [x] Create visual mockups for the proposed 36 Football collegiate game-program direction before modifying the live site.
 - [x] Create a cleaner restrained-collegiate mockup that avoids the busy, AI-poster appearance of the first concepts.
 - [x] Apply the owner-approved restrained collegiate editorial visual system across the public homepage, standings, and draft board.
-- [ ] Define and obtain approval for the compact 36 Football PWA app-icon mark before creating the final app-icon assets.
-- [ ] Create and present a visual preview of the proposed compact 36 Football PWA app icon.
-- [ ] Create and present a distinct helmet-based PWA icon preview that avoids existing professional-football visual cues.
-- [ ] Create and present more distinctive 36 Football helmet-emblem concepts with league-specific 36 and serpentine geometry.
+- [x] Define and obtain approval for the compact 36 Football PWA app-icon mark before creating the final app-icon assets.
+- [x] Create and present a visual preview of the proposed compact 36 Football PWA app icon.
+- [x] Create and present a distinct helmet-based PWA icon preview that avoids existing professional-football visual cues.
+- [x] Create and present more distinctive 36 Football helmet-emblem concepts with league-specific 36 and serpentine geometry.
+- [ ] Create a true helmet-only compact PWA icon from the approved artwork, use the full lockup where space allows, and verify the favicon, manifest, Apple icon, and public header on 36football.com.
 - [x] Publish and verify the approved restrained collegiate color refresh on the live 36football.com domain.
 - [x] Audit official scoring rules, 2025 unit calculations, and live event attribution for accuracy across QB, RB, WR, TE, K/ST, and DEF.
 - [x] Replace incomplete CFBD player-stat dependence with robust event attribution, eliminate duplicated PAT/field-goal scoring, and rebuild the affected 2025 unit catalog.
@@ -90,3 +91,4 @@
 - [x] Preserve the nine source-limited historical QB tier point totals without inference and label the future complete-play-by-play requirement for final certification.
 - [x] Publish and verify certified CFBD first-12-game QB touchdown and interception stat lines on all public research cards while retaining the nine-school tier-points audit as a separate holdout.
 - [x] Remove or clearly separate legacy QB event-ledger counts from certified QB stat cards so public research values are not contradictory.
+- [x] Integrate the approved full helmet-and-wordmark artwork into the shared website header and initial PWA metadata.

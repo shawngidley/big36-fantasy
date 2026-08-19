@@ -1,4 +1,4 @@
-import { Trophy, Shield, Menu, ChevronRight, UserRound } from "lucide-react";
+import { Shield, Menu, ChevronRight, UserRound } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -15,8 +15,8 @@ const publicNav = [
 
 function Brand() {
   return <Link href="/" className="group flex items-center gap-3" aria-label="36 Football home">
-    <span className="flex h-10 w-10 items-center justify-center rounded-md bg-primary text-primary-foreground transition-transform duration-200 group-hover:-rotate-3">
-      <Trophy className="h-5 w-5" />
+    <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md bg-[#13100d] transition-transform duration-200 group-hover:-rotate-3">
+      <img src="/manus-storage/36football-helmet-wordmark-192_f71497b3.png" alt="" className="h-full w-full object-contain" />
     </span>
     <span className="leading-none">
       <span className="block font-display text-xl font-extrabold tracking-[-0.06em] text-[var(--header-foreground)]">36 FOOTBALL</span>
