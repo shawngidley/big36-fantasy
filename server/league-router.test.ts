@@ -121,6 +121,22 @@ describe("Big 36 owner draft procedures", () => {
     await expect(caller.auth.commissionerLogin({ email: "owner@example.com", pin: "482917" })).rejects.toThrow("not recognized");
   });
 
+  it("issues a persistent owner session only for an approved registration with an assigned program", async () => {
+    mocks.supabaseRest
+      .mockResolvedValueOnce([{ id: "22222222-2222-4222-8222-222222222222", email: "owner@example.com", pin_hash: hashRegistrationPin("482917"), status: "APPROVED", assigned_owner_id: "33333333-3333-4333-8333-333333333333" }])
+      .mockResolvedValueOnce([]);
+    const { ctx, setCookies } = createCommissionerLoginContext();
+    const caller = appRouter.createCaller(ctx);
+
+    await expect(caller.auth.ownerLogin({ email: "OWNER@example.com", pin: "482917" })).resolves.toMatchObject({ success: true });
+    expect(setCookies).toHaveLength(1);
+    expect(setCookies[0]).toMatchObject({ name: "b36_owner_session", options: expect.objectContaining({ httpOnly: true, secure: true, sameSite: "none", maxAge: 30 * 24 * 60 * 60 * 1000 }) });
+    expect(setCookies[0]?.value).not.toContain("482917");
+
+    mocks.supabaseRest.mockResolvedValueOnce([]);
+    await expect(caller.auth.ownerLogin({ email: "pending@example.com", pin: "482917" })).rejects.toThrow("not recognized");
+  });
+
   it("keeps private registration review commissioner-only", async () => {
     const ownerCaller = appRouter.createCaller(createContext("user"));
     await expect(ownerCaller.league.admin.ownerRegistrations()).rejects.toMatchObject({ code: "FORBIDDEN" });

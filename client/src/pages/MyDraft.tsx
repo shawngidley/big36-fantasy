@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CheckCircle2, CircleDashed, LockKeyhole, LogIn, Send, TimerReset } from "lucide-react";
+import { CheckCircle2, CircleDashed, LockKeyhole, Send, TimerReset } from "lucide-react";
 import LeagueShell from "@/components/LeagueShell";
 import { EmptyLedger, LeagueError, LeagueLoading } from "@/components/LeagueState";
 import { Button } from "@/components/ui/button";
@@ -7,9 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
+import { OwnerSignInForm } from "@/components/OwnerSignInForm";
 
 const positions = ["QB", "RB", "WR", "TE", "K_ST", "DEF"] as const;
 const labelFor = (position: string) => position === "K_ST" ? "K/ST" : position;
@@ -26,7 +26,7 @@ export default function MyDraft() {
   });
 
   if (loading) return <LeagueShell><LeagueLoading /></LeagueShell>;
-  if (!isAuthenticated) return <LeagueShell eyebrow="Owner draft portal"><section className="container py-14 sm:py-20"><div className="mx-auto max-w-2xl rounded-3xl border border-border bg-card p-8 text-center shadow-sm"><LockKeyhole className="mx-auto h-7 w-7 text-primary" /><p className="section-kicker mt-5">Programs only</p><h1 className="mt-3 font-display text-4xl font-extrabold tracking-tight">Draft your six.</h1><p className="mx-auto mt-4 max-w-lg text-sm leading-7 text-muted-foreground">Sign in with the email the commissioner used for your 36 Football program. Your account will be matched automatically.</p><Button className="mt-7" onClick={() => startLogin()}><LogIn className="mr-2 h-4 w-4" /> Sign in to draft</Button></div></section></LeagueShell>;
+  if (!isAuthenticated) return <LeagueShell eyebrow="Owner draft portal"><section className="container py-14 sm:py-20"><div className="mx-auto max-w-2xl rounded-3xl border border-border bg-card p-8 shadow-sm"><LockKeyhole className="mx-auto h-7 w-7 text-primary" /><p className="section-kicker mt-5 text-center">Programs only</p><h1 className="mt-3 text-center font-display text-4xl font-extrabold tracking-tight">Draft your six.</h1><p className="mx-auto mt-4 max-w-lg text-center text-sm leading-7 text-muted-foreground">Sign in with the email and PIN from your approved 36 Football program registration.</p><OwnerSignInForm /></div></section></LeagueShell>;
   if (mine.isLoading) return <LeagueShell><LeagueLoading /></LeagueShell>;
   if (mine.error || !mine.data) return <LeagueShell><LeagueError message={mine.error?.message} /></LeagueShell>;
   const data = mine.data;

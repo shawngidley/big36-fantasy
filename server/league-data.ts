@@ -182,10 +182,10 @@ export async function getOrClaimOwner(openId: string, email?: string | null) {
   const existing = await supabaseRest<OwnerRow[]>(ownerPath, { query: { select: "*", manus_open_id: q.eq(openId) } });
   if (existing[0]) return camelOwner(existing[0]);
   if (!email) return null;
-  const candidates = await supabaseRest<OwnerRow[]>(ownerPath, { query: { select: "*", email: q.eq(email.toLowerCase()), manus_open_id: q.isNull } });
+  const candidates = await supabaseRest<OwnerRow[]>(ownerPath, { query: { select: "*", email: q.eq(email.toLowerCase()) } });
   const candidate = candidates[0];
   if (!candidate) return null;
-  const claimed = await supabaseRest<OwnerRow[]>(ownerPath, { method: "PATCH", query: { id: q.eq(candidate.id), manus_open_id: q.isNull }, body: { manus_open_id: openId }, prefer: "return=representation" });
+  const claimed = await supabaseRest<OwnerRow[]>(ownerPath, { method: "PATCH", query: { id: q.eq(candidate.id), email: q.eq(email.toLowerCase()) }, body: { manus_open_id: openId }, prefer: "return=representation" });
   return claimed[0] ? camelOwner(claimed[0]) : null;
 }
 

@@ -159,3 +159,12 @@
 - [x] Add router-level regression coverage for successful authorized commissioner PIN login and its secure session cookie.
 - [x] Reset scroll position to the top on every public and commissioner route transition.
 - [x] Add regression coverage for top-of-page navigation behavior on route changes.
+- [x] Add non-Manus owner sign-in using the approved registration email and existing hashed PIN.
+- [x] Permit registration-backed owner sessions only after commissioner approval and program-slot assignment.
+- [x] Map approved owner sessions to their assigned team for My Draft and team access without Manus OAuth.
+- [x] Update public owner sign-in/sign-out interfaces and remove remaining owner dependence on Manus login.
+- [x] Add regression tests for approved-owner login, pending-owner denial, assigned-team access, and commissioner role elevation.
+- [x] Make 36football.com the owner email-and-PIN sign-in page with a secure persistent approved-owner session.
+- [x] Keep /join as the dedicated owner program-registration page rather than the root landing page.
+- [x] Persist approved owner sign-in safely across return visits and provide a clear league-site sign-out action.
+- [x] Remove and test the request-context Manus OAuth fallback so only league-issued owner or commissioner sessions authorize private access.
