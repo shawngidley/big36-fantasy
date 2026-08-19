@@ -31,3 +31,7 @@ Direct PDF review confirms that the official cumulative report is labeled as a 1
 ## Remaining explicit-distance limit
 
 After parsing all available ESPN return, fumble-return, interception-return, and recovery-return distance formats, six defensive-touchdown records still lack a stated return distance in the public text. They affect Air Force, Kansas State, Miami (OH), North Texas, Stanford, and Troy. Those events remain on the neutral provisional tier unless a corresponding official game book supplies the return distance. They are not eligible for certified publication from the current public event record.
+
+## Official game-book follow-up
+
+The official North Texas–Lamar box score identifies Ethan Wesloski’s score as a **0-yard fumble recovery** at 00:27. Source: <https://meangreensports.com/sports/football/stats/2025/lamar/boxscore/6743>. As with the verified Miami (OH) zero-yard recovery, this is a short defensive-touchdown tier for the provisional ledger and does not make the overall DEF total certified.

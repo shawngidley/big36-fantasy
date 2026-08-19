@@ -58,6 +58,13 @@ const verifiedReturnDistanceOverrides = [
     distance: 0,
     source: 'Official Miami (OH)–Ball State box score: https://miamiredhawks.com/sports/football/stats/2025/ball-state/boxscore/20202',
   },
+  {
+    school: 'North Texas',
+    gameId: 401762435,
+    textMatch: /Wesloski,Ethan|Ethan Wesloski/i,
+    distance: 0,
+    source: 'Official North Texas–Lamar box score: https://meangreensports.com/sports/football/stats/2025/lamar/boxscore/6743',
+  },
 ];
 const roleSchool = (play, role, teamById) => {
   const participant = (play.teamParticipants ?? []).find(item => item.type === role);
