@@ -180,3 +180,4 @@
 - [x] Recompute and publish only fully supported historical TE totals under the doubled touchdown rule while preserving explicit holds.
 - [x] Add regression coverage for doubled TE receiving and rushing touchdowns, standard QB credit on QB-to-TE scores, and unchanged non-TE scoring.
 - [x] Ensure live scoring falls back to the authoritative Year 1 rules when the database rule table is empty, so all event scores—including doubled TE tiers—remain active.
+- [x] Resolve the owner-session runtime import errors for OWNER_SESSION_COOKIE and issueOwnerSession, then verify approved owner and commissioner league sign-in. (The module exports were present; a clean development-service restart cleared stale ESM state. The rendered sign-in page now loads and all 75 deterministic tests pass.)
