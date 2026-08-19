@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { calculateProvisionalDef } from '../scripts/provisional-def-calculation.mjs';
-import { returnDistance } from '../scripts/def-return-distance.mjs';
+import { resolvedReturnDistance, returnDistance } from '../scripts/def-return-distance.mjs';
 
 describe('provisional 2025 DEF calculation', () => {
   it('uses certified first-12-game controls for sacks, interceptions, touchdown count, and shutouts while estimating unavailable touchdown tiers neutrally', () => {
@@ -31,5 +31,9 @@ describe('provisional 2025 DEF calculation', () => {
   it('recognizes explicit interception-return and recovery-return distances from public scoring summaries', () => {
     expect(returnDistance('Aamaris Brown 52 Yd Interception Return (Ramon Villela Kick)')).toBe('52');
     expect(returnDistance('S. Humphrey run for 5 yds, S. Humphrey fumbled, recovered by NMSU B. Iya, for 42 yds for a TD (R. Hawk KICK)')).toBe('42');
+  });
+
+  it('accepts an official game-book distance override only when it is supplied by the reconciliation ledger', () => {
+    expect(resolvedReturnDistance({ text: 'Ralph Rucker IV fumbled, recovered by AF Korey Johnson for a TD', officialDistance: 34 })).toBe(34);
   });
 });

@@ -1,6 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
 
-import { returnDistance } from './def-return-distance.mjs';
+import { resolvedReturnDistance } from './def-return-distance.mjs';
 
 const normal = value => String(value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 const teamIdFromRef = ref => String(ref ?? '').match(/\/teams\/(\d+)/)?.[1] ?? null;
@@ -36,6 +36,15 @@ const verifiedSupplementalEvents = [
     source: 'Official Eastern Michigan–Texas State game book: https://dxbhsrqyrr690.cloudfront.net/sidearm.nextgen.sites/emueagles.com/stats/football/2025/pdf/20250830104119-41229.pdf',
   },
 ];
+const verifiedReturnDistanceOverrides = [
+  {
+    school: 'Air Force',
+    gameId: 401760359,
+    textMatch: /Korey Johnson/i,
+    distance: 34,
+    source: 'Official Air Force–Bucknell box score: https://goairforcefalcons.com/sports/football/stats/2025/bucknell/boxscore/21242',
+  },
+];
 const roleSchool = (play, role, teamById) => {
   const participant = (play.teamParticipants ?? []).find(item => item.type === role);
   return teamById.get(String(participant?.id ?? teamIdFromRef(participant?.team?.$ref))) ?? null;
@@ -67,9 +76,10 @@ for (const [gameId, game] of selectedGames) {
     if (interception) add(defense, 'INTERCEPTION', 3, { game_id: gameId, event: 'INTERCEPTION', text });
     if (fumbleRecovery && play.isTurnover) add(defense, 'FUMBLE_RECOVERY', 3, { game_id: gameId, event: 'FUMBLE_RECOVERY', text });
     if (play.scoringPlay && Number(play.scoreValue) === 6 && (interception || (fumbleRecovery && play.isTurnover))) {
-      const distance = returnDistance(text);
+      const override = verifiedReturnDistanceOverrides.find(item => item.school === defense && item.gameId === gameId && item.textMatch.test(text));
+      const distance = resolvedReturnDistance({ text, officialDistance: override?.distance ?? null });
       if (distance === null) ledger.get(defense).unresolved.push({ game_id: gameId, reason: 'Defensive touchdown has no explicit return distance in ESPN core text', text });
-      else add(defense, 'DEFENSIVE_TOUCHDOWN', defensiveTouchdownPoints(Number(distance)), { game_id: gameId, event: 'DEFENSIVE_TOUCHDOWN', text });
+      else add(defense, 'DEFENSIVE_TOUCHDOWN', defensiveTouchdownPoints(Number(distance)), { game_id: gameId, event: 'DEFENSIVE_TOUCHDOWN', text, ...(override ? { source: override.source, evidence_class: 'official_game_book_distance_override' } : {}) });
     }
     if (play.scoringPlay && Number(play.scoreValue) === 2 && type === 'safety' && !/punt[^.]{0,90}blocked/i.test(text)) add(defense, 'DEFENSIVE_SAFETY', 6, { game_id: gameId, event: 'DEFENSIVE_SAFETY', text });
   }

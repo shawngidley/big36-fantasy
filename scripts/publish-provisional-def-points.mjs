@@ -44,15 +44,22 @@ const changes = ledger.rows.map(row => {
     SHUTOUT: provisional.components.shutouts,
   };
   const sourceNote = `Provisional 2025 first-12-game DEF estimate. Official sack, interception, defensive-touchdown-count, and shutout controls are combined with role-normalized ESPN defensive events; this is not a certified historical total.`;
+  const summaryChanged = current.stat_summary?.historical_points_provisional !== nextSummary.historical_points_provisional
+    || current.stat_summary?.historical_points_hold !== nextSummary.historical_points_hold
+    || current.stat_summary?.historical_points_provisional_reason !== nextSummary.historical_points_provisional_reason
+    || current.stat_summary?.provisional_def_estimated_td_count !== nextSummary.provisional_def_estimated_td_count
+    || current.stat_summary?.provisional_def_reconstructed_fumble_recoveries !== nextSummary.provisional_def_reconstructed_fumble_recoveries;
+  const eventCountsChanged = Object.entries(nextEventCounts).some(([key, value]) => current.event_counts?.[key] !== value);
   const changed = Number(current.official_points) !== rawPoints
     || Number(current.normalized_points) !== normalizedPoints
-    || current.stat_summary?.historical_points_provisional !== true
-    || current.stat_summary?.historical_points_hold !== false;
+    || summaryChanged
+    || eventCountsChanged
+    || current.source_note !== sourceNote;
   return { school_name: row.school_name, rawPoints, normalizedPoints, provisional, eventCounts: nextEventCounts, statSummary: nextSummary, sourceNote, changed };
 });
 
 if (apply) {
-  for (const change of changes) {
+  for (const change of changes.filter(item => item.changed)) {
     const update = await fetch(`${supabaseUrl}/rest/v1/b36_draft_research_units?season=eq.${season}&school_name=eq.${encodeURIComponent(change.school_name)}&position=eq.DEF`, { method: 'PATCH', headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json', Prefer: 'return=minimal' }, body: JSON.stringify({ official_points: change.rawPoints, normalized_points: change.normalizedPoints, event_counts: change.eventCounts, stat_summary: change.statSummary, source_note: change.sourceNote }) });
     if (!update.ok) throw new Error(`Provisional DEF publication failed for ${change.school_name} (${update.status}): ${(await update.text()).slice(0, 180)}`);
   }

@@ -7,3 +7,5 @@ export const returnDistance = text => {
     ?? clean.match(/(\d+)\s+(?:yd(?:s)?|yards?)\s+return/i)?.[1]
     ?? null;
 };
+
+export const resolvedReturnDistance = ({ text, officialDistance = null }) => officialDistance ?? returnDistance(text);
