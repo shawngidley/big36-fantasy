@@ -13,8 +13,9 @@ const changes = certification.rows.map(row => {
   const current = currentBySchool.get(row.school_name);
   if (!current) throw new Error(`Missing current QB row for ${row.school_name}.`);
   const totalTouchdowns = row.official_boxscore.passing_touchdowns + row.official_boxscore.rushing_touchdowns;
-  const nextSummary = { ...(current.stat_summary ?? {}), touchdowns: totalTouchdowns, passing_touchdowns: row.official_boxscore.passing_touchdowns, interceptions: row.official_boxscore.interceptions, qb_stat_line_certified: true, qb_stat_line_source: "CFBD 2025 per-game player box scores · first 12 regular-season games" };
-  const changed = Number(current.stat_summary?.touchdowns ?? 0) !== totalTouchdowns || Number(current.stat_summary?.passing_touchdowns ?? 0) !== row.official_boxscore.passing_touchdowns || Number(current.stat_summary?.interceptions ?? 0) !== row.official_boxscore.interceptions;
+  const tierPointHold = !row.boxscore_match;
+  const nextSummary = { ...(current.stat_summary ?? {}), touchdowns: totalTouchdowns, passing_touchdowns: row.official_boxscore.passing_touchdowns, interceptions: row.official_boxscore.interceptions, qb_stat_line_certified: true, qb_stat_line_source: "CFBD 2025 per-game player box scores · first 12 regular-season games", qb_tier_point_hold: tierPointHold };
+  const changed = Number(current.stat_summary?.touchdowns ?? 0) !== totalTouchdowns || Number(current.stat_summary?.passing_touchdowns ?? 0) !== row.official_boxscore.passing_touchdowns || Number(current.stat_summary?.interceptions ?? 0) !== row.official_boxscore.interceptions || current.stat_summary?.qb_tier_point_hold !== tierPointHold;
   return { school_name: row.school_name, changed, certified: { touchdowns: totalTouchdowns, passing_touchdowns: row.official_boxscore.passing_touchdowns, interceptions: row.official_boxscore.interceptions }, next_summary: nextSummary };
 });
 if (apply) {
