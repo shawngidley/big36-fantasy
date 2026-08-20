@@ -56,6 +56,23 @@ describe("Big 36 public live-results snapshot", () => {
     expect(board.queue).toEqual([expect.objectContaining({ schoolName: "Texas", priority: 1, isAvailable: true, unit: expect.objectContaining({ normalizedPoints: null }) })]);
   });
 
+  it("sorts usable 2025 point totals ahead of held records in the owner draft board", async () => {
+    const certified = { season: 2025, school_name: "Indiana", position: "QB", official_points: 318, eligible_games: 12, normalization_factor: 1, normalized_points: 318, event_counts: {}, stat_summary: {}, source_note: "Certified", calculated_at: "2026-08-19T00:00:00.000Z" };
+    const held = { season: 2025, school_name: "Air Force", position: "QB", official_points: null, eligible_games: 12, normalization_factor: 1, normalized_points: null, event_counts: {}, stat_summary: { historical_points_hold: true }, source_note: "Held", calculated_at: "2026-08-19T00:00:00.000Z" };
+    mocks.supabaseRest
+      .mockResolvedValueOnce([held, certified])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    const board = await getOwnerDraftBoard("owner-1", "QB");
+
+    expect(board.availableUnits.map(unit => ({ schoolName: unit.schoolName, normalizedPoints: unit.normalizedPoints }))).toEqual([
+      { schoolName: "Indiana", normalizedPoints: 318 },
+      { schoolName: "Air Force", normalizedPoints: null },
+    ]);
+  });
+
 	it("exposes a clearly labeled provisional DEF value without treating it as a certified historical total", () => {
 		  const unit = publicDraftResearchUnit({ season: 2025, school_name: "Air Force", position: "DEF", official_points: 48, eligible_games: 12, normalization_factor: 1, normalized_points: 48, event_counts: { SACK: 15, INTERCEPTION: 7 }, stat_summary: { historical_points_certified: false, historical_points_hold: false, historical_points_provisional: true, provisional_def_estimated_td_count: 2 }, source_note: "Provisional estimate", calculated_at: "2026-08-19T00:00:00.000Z" });
 		  expect(unit).toMatchObject({ schoolName: "Air Force", officialPoints: 48, normalizedPoints: 48, statSummary: { historical_points_provisional: true, historical_points_certified: false, provisional_def_estimated_td_count: 2 } });

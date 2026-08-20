@@ -211,6 +211,14 @@ export async function getOwnerDraftBoard(ownerId: string, position?: Position) {
   const allUnits = researchRows.map(row => {
     const unit = publicDraftResearchUnit(row);
     return { ...unit, key: `${normalizeSchoolName(unit.schoolName)}::${unit.position}` };
+  }).sort((left, right) => {
+    const leftHasPoints = left.normalizedPoints !== null;
+    const rightHasPoints = right.normalizedPoints !== null;
+    const leftPoints = left.normalizedPoints ?? Number.NEGATIVE_INFINITY;
+    const rightPoints = right.normalizedPoints ?? Number.NEGATIVE_INFINITY;
+    if (leftHasPoints !== rightHasPoints) return leftHasPoints ? -1 : 1;
+    if (leftHasPoints && rightHasPoints && leftPoints !== rightPoints) return rightPoints - leftPoints;
+    return left.schoolName.localeCompare(right.schoolName);
   });
   const unitByKey = new Map(allUnits.map(unit => [unit.key, unit]));
   const queuedKeys = new Set(queueRows.map(entry => `${normalizeSchoolName(entry.school_name)}::${entry.position}`));
