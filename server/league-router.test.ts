@@ -26,7 +26,7 @@ vi.mock("./league-data", () => ({
 }));
 
 vi.mock("./supabase", () => ({
-  q: { eq: (value: string | boolean) => `eq.${String(value)}` },
+  q: { eq: (value: string | boolean) => `eq.${String(value)}`, isNull: "is.null" },
   supabaseRest: mocks.supabaseRest,
   supabaseRpc: mocks.supabaseRpc,
 }));
@@ -151,7 +151,7 @@ describe("Big 36 owner draft procedures", () => {
     const caller = appRouter.createCaller(createContext("user"));
 
     await expect(caller.league.myProfile()).resolves.toMatchObject({ registration: { ownerId: registration.assigned_owner_id, teamName: "Lakewood College", phone: "+5555550182" } });
-    await expect(caller.league.updateMyProfile({ displayName: "Jordan Owner", teamName: "Lakewood College", nickname: "Night Owls", programIdentity: "Lakeside underdogs", inspiration: "Lakewood", primaryColor: "#B84A12", accentColor: "#17120E", brandingNotes: "Tough and traditional", rivalryPreference: "River City", phone: "(555) 555-0182", currentPin: null, newPin: null, logoDataUrl: null })).resolves.toEqual({ success: true });
+    await expect(caller.league.updateMyProfile({ displayName: "Jordan Owner", teamName: "Lakewood College", nickname: "Night Owls", programIdentity: "Lakeside underdogs", inspiration: "Lakewood", primaryColor: "#B84A12", accentColor: "#17120E", brandingNotes: "Tough and traditional", rivalryPreference: "River City", email: "owner@example.com", phone: "(555) 555-0182", currentPin: null, newPin: null, logoDataUrl: null })).resolves.toMatchObject({ success: true, emailChanged: false });
     expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_owners", expect.objectContaining({ method: "PATCH", query: { id: "eq.33333333-3333-4333-8333-333333333333" }, body: expect.objectContaining({ display_name: "Jordan Owner", team_name: "Lakewood College" }) }));
     expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_audit_events", expect.objectContaining({ method: "POST", body: expect.objectContaining({ action: "OWNER_PROFILE_UPDATED", entity_id: registration.assigned_owner_id }) }));
   });
@@ -167,8 +167,30 @@ describe("Big 36 owner draft procedures", () => {
     mocks.supabaseRest.mockResolvedValueOnce([registration]);
     const caller = appRouter.createCaller(createContext("user"));
 
-    await expect(caller.league.updateMyProfile({ displayName: "League Owner", teamName: "Lakewood College", nickname: null, programIdentity: null, inspiration: null, primaryColor: null, accentColor: null, brandingNotes: null, rivalryPreference: null, phone: "(555) 555-0182", currentPin: "1111", newPin: "482918", logoDataUrl: null })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("current PIN") });
+    await expect(caller.league.updateMyProfile({ displayName: "League Owner", teamName: "Lakewood College", nickname: null, programIdentity: null, inspiration: null, primaryColor: null, accentColor: null, brandingNotes: null, rivalryPreference: null, email: "owner@example.com", phone: "(555) 555-0182", currentPin: "1111", newPin: "482918", logoDataUrl: null })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("current PIN") });
     expect(mocks.getLeagueSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("changes an owner's unique sign-in email only after current-PIN verification and renews the owner session", async () => {
+    const registration = { id: "22222222-2222-4222-8222-222222222222", display_name: "League Owner", team_name: "Lakewood College", nickname: null, program_identity: null, inspiration: null, primary_color: null, accent_color: null, branding_notes: null, rivalry_preference: null, email: "owner@example.com", phone_e164: "+5555550182", logo_key: null, logo_url: null, status: "APPROVED", assigned_owner_id: "33333333-3333-4333-8333-333333333333", review_note: null, created_at: "2026-08-01T00:00:00.000Z", reviewed_at: "2026-08-02T00:00:00.000Z", pin_hash: hashRegistrationPin("482917") };
+    mocks.getLeagueSnapshot.mockResolvedValue({ owners: [{ id: registration.assigned_owner_id, teamName: registration.team_name }], divisions: [], totals: { ownerCount: 1 } });
+    mocks.supabaseRest
+      .mockResolvedValueOnce([registration])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+    const ctx = createContext("user");
+    const setCookie = vi.fn();
+    (ctx.res as unknown as { cookie: typeof setCookie }).cookie = setCookie;
+    const caller = appRouter.createCaller(ctx);
+
+    await expect(caller.league.updateMyProfile({ displayName: "League Owner", teamName: "Lakewood College", nickname: null, programIdentity: null, inspiration: null, primaryColor: null, accentColor: null, brandingNotes: null, rivalryPreference: null, email: "new-owner@example.com", phone: "(555) 555-0182", currentPin: "482917", newPin: null, logoDataUrl: null })).resolves.toMatchObject({ success: true, emailChanged: true, expiresAt: expect.any(String) });
+    expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_owner_sessions", expect.objectContaining({ method: "PATCH", query: expect.objectContaining({ registration_id: "eq.22222222-2222-4222-8222-222222222222", revoked_at: "is.null" }) }));
+    expect(setCookie).toHaveBeenCalledWith("b36_owner_session", expect.any(String), expect.objectContaining({ httpOnly: true, maxAge: 30 * 24 * 60 * 60 * 1000 }));
   });
 
   it("shows a signed-in owner's filtered available-unit board and appends an eligible unit to that owner's private queue", async () => {

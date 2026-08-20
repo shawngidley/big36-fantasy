@@ -7,6 +7,8 @@ import { buildSerpentineTurns } from "../serpentine-draft";
 import { assertInauguralDraftOrderCanBePublished, assertInauguralDraftRoundIsOpen, assertInauguralDraftWindow } from "../../shared/draft-schedule";
 import { q, supabaseRest, supabaseRpc } from "../supabase";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "../_core/trpc";
+import { getSessionCookieOptions } from "../_core/cookies";
+import { issueOwnerSession, OWNER_SESSION_COOKIE, OWNER_SESSION_MS } from "../commissioner-auth";
 import { yearOneRules } from "../year-one-rules";
 import { runGamedayRefresh } from "../gameday-refresh";
 import { syncFbsPoolAndSchedule } from "../gameday-refresh";
@@ -31,6 +33,7 @@ const ownerProfileInput = z.object({
   accentColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).nullable().optional(),
   brandingNotes: z.string().trim().max(1000).nullable().optional(),
   rivalryPreference: z.string().trim().max(120).nullable().optional(),
+  email: z.string().trim().email().max(254),
   phone: z.string().trim().min(10).max(32),
   currentPin: z.string().min(4).max(12).nullable().optional(),
   newPin: z.string().min(4).max(12).nullable().optional(),
@@ -91,7 +94,16 @@ export const leagueRouter = router({
       const registrations = await supabaseRest<Array<RegistrationRow & { pin_hash: string }>>(registrationTable, { query: { select: "id,display_name,team_name,nickname,program_identity,inspiration,primary_color,accent_color,branding_notes,rivalry_preference,email,phone_e164,logo_key,logo_url,status,assigned_owner_id,review_note,created_at,reviewed_at,pin_hash", email: q.eq(email), status: q.eq("APPROVED"), order: "reviewed_at.desc", limit: "1" } });
       const registration = registrations[0];
       if (!registration?.assigned_owner_id) throw new Error("Your approved 36 Football program is not linked yet.");
-      if (input.newPin && (!input.currentPin || !verifyRegistrationPin(input.currentPin, registration.pin_hash))) throw new Error("Enter your current PIN before setting a new one.");
+      const nextEmail = normalizeRegistrationEmail(input.email);
+      const emailChanged = nextEmail !== email;
+      if ((input.newPin || emailChanged) && (!input.currentPin || !verifyRegistrationPin(input.currentPin, registration.pin_hash))) throw new Error("Enter your current PIN before changing your email or PIN.");
+      if (emailChanged) {
+        const [registrationMatches, ownerMatches] = await Promise.all([
+          supabaseRest<Array<{ id: string }>>(registrationTable, { query: { select: "id", email: q.eq(nextEmail) } }),
+          supabaseRest<Array<{ id: string }>>("b36_owners", { query: { select: "id", email: q.eq(nextEmail) } }),
+        ]);
+        if (registrationMatches.some(item => item.id !== registration.id) || ownerMatches.some(item => item.id !== registration.assigned_owner_id)) throw new Error("That email is already associated with another 36 Football program.");
+      }
       const snapshot = await getLeagueSnapshot();
       const duplicateTeam = snapshot.owners.find(owner => owner.id !== registration.assigned_owner_id && owner.teamName.trim().toLowerCase() === input.teamName.trim().toLowerCase());
       if (duplicateTeam) throw new Error("Another 36 Football program already uses that team name.");
@@ -103,10 +115,18 @@ export const leagueRouter = router({
         branding_notes: input.brandingNotes?.trim() || null, rivalry_preference: input.rivalryPreference?.trim() || null,
         phone_e164: normalizeRegistrationPhone(input.phone), ...(storedLogo ? { logo_key: storedLogo.key, logo_url: storedLogo.url } : {}),
       };
-      await supabaseRest("b36_owners", { method: "PATCH", query: { id: q.eq(registration.assigned_owner_id) }, body: { display_name: values.display_name, team_name: values.team_name, nickname: values.nickname, program_identity: values.program_identity, inspiration: values.inspiration, primary_color: values.primary_color, accent_color: values.accent_color, branding_notes: values.branding_notes, rivalry_preference: values.rivalry_preference, ...(storedLogo ? { logo_url: storedLogo.url } : {}) } });
-      await supabaseRest(registrationTable, { method: "PATCH", query: { id: q.eq(registration.id) }, body: { ...values, ...(input.newPin ? { pin_hash: hashRegistrationPin(input.newPin) } : {}), updated_at: new Date().toISOString() } });
-      await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "OWNER_PROFILE_UPDATED", entity_type: "b36_owners", entity_id: registration.assigned_owner_id, detail: { registration_id: registration.id, logo_updated: Boolean(storedLogo), pin_updated: Boolean(input.newPin) } } });
-      return { success: true as const };
+      const now = new Date().toISOString();
+      await supabaseRest("b36_owners", { method: "PATCH", query: { id: q.eq(registration.assigned_owner_id) }, body: { display_name: values.display_name, team_name: values.team_name, email: nextEmail, nickname: values.nickname, program_identity: values.program_identity, inspiration: values.inspiration, primary_color: values.primary_color, accent_color: values.accent_color, branding_notes: values.branding_notes, rivalry_preference: values.rivalry_preference, ...(storedLogo ? { logo_url: storedLogo.url } : {}) } });
+      await supabaseRest(registrationTable, { method: "PATCH", query: { id: q.eq(registration.id) }, body: { ...values, email: nextEmail, ...(input.newPin ? { pin_hash: hashRegistrationPin(input.newPin) } : {}), updated_at: now } });
+      let expiresAt: string | undefined;
+      if (emailChanged) {
+        await supabaseRest("b36_owner_sessions", { method: "PATCH", query: { registration_id: q.eq(registration.id), revoked_at: q.isNull }, body: { revoked_at: now }, prefer: "return=minimal" });
+        const session = await issueOwnerSession(registration.id, registration.assigned_owner_id, nextEmail);
+        ctx.res.cookie(OWNER_SESSION_COOKIE, session.token, { ...getSessionCookieOptions(ctx.req), maxAge: OWNER_SESSION_MS });
+        expiresAt = session.expiresAt.toISOString();
+      }
+      await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "OWNER_PROFILE_UPDATED", entity_type: "b36_owners", entity_id: registration.assigned_owner_id, detail: { registration_id: registration.id, logo_updated: Boolean(storedLogo), pin_updated: Boolean(input.newPin), email_changed: emailChanged } } });
+      return { success: true as const, emailChanged, expiresAt };
     } catch (error) { asError(error); }
   }),
   myDraftBoard: protectedProcedure.input(z.object({ position: positionSchema.optional() }).optional()).query(async ({ ctx, input }) => {
