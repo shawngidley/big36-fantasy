@@ -18,5 +18,13 @@ describe("Twilio credential connection", () => {
     const account = await response.json() as { sid?: string; status?: string };
     expect(account.sid).toBe(accountSid);
     expect(account.status).toMatch(/active|suspended|closed/);
+
+    const senderResponse = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/IncomingPhoneNumbers.json?PhoneNumber=${encodeURIComponent(fromNumber)}`, {
+      headers: { Authorization: `Basic ${encodedCredentials}` },
+    });
+    expect(senderResponse.ok).toBe(true);
+    const senderLookup = await senderResponse.json() as { incoming_phone_numbers?: Array<{ phone_number?: string; capabilities?: { sms?: boolean } }> };
+    const sender = senderLookup.incoming_phone_numbers?.find(item => item.phone_number === fromNumber);
+    expect(sender).toEqual(expect.objectContaining({ capabilities: expect.objectContaining({ sms: true }) }));
   }, 15_000);
 });

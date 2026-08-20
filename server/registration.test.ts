@@ -3,8 +3,9 @@ import { assertValidRegistrationPin, decodeRegistrationLogo, hashRegistrationPin
 
 describe("owner registration safeguards", () => {
   it("normalizes a submitted phone number to a private E.164 storage value", () => {
-    expect(normalizeRegistrationPhone("(555) 555-0182")).toBe("+5555550182");
-    expect(() => normalizeRegistrationPhone("1234")).toThrow("valid phone number");
+    expect(normalizeRegistrationPhone("(216) 647-5877")).toBe("+12166475877");
+    expect(normalizeRegistrationPhone("+1 216-647-5877")).toBe("+12166475877");
+    expect(() => normalizeRegistrationPhone("1234")).toThrow("valid U.S.");
   });
 
   it("stores verifiable salted PIN hashes instead of the submitted PIN", () => {

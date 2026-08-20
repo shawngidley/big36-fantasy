@@ -102,7 +102,7 @@ describe("Big 36 owner draft procedures", () => {
 
     await expect(caller.league.submitRegistration({ displayName: "Jordan Owner", teamName: "Lakewood College", nickname: "Night Owls", programIdentity: "Lakeside underdogs", inspiration: "Lakewood", primaryColor: "#B84A12", accentColor: "#17120E", brandingNotes: "Tough and traditional", rivalryPreference: "River City", email: "Jordan@Example.com", phone: "(555) 555-0182", pin: "482917", logoDataUrl: null })).resolves.toEqual({ success: true });
     expect(mocks.supabaseRest).not.toHaveBeenCalled();
-    expect(mocks.supabaseRpc).toHaveBeenCalledWith("b36_submit_owner_registration", expect.objectContaining({ p_email: "jordan@example.com", p_phone_e164: "+5555550182", p_team_name: "Lakewood College", p_nickname: "Night Owls", p_primary_color: "#B84A12" }));
+    expect(mocks.supabaseRpc).toHaveBeenCalledWith("b36_submit_owner_registration", expect.objectContaining({ p_email: "jordan@example.com", p_phone_e164: "+15555550182", p_team_name: "Lakewood College", p_nickname: "Night Owls", p_primary_color: "#B84A12" }));
     const payload = mocks.supabaseRpc.mock.calls[0]?.[1] as { p_pin_hash: string };
     expect(payload.p_pin_hash).toMatch(/^scrypt\$/);
     expect(payload.p_pin_hash).not.toContain("482917");
@@ -153,6 +153,8 @@ describe("Big 36 owner draft procedures", () => {
     await expect(caller.league.myProfile()).resolves.toMatchObject({ registration: { ownerId: registration.assigned_owner_id, teamName: "Lakewood College", phone: "+5555550182" } });
     await expect(caller.league.updateMyProfile({ displayName: "Jordan Owner", teamName: "Lakewood College", nickname: "Night Owls", programIdentity: "Lakeside underdogs", inspiration: "Lakewood", primaryColor: "#B84A12", accentColor: "#17120E", brandingNotes: "Tough and traditional", rivalryPreference: "River City", email: "owner@example.com", phone: "(555) 555-0182", currentPin: null, newPin: null, logoDataUrl: null })).resolves.toMatchObject({ success: true, emailChanged: false });
     expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_owners", expect.objectContaining({ method: "PATCH", query: { id: "eq.33333333-3333-4333-8333-333333333333" }, body: expect.objectContaining({ display_name: "Jordan Owner", team_name: "Lakewood College" }) }));
+    const ownerPatch = mocks.supabaseRest.mock.calls.find(call => call[0] === "b36_owners" && call[1]?.method === "PATCH");
+    expect(ownerPatch?.[1]?.body).not.toHaveProperty("inspiration");
     expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_audit_events", expect.objectContaining({ method: "POST", body: expect.objectContaining({ action: "OWNER_PROFILE_UPDATED", entity_id: registration.assigned_owner_id }) }));
   });
 
@@ -188,7 +190,7 @@ describe("Big 36 owner draft procedures", () => {
     (ctx.res as unknown as { cookie: typeof setCookie }).cookie = setCookie;
     const caller = appRouter.createCaller(ctx);
 
-    await expect(caller.league.updateMyProfile({ displayName: "League Owner", teamName: "Lakewood College", nickname: null, programIdentity: null, inspiration: null, primaryColor: null, accentColor: null, brandingNotes: null, rivalryPreference: null, email: "new-owner@example.com", phone: "(555) 555-0182", currentPin: "482917", newPin: null, logoDataUrl: null })).resolves.toMatchObject({ success: true, emailChanged: true, expiresAt: expect.any(String) });
+    await expect(caller.league.updateMyProfile({ displayName: "League Owner", teamName: "Lakewood College", nickname: null, programIdentity: null, inspiration: null, primaryColor: null, accentColor: null, brandingNotes: null, rivalryPreference: null, email: "new-owner@example.com", phone: "(216) 647-5877", currentPin: "482917", newPin: null, logoDataUrl: null })).resolves.toMatchObject({ success: true, emailChanged: true, expiresAt: expect.any(String) });
     expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_owner_sessions", expect.objectContaining({ method: "PATCH", query: expect.objectContaining({ registration_id: "eq.22222222-2222-4222-8222-222222222222", revoked_at: "is.null" }) }));
     expect(setCookie).toHaveBeenCalledWith("b36_owner_session", expect.any(String), expect.objectContaining({ httpOnly: true, maxAge: 30 * 24 * 60 * 60 * 1000 }));
   });
@@ -199,12 +201,13 @@ describe("Big 36 owner draft procedures", () => {
     mocks.getOrClaimOwner.mockResolvedValue(owner);
     mocks.getOwnerDraftBoard.mockResolvedValue(board);
     mocks.supabaseRest.mockResolvedValue([]);
+    mocks.supabaseRest.mockResolvedValueOnce([{ id: "44444444-4444-4444-8444-444444444444" }]);
     const caller = appRouter.createCaller(createContext("user"));
 
     await expect(caller.league.myDraftBoard({ position: "QB" })).resolves.toEqual(board);
     await expect(caller.league.addMyDraftQueueEntry({ schoolName: "Ohio State", position: "QB" })).resolves.toEqual({ success: true });
     expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_draft_queue_entries", expect.objectContaining({ method: "POST", body: { owner_id: owner.id, school_name: "Ohio State", position: "QB", priority: 1 } }));
-    expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_audit_events", expect.objectContaining({ method: "POST", body: expect.objectContaining({ action: "OWNER_DRAFT_QUEUE_ADDED", entity_type: "b36_draft_queue_entries" }) }));
+    expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_audit_events", expect.objectContaining({ method: "POST", body: expect.objectContaining({ action: "OWNER_DRAFT_QUEUE_ADDED", entity_type: "b36_draft_queue_entries", entity_id: "44444444-4444-4444-8444-444444444444" }) }));
   });
 
   it("refuses a duplicate, unavailable, or cross-owner draft-queue action", async () => {

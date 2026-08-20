@@ -14,8 +14,9 @@ export function normalizeRegistrationEmail(value: string) {
 
 export function normalizeRegistrationPhone(value: string) {
   const digits = value.replace(/\D/g, "");
-  if (digits.length < 10 || digits.length > 15) throw new Error("Enter a valid phone number with 10 to 15 digits.");
-  return `+${digits}`;
+  const localNumber = digits.length === 11 && digits.startsWith("1") ? digits.slice(1) : digits;
+  if (!/^[2-9]\d{2}[2-9]\d{6}$/.test(localNumber)) throw new Error("Enter a valid U.S. 10-digit phone number.");
+  return `+1${localNumber}`;
 }
 
 export function assertValidRegistrationPin(pin: string) {

@@ -117,7 +117,7 @@ export const leagueRouter = router({
         phone_e164: normalizeRegistrationPhone(input.phone), ...(storedLogo ? { logo_key: storedLogo.key, logo_url: storedLogo.url } : {}),
       };
       const now = new Date().toISOString();
-      await supabaseRest("b36_owners", { method: "PATCH", query: { id: q.eq(registration.assigned_owner_id) }, body: { display_name: values.display_name, team_name: values.team_name, email: nextEmail, nickname: values.nickname, program_identity: values.program_identity, inspiration: values.inspiration, primary_color: values.primary_color, accent_color: values.accent_color, branding_notes: values.branding_notes, rivalry_preference: values.rivalry_preference, ...(storedLogo ? { logo_url: storedLogo.url } : {}) } });
+      await supabaseRest("b36_owners", { method: "PATCH", query: { id: q.eq(registration.assigned_owner_id) }, body: { display_name: values.display_name, team_name: values.team_name, email: nextEmail, nickname: values.nickname, program_identity: values.program_identity, primary_color: values.primary_color, accent_color: values.accent_color, branding_notes: values.branding_notes, rivalry_preference: values.rivalry_preference, ...(storedLogo ? { logo_url: storedLogo.url } : {}) } });
       await supabaseRest(registrationTable, { method: "PATCH", query: { id: q.eq(registration.id) }, body: { ...values, email: nextEmail, ...(input.newPin ? { pin_hash: hashRegistrationPin(input.newPin) } : {}), updated_at: now } });
       let expiresAt: string | undefined;
       if (emailChanged) {
@@ -146,8 +146,10 @@ export const leagueRouter = router({
       if (!unit.canQueue) throw new Error(`You have already drafted your ${input.position === "K_ST" ? "K/ST" : input.position} unit.`);
       if (unit.isQueued) throw new Error("That unit is already in your draft queue.");
       const priority = Math.max(0, ...board.queue.map(entry => entry.priority)) + 1;
-      await supabaseRest("b36_draft_queue_entries", { method: "POST", body: { owner_id: owner.id, school_name: unit.schoolName, position: unit.position, priority } });
-      await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "OWNER_DRAFT_QUEUE_ADDED", entity_type: "b36_draft_queue_entries", entity_id: `${owner.id}:${unit.schoolName}:${unit.position}`, detail: { school_name: unit.schoolName, position: unit.position, priority } } });
+      const createdEntries = await supabaseRest<Array<{ id: string }>>("b36_draft_queue_entries", { method: "POST", body: { owner_id: owner.id, school_name: unit.schoolName, position: unit.position, priority } });
+      const createdEntry = createdEntries[0];
+      if (!createdEntry?.id) throw new Error("The draft queue entry could not be saved.");
+      await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "OWNER_DRAFT_QUEUE_ADDED", entity_type: "b36_draft_queue_entries", entity_id: createdEntry.id, detail: { school_name: unit.schoolName, position: unit.position, priority } } });
       return { success: true as const };
     } catch (error) { asError(error); }
   }),
