@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { positions, scoringEventTypes, type Position } from "../../drizzle/schema";
-import { getAllDraftSlots, getDraftOwnerState, getDraftSlotByGroup, getDraftResearchCatalog, getLeagueSnapshot, getOrClaimOwner, getScoreEvent, getScoringRulesForEvent } from "../league-data";
+import { getAllDraftSlots, getOwnerDraftBoard, getDraftOwnerState, getDraftSlotByGroup, getDraftResearchCatalog, getLeagueSnapshot, getOrClaimOwner, getScoreEvent, getScoringRulesForEvent } from "../league-data";
 import { assertSchoolPositionAvailable, buildReversal, calculateEventScore, hasBalancedDraftAssignments, normalizeSchoolName } from "../league-scoring";
 import { buildSerpentineTurns } from "../serpentine-draft";
 import { assertInauguralDraftOrderCanBePublished, assertInauguralDraftRoundIsOpen, assertInauguralDraftWindow } from "../../shared/draft-schedule";
@@ -36,6 +36,7 @@ const ownerProfileInput = z.object({
   newPin: z.string().min(4).max(12).nullable().optional(),
   logoDataUrl: z.string().max(2_000_000).nullable().optional(),
 });
+const draftQueueUnitInput = z.object({ schoolName: z.string().trim().min(2).max(120), position: positionSchema });
 type RegistrationRow = { id: string; display_name: string; team_name: string; nickname: string | null; program_identity: string | null; inspiration: string | null; primary_color: string | null; accent_color: string | null; branding_notes: string | null; rivalry_preference: string | null; email: string; phone_e164: string; logo_key: string | null; logo_url: string | null; status: "PENDING" | "APPROVED" | "DECLINED"; assigned_owner_id: string | null; review_note: string | null; created_at: string; reviewed_at: string | null };
 
 export const leagueRouter = router({
@@ -108,6 +109,50 @@ export const leagueRouter = router({
       return { success: true as const };
     } catch (error) { asError(error); }
   }),
+  myDraftBoard: protectedProcedure.input(z.object({ position: positionSchema.optional() }).optional()).query(async ({ ctx, input }) => {
+    const owner = await getOrClaimOwner(ctx.user.openId, ctx.user.email);
+    if (!owner) throw new TRPCError({ code: "FORBIDDEN", message: "Your approved program is not linked to a draft slot yet." });
+    return getOwnerDraftBoard(owner.id, input?.position);
+  }),
+  addMyDraftQueueEntry: protectedProcedure.input(draftQueueUnitInput).mutation(async ({ ctx, input }) => {
+    try {
+      const owner = await getOrClaimOwner(ctx.user.openId, ctx.user.email);
+      if (!owner) throw new Error("Your approved program is not linked to a draft slot yet.");
+      const board = await getOwnerDraftBoard(owner.id, input.position);
+      const normalizedSchool = input.schoolName.trim().toLowerCase();
+      const unit = board.availableUnits.find(candidate => candidate.schoolName.trim().toLowerCase() === normalizedSchool && candidate.position === input.position);
+      if (!unit) throw new Error("That school-position unit is no longer available.");
+      if (!unit.canQueue) throw new Error(`You have already drafted your ${input.position === "K_ST" ? "K/ST" : input.position} unit.`);
+      if (unit.isQueued) throw new Error("That unit is already in your draft queue.");
+      const priority = Math.max(0, ...board.queue.map(entry => entry.priority)) + 1;
+      await supabaseRest("b36_draft_queue_entries", { method: "POST", body: { owner_id: owner.id, school_name: unit.schoolName, position: unit.position, priority } });
+      await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "OWNER_DRAFT_QUEUE_ADDED", entity_type: "b36_draft_queue_entries", entity_id: `${owner.id}:${unit.schoolName}:${unit.position}`, detail: { school_name: unit.schoolName, position: unit.position, priority } } });
+      return { success: true as const };
+    } catch (error) { asError(error); }
+  }),
+  removeMyDraftQueueEntry: protectedProcedure.input(z.object({ entryId: uuid })).mutation(async ({ ctx, input }) => {
+    try {
+      const owner = await getOrClaimOwner(ctx.user.openId, ctx.user.email);
+      if (!owner) throw new Error("Your approved program is not linked to a draft slot yet.");
+      const entries = await supabaseRest<Array<{ id: string }>>("b36_draft_queue_entries", { query: { select: "id", id: q.eq(input.entryId), owner_id: q.eq(owner.id), limit: "1" } });
+      if (!entries[0]) throw new Error("That draft-queue entry is not available to remove.");
+      await supabaseRest("b36_draft_queue_entries", { method: "DELETE", query: { id: q.eq(input.entryId), owner_id: q.eq(owner.id) } });
+      return { success: true as const };
+    } catch (error) { asError(error); }
+  }),
+  reorderMyDraftQueue: protectedProcedure.input(z.object({ entryIds: z.array(uuid).min(1).max(216) })).mutation(async ({ ctx, input }) => {
+    try {
+      const owner = await getOrClaimOwner(ctx.user.openId, ctx.user.email);
+      if (!owner) throw new Error("Your approved program is not linked to a draft slot yet.");
+      const entries = await supabaseRest<Array<{ id: string; priority: number }>>("b36_draft_queue_entries", { query: { select: "id,priority", owner_id: q.eq(owner.id), order: "priority.asc" } });
+      const existingIds = new Set(entries.map(entry => entry.id));
+      if (entries.length !== input.entryIds.length || input.entryIds.some(id => !existingIds.has(id)) || new Set(input.entryIds).size !== input.entryIds.length) throw new Error("Your queue changed in another session. Refresh it before reordering.");
+      const now = new Date().toISOString();
+      for (const entry of entries) await supabaseRest("b36_draft_queue_entries", { method: "PATCH", query: { id: q.eq(entry.id), owner_id: q.eq(owner.id) }, body: { priority: 10_000 + entry.priority, updated_at: now } });
+      for (let index = 0; index < input.entryIds.length; index += 1) await supabaseRest("b36_draft_queue_entries", { method: "PATCH", query: { id: q.eq(input.entryIds[index]), owner_id: q.eq(owner.id) }, body: { priority: index + 1, updated_at: now } });
+      return { success: true as const };
+    } catch (error) { asError(error); }
+  }),
   myDraft: protectedProcedure.query(({ ctx }) => getDraftOwnerState(ctx.user.openId, ctx.user.email)),
   submitMyPick: protectedProcedure.input(z.object({ position: positionSchema, schoolName: z.string().trim().min(2).max(120) })).mutation(async ({ ctx, input }) => {
     const owner = await getOrClaimOwner(ctx.user.openId, ctx.user.email);
@@ -118,6 +163,7 @@ export const leagueRouter = router({
       const fbsPool = await supabaseRest<Array<{ school_name: string }>>("b36_fbs_schools", { query: { select: "school_name", season: q.eq(2026) } });
       if (!fbsPool.some(team => normalizeSchoolName(team.school_name).toLowerCase() === normalizedSchool.toLowerCase())) throw new Error("Choose a school from the official 2026 FBS pool.");
       const pick = await supabaseRpc<{ id: string; draft_position: number }>("b36_submit_serpentine_pick", { p_owner_open_id: ctx.user.openId, p_position: input.position, p_school_name: normalizedSchool });
+      await supabaseRest("b36_draft_queue_entries", { method: "DELETE", query: { owner_id: q.eq(owner.id), position: q.eq(input.position) } });
       return { success: true as const, draftPosition: pick.draft_position };
     } catch (error) { asError(error); }
   }),

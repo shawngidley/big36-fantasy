@@ -7,7 +7,7 @@ vi.mock("./supabase", () => ({
   supabaseRest: mocks.supabaseRest,
 }));
 
-import { completedScheduleNormalization, getDraftResearchCatalog, getLeagueSnapshot, getScoringRulesForEvent, overallRankAtEvent, publicDraftResearchUnit } from "./league-data";
+import { completedScheduleNormalization, getOwnerDraftBoard, getDraftResearchCatalog, getLeagueSnapshot, getScoringRulesForEvent, overallRankAtEvent, publicDraftResearchUnit } from "./league-data";
 
 describe("Big 36 public live-results snapshot", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -40,6 +40,21 @@ describe("Big 36 public live-results snapshot", () => {
 	  mocks.supabaseRest.mockResolvedValueOnce([{ season: 2025, school_name: "Georgia Tech", position: "K_ST", official_points: 174, eligible_games: 12, normalization_factor: 1, normalized_points: 174, event_counts: { BLOCK: 1 }, stat_summary: { historical_points_hold: true, historical_points_hold_reason: "Block cross-check incomplete" }, source_note: "Held", calculated_at: "2026-08-19T00:00:00.000Z" }]);
 	  await expect(getDraftResearchCatalog("K_ST")).resolves.toMatchObject([{ schoolName: "Georgia Tech", officialPoints: null, normalizedPoints: null }]);
 	});
+
+  it("builds a private filtered board that hides drafted units and carries 2025 research values into queued entries", async () => {
+    const certified = { season: 2025, school_name: "Ohio State", position: "QB", official_points: 244, eligible_games: 12, normalization_factor: 1, normalized_points: 244, event_counts: {}, stat_summary: {}, source_note: "Certified", calculated_at: "2026-08-19T00:00:00.000Z" };
+    const held = { season: 2025, school_name: "Texas", position: "RB", official_points: 210, eligible_games: 12, normalization_factor: 1, normalized_points: 210, event_counts: {}, stat_summary: { historical_points_hold: true }, source_note: "Held", calculated_at: "2026-08-19T00:00:00.000Z" };
+    mocks.supabaseRest
+      .mockResolvedValueOnce([certified, held])
+      .mockResolvedValueOnce([{ school_name: "Ohio State", position: "QB" }])
+      .mockResolvedValueOnce([{ school_name: null, position: "QB" }])
+      .mockResolvedValueOnce([{ id: "queue-1", owner_id: "owner-1", school_name: "Texas", position: "RB", priority: 1, created_at: "2026-08-19T00:00:00.000Z", updated_at: "2026-08-19T00:00:00.000Z" }]);
+
+    const board = await getOwnerDraftBoard("owner-1", "RB");
+
+    expect(board.availableUnits).toEqual([expect.objectContaining({ schoolName: "Texas", position: "RB", normalizedPoints: null, isQueued: true, canQueue: true })]);
+    expect(board.queue).toEqual([expect.objectContaining({ schoolName: "Texas", priority: 1, isAvailable: true, unit: expect.objectContaining({ normalizedPoints: null }) })]);
+  });
 
 	it("exposes a clearly labeled provisional DEF value without treating it as a certified historical total", () => {
 		  const unit = publicDraftResearchUnit({ season: 2025, school_name: "Air Force", position: "DEF", official_points: 48, eligible_games: 12, normalization_factor: 1, normalized_points: 48, event_counts: { SACK: 15, INTERCEPTION: 7 }, stat_summary: { historical_points_certified: false, historical_points_hold: false, historical_points_provisional: true, provisional_def_estimated_td_count: 2 }, source_note: "Provisional estimate", calculated_at: "2026-08-19T00:00:00.000Z" });

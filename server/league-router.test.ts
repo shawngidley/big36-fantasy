@@ -3,6 +3,7 @@ import type { TrpcContext } from "./_core/context";
 
 const mocks = vi.hoisted(() => ({
   getAllDraftSlots: vi.fn(),
+  getOwnerDraftBoard: vi.fn(),
   getDraftOwnerState: vi.fn(),
   getDraftSlotByGroup: vi.fn(),
   getLeagueSnapshot: vi.fn(),
@@ -15,6 +16,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./league-data", () => ({
   getAllDraftSlots: mocks.getAllDraftSlots,
+  getOwnerDraftBoard: mocks.getOwnerDraftBoard,
   getDraftOwnerState: mocks.getDraftOwnerState,
   getDraftSlotByGroup: mocks.getDraftSlotByGroup,
   getLeagueSnapshot: mocks.getLeagueSnapshot,
@@ -167,6 +169,31 @@ describe("Big 36 owner draft procedures", () => {
 
     await expect(caller.league.updateMyProfile({ displayName: "League Owner", teamName: "Lakewood College", nickname: null, programIdentity: null, inspiration: null, primaryColor: null, accentColor: null, brandingNotes: null, rivalryPreference: null, phone: "(555) 555-0182", currentPin: "1111", newPin: "482918", logoDataUrl: null })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("current PIN") });
     expect(mocks.getLeagueSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("shows a signed-in owner's filtered available-unit board and appends an eligible unit to that owner's private queue", async () => {
+    const owner = { id: "33333333-3333-4333-8333-333333333333", displayName: "League Owner", teamName: "Lakewood College" };
+    const board = { draftedPositions: [], queue: [], availableUnits: [{ schoolName: "Ohio State", position: "QB", normalizedPoints: 244, officialPoints: 244, eligibleGames: 12, sourceNote: "Certified", isQueued: false, canQueue: true }] };
+    mocks.getOrClaimOwner.mockResolvedValue(owner);
+    mocks.getOwnerDraftBoard.mockResolvedValue(board);
+    mocks.supabaseRest.mockResolvedValue([]);
+    const caller = appRouter.createCaller(createContext("user"));
+
+    await expect(caller.league.myDraftBoard({ position: "QB" })).resolves.toEqual(board);
+    await expect(caller.league.addMyDraftQueueEntry({ schoolName: "Ohio State", position: "QB" })).resolves.toEqual({ success: true });
+    expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_draft_queue_entries", expect.objectContaining({ method: "POST", body: { owner_id: owner.id, school_name: "Ohio State", position: "QB", priority: 1 } }));
+    expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_audit_events", expect.objectContaining({ method: "POST", body: expect.objectContaining({ action: "OWNER_DRAFT_QUEUE_ADDED", entity_type: "b36_draft_queue_entries" }) }));
+  });
+
+  it("refuses a duplicate, unavailable, or cross-owner draft-queue action", async () => {
+    mocks.getOrClaimOwner.mockResolvedValue({ id: "33333333-3333-4333-8333-333333333333", displayName: "League Owner", teamName: "Lakewood College" });
+    mocks.getOwnerDraftBoard.mockResolvedValue({ draftedPositions: [], queue: [{ id: "11111111-1111-4111-8111-111111111111", priority: 1 }], availableUnits: [{ schoolName: "Ohio State", position: "QB", isQueued: true, canQueue: true }] });
+    const caller = appRouter.createCaller(createContext("user"));
+
+    await expect(caller.league.addMyDraftQueueEntry({ schoolName: "Ohio State", position: "QB" })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("already") });
+    mocks.supabaseRest.mockResolvedValueOnce([]);
+    await expect(caller.league.removeMyDraftQueueEntry({ entryId: "11111111-1111-4111-8111-111111111111" })).rejects.toMatchObject({ code: "BAD_REQUEST", message: expect.stringContaining("not available") });
+    expect(mocks.supabaseRest).not.toHaveBeenCalledWith("b36_draft_queue_entries", expect.objectContaining({ method: "DELETE" }));
   });
 
   it("keeps private registration review commissioner-only", async () => {

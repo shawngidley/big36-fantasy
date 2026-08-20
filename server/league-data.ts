@@ -16,11 +16,13 @@ type EventRow = { id: string; week_id: string; draft_slot_id: string; event_type
 type DraftStateRow = { status: "SETUP" | "OPEN" | "PAUSED" | "COMPLETE"; active_position: Position | null; updated_at: string };
 type DraftTurnRow = { id: string; global_pick: number; round_number: number; owner_id: string; status: "PENDING" | "ACTIVE" | "SKIPPED" | "PICKED"; expires_at: string | null; skipped_at: string | null; picked_at: string | null; draft_slot_id: string | null };
 type ResearchUnitRow = { season: number; school_name: string; position: Position; official_points: number | string | null; eligible_games: number; normalization_factor: number | string; normalized_points: number | string | null; event_counts: Record<string, number>; stat_summary: Record<string, number>; source_note: string; calculated_at: string };
+type QueueEntryRow = { id: string; owner_id: string; school_name: string; position: Position; priority: number; created_at: string; updated_at: string };
 type SourceGameRow = { season: number; season_type: string; completed: boolean; home_team: string; away_team: string };
 type AutomationSeasonRow = { season: number };
 
 const ownerPath = "b36_owners";
 const slotPath = "b36_draft_slots";
+const queuePath = "b36_draft_queue_entries";
 
 const asNumber = (value: number | string | null) => value === null ? null : Number(value);
 const normalizeSchoolName = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
@@ -195,6 +197,40 @@ export async function getDraftResearchCatalog(position?: Position) {
   if (position) query.position = q.eq(position);
   const rows = await supabaseRest<ResearchUnitRow[]>("b36_draft_research_units", { query });
   return rows.map(publicDraftResearchUnit);
+}
+
+export async function getOwnerDraftBoard(ownerId: string, position?: Position) {
+  const [researchRows, selectedSlotRows, ownerSlotRows, queueRows] = await Promise.all([
+    supabaseRest<ResearchUnitRow[]>("b36_draft_research_units", { query: { select: "season,school_name,position,official_points,eligible_games,normalization_factor,normalized_points,event_counts,stat_summary,source_note,calculated_at", season: q.eq(2025), order: "normalized_points.desc,school_name.asc" } }),
+    supabaseRest<SlotRow[]>(slotPath, { query: { select: "school_name,position", school_name: "not.is.null" } }),
+    supabaseRest<SlotRow[]>(slotPath, { query: { select: "school_name,position", owner_id: q.eq(ownerId) } }),
+    supabaseRest<QueueEntryRow[]>(queuePath, { query: { select: "id,owner_id,school_name,position,priority,created_at,updated_at", owner_id: q.eq(ownerId), order: "priority.asc" } }),
+  ]);
+  const draftedKeys = new Set(selectedSlotRows.filter(slot => slot.school_name).map(slot => `${normalizeSchoolName(slot.school_name!)}::${slot.position}`));
+  const draftedPositions = new Set(ownerSlotRows.filter(slot => slot.school_name).map(slot => slot.position));
+  const allUnits = researchRows.map(row => {
+    const unit = publicDraftResearchUnit(row);
+    return { ...unit, key: `${normalizeSchoolName(unit.schoolName)}::${unit.position}` };
+  });
+  const unitByKey = new Map(allUnits.map(unit => [unit.key, unit]));
+  const queuedKeys = new Set(queueRows.map(entry => `${normalizeSchoolName(entry.school_name)}::${entry.position}`));
+  const availableUnits = allUnits
+    .filter(unit => !position || unit.position === position)
+    .filter(unit => !draftedKeys.has(unit.key))
+    .map(unit => ({ ...unit, isQueued: queuedKeys.has(unit.key), canQueue: !draftedPositions.has(unit.position) }));
+  const queue = queueRows.map(entry => {
+    const key = `${normalizeSchoolName(entry.school_name)}::${entry.position}`;
+    const unit = unitByKey.get(key);
+    return {
+      id: entry.id,
+      priority: entry.priority,
+      schoolName: entry.school_name,
+      position: entry.position,
+      isAvailable: Boolean(unit && !draftedKeys.has(key)),
+      unit: unit ? { ...unit, key: undefined } : null,
+    };
+  });
+  return { availableUnits, queue, draftedPositions: Array.from(draftedPositions) };
 }
 
 export async function getOrClaimOwner(openId: string, email?: string | null) {
