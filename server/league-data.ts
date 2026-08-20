@@ -193,7 +193,7 @@ export function publicDraftResearchUnit(row: ResearchUnitRow) {
 }
 
 export async function getDraftResearchCatalog(position?: Position) {
-  const query: Record<string, string> = { select: "season,school_name,position,official_points,eligible_games,normalization_factor,normalized_points,event_counts,stat_summary,source_note,calculated_at", season: q.eq(2025), order: "normalized_points.desc,school_name.asc" };
+  const query: Record<string, string> = { select: "season,school_name,position,official_points,eligible_games,normalization_factor,normalized_points,event_counts,stat_summary,source_note,calculated_at", season: q.eq(2025), order: "normalized_points.desc.nullslast,school_name.asc" };
   if (position) query.position = q.eq(position);
   const rows = await supabaseRest<ResearchUnitRow[]>("b36_draft_research_units", { query });
   return rows.map(publicDraftResearchUnit);
@@ -201,7 +201,7 @@ export async function getDraftResearchCatalog(position?: Position) {
 
 export async function getOwnerDraftBoard(ownerId: string, position?: Position) {
   const [researchRows, selectedSlotRows, ownerSlotRows, queueRows] = await Promise.all([
-    supabaseRest<ResearchUnitRow[]>("b36_draft_research_units", { query: { select: "season,school_name,position,official_points,eligible_games,normalization_factor,normalized_points,event_counts,stat_summary,source_note,calculated_at", season: q.eq(2025), order: "normalized_points.desc,school_name.asc" } }),
+    supabaseRest<ResearchUnitRow[]>("b36_draft_research_units", { query: { select: "season,school_name,position,official_points,eligible_games,normalization_factor,normalized_points,event_counts,stat_summary,source_note,calculated_at", season: q.eq(2025), order: "normalized_points.desc.nullslast,school_name.asc" } }),
     supabaseRest<SlotRow[]>(slotPath, { query: { select: "school_name,position", school_name: "not.is.null" } }),
     supabaseRest<SlotRow[]>(slotPath, { query: { select: "school_name,position", owner_id: q.eq(ownerId) } }),
     supabaseRest<QueueEntryRow[]>(queuePath, { query: { select: "id,owner_id,school_name,position,priority,created_at,updated_at", owner_id: q.eq(ownerId), order: "priority.asc" } }),
