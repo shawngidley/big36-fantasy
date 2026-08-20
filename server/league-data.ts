@@ -20,8 +20,9 @@ type QueueEntryRow = { id: string; owner_id: string; school_name: string; positi
 type SourceGameRow = { season: number; season_type: string; completed: boolean; home_team: string; away_team: string };
 type AutomationSeasonRow = { season: number };
 type LotteryStatus = "READY" | "RUNNING" | "PAUSED" | "COMPLETE" | "ABORTED";
-type LotteryRow = { id: string; status: LotteryStatus; owner_order: string[]; owner_snapshot: Array<{ id: string; teamName: string; displayName: string; nickname?: string | null; logoUrl?: string | null; primaryColor?: string | null; accentColor?: string | null }>; order_commitment: string; reveal_interval_seconds: number; revealed_count: number; started_at: string | null; elapsed_ms_before_pause: number; paused_at: string | null; completed_at: string | null; abort_reason: string | null; created_at: string };
+type LotteryRow = { id: string; status: LotteryStatus; owner_order: string[]; owner_snapshot: Array<{ id: string; teamName: string; displayName: string; nickname?: string | null; logoUrl?: string | null; primaryColor?: string | null; accentColor?: string | null }>; order_commitment: string; reveal_interval_seconds: number; revealed_count: number; started_at: string | null; elapsed_ms_before_pause: number; paused_at: string | null; completed_at: string | null; abort_reason: string | null; created_at: string; is_rehearsal: boolean };
 type LotteryRevealRow = { id: string; lottery_id: string; reveal_index: number; draft_position: number; owner_id: string; revealed_at: string };
+type LotteryConfigRow = { scheduled_for: string; updated_at: string };
 
 const ownerPath = "b36_owners";
 const slotPath = "b36_draft_slots";
@@ -180,12 +181,12 @@ export async function getLeagueSnapshot() {
 }
 
 export async function getPublicDraftLottery() {
-  const lotteries = await supabaseRest<LotteryRow[]>(lotteryPath, { query: { select: "id,status,owner_order,owner_snapshot,order_commitment,reveal_interval_seconds,revealed_count,started_at,elapsed_ms_before_pause,paused_at,completed_at,abort_reason,created_at", status: "in.(RUNNING,PAUSED,COMPLETE)", order: "created_at.desc", limit: "1" } });
+  const lotteries = await supabaseRest<LotteryRow[]>(lotteryPath, { query: { select: "id,status,owner_order,owner_snapshot,order_commitment,reveal_interval_seconds,revealed_count,started_at,elapsed_ms_before_pause,paused_at,completed_at,abort_reason,created_at,is_rehearsal", status: "in.(RUNNING,PAUSED,COMPLETE)", is_rehearsal: q.eq(false), order: "created_at.desc", limit: "1" } });
   let lottery = lotteries[0];
   if (!lottery) return null;
   if (lottery.status === "RUNNING") {
     await supabaseRpc("b36_sync_draft_lottery", { p_lottery_id: lottery.id });
-    const refreshed = await supabaseRest<LotteryRow[]>(lotteryPath, { query: { select: "id,status,owner_order,owner_snapshot,order_commitment,reveal_interval_seconds,revealed_count,started_at,elapsed_ms_before_pause,paused_at,completed_at,abort_reason,created_at", id: q.eq(lottery.id), limit: "1" } });
+    const refreshed = await supabaseRest<LotteryRow[]>(lotteryPath, { query: { select: "id,status,owner_order,owner_snapshot,order_commitment,reveal_interval_seconds,revealed_count,started_at,elapsed_ms_before_pause,paused_at,completed_at,abort_reason,created_at,is_rehearsal", id: q.eq(lottery.id), limit: "1" } });
     lottery = refreshed[0] ?? lottery;
   }
   const reveals = await supabaseRest<LotteryRevealRow[]>("b36_draft_lottery_reveals", { query: { select: "id,lottery_id,reveal_index,draft_position,owner_id,revealed_at", lottery_id: q.eq(lottery.id), order: "reveal_index.asc" } });
@@ -203,6 +204,11 @@ export async function getPublicDraftLottery() {
     totalPrograms: 36,
     reveals: reveals.map(reveal => ({ revealIndex: reveal.reveal_index, draftPosition: reveal.draft_position, revealedAt: reveal.revealed_at, owner: ownersById.get(reveal.owner_id) ?? { id: reveal.owner_id, teamName: "36 Football Program", displayName: "Owner" } })),
   };
+}
+
+export async function getDraftLotterySchedule() {
+  const config = await supabaseRest<LotteryConfigRow[]>("b36_draft_lottery_config", { query: { select: "scheduled_for,updated_at", id: q.eq(true), limit: "1" } });
+  return { scheduledFor: config[0]?.scheduled_for ?? "2026-08-24T01:00:00.000Z", updatedAt: config[0]?.updated_at ?? null };
 }
 
 export function publicDraftResearchUnit(row: ResearchUnitRow) {

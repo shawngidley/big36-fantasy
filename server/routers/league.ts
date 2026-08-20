@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { positions, scoringEventTypes, type Position } from "../../drizzle/schema";
-import { getAllDraftSlots, getOwnerDraftBoard, getDraftOwnerState, getDraftSlotByGroup, getDraftResearchCatalog, getLeagueSnapshot, getOrClaimOwner, getPublicDraftLottery, getScoreEvent, getScoringRulesForEvent } from "../league-data";
+import { getAllDraftSlots, getDraftLotterySchedule, getOwnerDraftBoard, getDraftOwnerState, getDraftSlotByGroup, getDraftResearchCatalog, getLeagueSnapshot, getOrClaimOwner, getPublicDraftLottery, getScoreEvent, getScoringRulesForEvent } from "../league-data";
 import { assertSchoolPositionAvailable, buildReversal, calculateEventScore, hasBalancedDraftAssignments, normalizeSchoolName } from "../league-scoring";
 import { buildSerpentineTurns } from "../serpentine-draft";
 import { assertInauguralDraftOrderCanBePublished, assertInauguralDraftRoundIsOpen, assertInauguralDraftWindow } from "../../shared/draft-schedule";
@@ -47,6 +47,7 @@ type RegistrationRow = { id: string; display_name: string; team_name: string; ni
 export const leagueRouter = router({
   snapshot: publicProcedure.query(() => getLeagueSnapshot()),
   draftLottery: publicProcedure.query(() => getPublicDraftLottery()),
+  draftLotterySchedule: publicProcedure.query(() => getDraftLotterySchedule()),
   registrationLanding: publicProcedure.query(() => supabaseRpc<{ approvedCount: number; capacity: number; registrationOpen: boolean }>("b36_registration_landing_status", {})),
   research: publicProcedure.input(z.object({ position: positionSchema.optional() }).optional()).query(({ input }) => getDraftResearchCatalog(input?.position)),
   owner: publicProcedure.input(z.object({ ownerId: uuid })).query(async ({ input }) => {
@@ -241,6 +242,8 @@ export const leagueRouter = router({
     startDraftLottery: adminProcedure.mutation(async ({ ctx }) => {
       try {
         assertInauguralDraftOrderCanBePublished();
+        const schedule = await getDraftLotterySchedule();
+        if (Date.now() < new Date(schedule.scheduledFor).getTime()) throw new Error(`The lottery is scheduled for ${new Date(schedule.scheduledFor).toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "full", timeStyle: "short" })} Eastern and still requires commissioner approval at that time.`);
         const snapshot = await getLeagueSnapshot();
         if (snapshot.owners.length !== 36) throw new Error("All 36 programs must be configured before the lottery can start.");
         if (snapshot.totals.draftPickCount) throw new Error("The draft lottery cannot start after a selection has been made.");

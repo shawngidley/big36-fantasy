@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   getOwnerDraftBoard: vi.fn(),
   getDraftOwnerState: vi.fn(),
   getDraftSlotByGroup: vi.fn(),
+  getDraftLotterySchedule: vi.fn(),
   getLeagueSnapshot: vi.fn(),
   getPublicDraftLottery: vi.fn(),
   getOrClaimOwner: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock("./league-data", () => ({
   getOwnerDraftBoard: mocks.getOwnerDraftBoard,
   getDraftOwnerState: mocks.getDraftOwnerState,
   getDraftSlotByGroup: mocks.getDraftSlotByGroup,
+  getDraftLotterySchedule: mocks.getDraftLotterySchedule,
   getLeagueSnapshot: mocks.getLeagueSnapshot,
   getPublicDraftLottery: mocks.getPublicDraftLottery,
   getOrClaimOwner: mocks.getOrClaimOwner,
@@ -72,6 +74,7 @@ describe("Big 36 owner draft procedures", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-24T13:00:00.000Z"));
     vi.clearAllMocks();
+    mocks.getDraftLotterySchedule.mockResolvedValue({ scheduledFor: "2026-08-23T00:00:00.000Z", updatedAt: null });
     mocks.getLeagueSnapshot.mockResolvedValue({ owners: [], divisions: [], totals: { ownerCount: 0 } });
   });
   afterEach(() => vi.useRealTimers());
