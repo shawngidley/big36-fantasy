@@ -1,5 +1,6 @@
 import { supabaseRest } from "./supabase";
 import { inauguralDraftWindow } from "../shared/draft-schedule";
+import { notifyOwnerWhenUpcomingPickSafely } from "./draft-alerts";
 
 type DraftTurnRow = { id: string; global_pick: number; round_number: number; status: "PENDING" | "ACTIVE" | "SKIPPED" | "PICKED"; expires_at: string | null };
 
@@ -20,5 +21,6 @@ export async function advanceExpiredDraftTurn(now = new Date()) {
   if (next.round_number < window.day!.rounds[0] || next.round_number > window.day!.rounds[1]) return { advanced: true, skippedPick: skipped[0].global_pick, nextPick: null, deferred: "next-round-on-later-draft-day" };
   const expiresAt = new Date(now.getTime() + 600_000).toISOString();
   await supabaseRest("b36_draft_turns", { method: "PATCH", query: { id: `eq.${next.id}`, status: "eq.PENDING" }, body: { status: "ACTIVE", expires_at: expiresAt } });
+  await notifyOwnerWhenUpcomingPickSafely(next.id);
   return { advanced: true, skippedPick: skipped[0].global_pick, nextPick: next.global_pick, expiresAt };
 }

@@ -14,6 +14,7 @@ import { runGamedayRefresh } from "../gameday-refresh";
 import { syncFbsPoolAndSchedule } from "../gameday-refresh";
 import { decodeRegistrationLogo, hashRegistrationPin, normalizeRegistrationEmail, normalizeRegistrationPhone, verifyRegistrationPin } from "../registration";
 import { storagePut } from "../storage";
+import { notifyOwnerWhenUpcomingPickSafely } from "../draft-alerts";
 
 const positionSchema = z.enum(positions);
 const eventTypeSchema = z.enum(scoringEventTypes);
@@ -184,6 +185,7 @@ export const leagueRouter = router({
       if (!fbsPool.some(team => normalizeSchoolName(team.school_name).toLowerCase() === normalizedSchool.toLowerCase())) throw new Error("Choose a school from the official 2026 FBS pool.");
       const pick = await supabaseRpc<{ id: string; draft_position: number }>("b36_submit_serpentine_pick", { p_owner_open_id: ctx.user.openId, p_position: input.position, p_school_name: normalizedSchool });
       await supabaseRest("b36_draft_queue_entries", { method: "DELETE", query: { owner_id: q.eq(owner.id), position: q.eq(input.position) } });
+      await notifyOwnerWhenUpcomingPickSafely();
       return { success: true as const, draftPosition: pick.draft_position };
     } catch (error) { asError(error); }
   }),
@@ -241,6 +243,7 @@ export const leagueRouter = router({
         const now = new Date(); const expiresAt = new Date(now.getTime() + 600_000).toISOString();
         await supabaseRest("b36_draft_turns", { method: "PATCH", query: { id: q.eq(pending[0].id) }, body: { status: "ACTIVE", opened_at: now.toISOString(), expires_at: expiresAt } });
         await supabaseRest("b36_draft_state", { method: "PATCH", query: { id: q.eq(true) }, body: { status: "OPEN", active_turn_id: pending[0].id, active_position: null, updated_at: now.toISOString(), updated_by_open_id: ctx.user.openId } });
+        await notifyOwnerWhenUpcomingPickSafely(pending[0].id);
       } catch (error) { asError(error); }
       return { success: true as const };
     }),
