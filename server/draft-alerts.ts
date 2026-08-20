@@ -108,7 +108,7 @@ export async function notifyOwnerWhenUpcomingPick(activeTurnId?: string): Promis
   }
 
   const { accountSid, authToken, fromNumber } = getTwilioConfig();
-  const body = `${recipient.teamName}: you are on deck for 36 Football Pick ${recipient.globalPick} (Round ${recipient.roundNumber}). The owner ahead of you is now on the clock. Open 36football.com/my-draft to prepare your selection.`;
+  const body = `🏈 36 Football — ON DECK: ${recipient.teamName}. The owner ahead is on the clock for Pick ${active.global_pick}. Your Pick ${recipient.globalPick} (Round ${recipient.roundNumber}) is next. You have this 10-minute clock to prepare: 36football.com/my-draft`;
   const payload = new URLSearchParams({ To: recipient.phoneE164, From: fromNumber, Body: body });
   const credentials = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
   try {

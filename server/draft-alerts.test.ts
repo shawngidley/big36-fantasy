@@ -37,7 +37,11 @@ describe("upcoming-pick SMS alerts", () => {
       expect.stringContaining("/Messages.json"),
       expect.objectContaining({ method: "POST", body: expect.stringContaining("To=%2B15551234567") }),
     );
-    expect(String(fetchMock.mock.calls[0][1].body)).toContain("Pick+9");
+    const smsBody = decodeURIComponent(String(fetchMock.mock.calls[0][1].body).replace(/^.*Body=/, "").replace(/\+/g, " "));
+    expect(smsBody).toContain("🏈 36 Football — ON DECK: Northside Foxes.");
+    expect(smsBody).toContain("Pick 8");
+    expect(smsBody).toContain("Pick 9 (Round 1) is next.");
+    expect(smsBody).toContain("10-minute clock");
     expect(mocks.supabaseRest).toHaveBeenLastCalledWith(
       "b36_draft_sms_alerts",
       expect.objectContaining({ method: "PATCH", query: { id: "eq.33333333-3333-4333-8333-333333333333" }, body: expect.objectContaining({ status: "SENT", twilio_message_sid: "SM123" }) }),
