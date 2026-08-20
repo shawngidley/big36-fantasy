@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { positions, scoringEventTypes, type Position } from "../../drizzle/schema";
-import { getAllDraftSlots, getOwnerDraftBoard, getDraftOwnerState, getDraftSlotByGroup, getDraftResearchCatalog, getLeagueSnapshot, getOrClaimOwner, getScoreEvent, getScoringRulesForEvent } from "../league-data";
+import { getAllDraftSlots, getOwnerDraftBoard, getDraftOwnerState, getDraftSlotByGroup, getDraftResearchCatalog, getLeagueSnapshot, getOrClaimOwner, getPublicDraftLottery, getScoreEvent, getScoringRulesForEvent } from "../league-data";
 import { assertSchoolPositionAvailable, buildReversal, calculateEventScore, hasBalancedDraftAssignments, normalizeSchoolName } from "../league-scoring";
 import { buildSerpentineTurns } from "../serpentine-draft";
 import { assertInauguralDraftOrderCanBePublished, assertInauguralDraftRoundIsOpen, assertInauguralDraftWindow } from "../../shared/draft-schedule";
@@ -15,6 +15,7 @@ import { syncFbsPoolAndSchedule } from "../gameday-refresh";
 import { decodeRegistrationLogo, hashRegistrationPin, normalizeRegistrationEmail, normalizeRegistrationPhone, verifyRegistrationPin } from "../registration";
 import { storagePut } from "../storage";
 import { notifyOwnerWhenUpcomingPickSafely } from "../draft-alerts";
+import { lotteryCommitment, LOTTERY_REVEAL_INTERVAL_SECONDS, secureShuffle } from "../draft-lottery";
 
 const positionSchema = z.enum(positions);
 const eventTypeSchema = z.enum(scoringEventTypes);
@@ -45,6 +46,7 @@ type RegistrationRow = { id: string; display_name: string; team_name: string; ni
 
 export const leagueRouter = router({
   snapshot: publicProcedure.query(() => getLeagueSnapshot()),
+  draftLottery: publicProcedure.query(() => getPublicDraftLottery()),
   registrationLanding: publicProcedure.query(() => supabaseRpc<{ approvedCount: number; capacity: number; registrationOpen: boolean }>("b36_registration_landing_status", {})),
   research: publicProcedure.input(z.object({ position: positionSchema.optional() }).optional()).query(({ input }) => getDraftResearchCatalog(input?.position)),
   owner: publicProcedure.input(z.object({ ownerId: uuid })).query(async ({ input }) => {
@@ -235,6 +237,58 @@ export const leagueRouter = router({
         await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "GENERATE_SERPENTINE_DRAFT", entity_type: "b36_draft_turns", detail: { owner_order: input.ownerOrder } } });
       } catch (error) { asError(error); }
       return { success: true as const };
+    }),
+    startDraftLottery: adminProcedure.mutation(async ({ ctx }) => {
+      try {
+        assertInauguralDraftOrderCanBePublished();
+        const snapshot = await getLeagueSnapshot();
+        if (snapshot.owners.length !== 36) throw new Error("All 36 programs must be configured before the lottery can start.");
+        if (snapshot.totals.draftPickCount) throw new Error("The draft lottery cannot start after a selection has been made.");
+        const active = await supabaseRest<Array<{ id: string }>>("b36_draft_lotteries", { query: { select: "id", status: "in.(RUNNING,PAUSED)", limit: "1" } });
+        if (active[0]) throw new Error("A draft lottery is already active. Pause, resume, or abort that draw before starting another.");
+        const ownerOrder = secureShuffle(snapshot.owners.map(owner => owner.id));
+        const now = new Date().toISOString();
+        const commitment = lotteryCommitment(ownerOrder);
+        const lottery = await supabaseRest<Array<{ id: string }>>("b36_draft_lotteries", { method: "POST", body: { status: "RUNNING", owner_order: ownerOrder, owner_snapshot: snapshot.owners.map(owner => ({ id: owner.id, teamName: owner.teamName, displayName: owner.displayName, nickname: owner.nickname, logoUrl: owner.logoUrl, primaryColor: null, accentColor: null })), order_commitment: commitment, reveal_interval_seconds: LOTTERY_REVEAL_INTERVAL_SECONDS, revealed_count: 0, started_at: now, elapsed_ms_before_pause: 0, created_by_open_id: ctx.user.openId, updated_at: now } });
+        if (!lottery[0]?.id) throw new Error("The draft lottery could not be started.");
+        await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "DRAFT_LOTTERY_STARTED", entity_type: "b36_draft_lotteries", entity_id: lottery[0].id, detail: { order_commitment: commitment, reveal_interval_seconds: LOTTERY_REVEAL_INTERVAL_SECONDS } } });
+        return { success: true as const, lotteryId: lottery[0].id };
+      } catch (error) { asError(error); }
+    }),
+    pauseDraftLottery: adminProcedure.mutation(async ({ ctx }) => {
+      try {
+        const running = await supabaseRest<Array<{ id: string; started_at: string | null; elapsed_ms_before_pause: number }>>("b36_draft_lotteries", { query: { select: "id,started_at,elapsed_ms_before_pause", status: q.eq("RUNNING"), order: "created_at.desc", limit: "1" } });
+        const lottery = running[0];
+        if (!lottery?.started_at) throw new Error("There is no running draft lottery to pause.");
+        await supabaseRpc("b36_sync_draft_lottery", { p_lottery_id: lottery.id });
+        const elapsed = Number(lottery.elapsed_ms_before_pause) + Math.max(0, Date.now() - new Date(lottery.started_at).getTime());
+        const now = new Date().toISOString();
+        await supabaseRest("b36_draft_lotteries", { method: "PATCH", query: { id: q.eq(lottery.id), status: q.eq("RUNNING") }, body: { status: "PAUSED", elapsed_ms_before_pause: elapsed, paused_at: now, updated_at: now } });
+        await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "DRAFT_LOTTERY_PAUSED", entity_type: "b36_draft_lotteries", entity_id: lottery.id, detail: { elapsed_ms: elapsed } } });
+        return { success: true as const };
+      } catch (error) { asError(error); }
+    }),
+    resumeDraftLottery: adminProcedure.mutation(async ({ ctx }) => {
+      try {
+        const paused = await supabaseRest<Array<{ id: string }>>("b36_draft_lotteries", { query: { select: "id", status: q.eq("PAUSED"), order: "created_at.desc", limit: "1" } });
+        const lottery = paused[0];
+        if (!lottery) throw new Error("There is no paused draft lottery to resume.");
+        const now = new Date().toISOString();
+        await supabaseRest("b36_draft_lotteries", { method: "PATCH", query: { id: q.eq(lottery.id), status: q.eq("PAUSED") }, body: { status: "RUNNING", started_at: now, paused_at: null, updated_at: now } });
+        await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "DRAFT_LOTTERY_RESUMED", entity_type: "b36_draft_lotteries", entity_id: lottery.id } });
+        return { success: true as const };
+      } catch (error) { asError(error); }
+    }),
+    abortDraftLottery: adminProcedure.input(z.object({ reason: z.string().trim().min(4).max(500) })).mutation(async ({ ctx, input }) => {
+      try {
+        const active = await supabaseRest<Array<{ id: string }>>("b36_draft_lotteries", { query: { select: "id", status: "in.(RUNNING,PAUSED)", order: "created_at.desc", limit: "1" } });
+        const lottery = active[0];
+        if (!lottery) throw new Error("There is no active draft lottery to abort.");
+        const now = new Date().toISOString();
+        await supabaseRest("b36_draft_lotteries", { method: "PATCH", query: { id: q.eq(lottery.id) }, body: { status: "ABORTED", aborted_at: now, abort_reason: input.reason, updated_at: now } });
+        await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "DRAFT_LOTTERY_ABORTED", entity_type: "b36_draft_lotteries", entity_id: lottery.id, detail: { reason: input.reason } } });
+        return { success: true as const };
+      } catch (error) { asError(error); }
     }),
     startSerpentineDraft: adminProcedure.mutation(async ({ ctx }) => {
       try {

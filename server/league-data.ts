@@ -1,7 +1,7 @@
 import type { Position, ScoringEventType } from "../drizzle/schema";
 import { rankBySeasonPoints } from "./league-scoring";
 import { ownerCanDraft } from "./serpentine-draft";
-import { q, supabaseRest } from "./supabase";
+import { q, supabaseRest, supabaseRpc } from "./supabase";
 import { yearOneRules } from "./year-one-rules";
 
 export const b36Positions = ["QB", "RB", "WR", "TE", "K_ST", "DEF"] as const;
@@ -19,10 +19,14 @@ type ResearchUnitRow = { season: number; school_name: string; position: Position
 type QueueEntryRow = { id: string; owner_id: string; school_name: string; position: Position; priority: number; created_at: string; updated_at: string };
 type SourceGameRow = { season: number; season_type: string; completed: boolean; home_team: string; away_team: string };
 type AutomationSeasonRow = { season: number };
+type LotteryStatus = "READY" | "RUNNING" | "PAUSED" | "COMPLETE" | "ABORTED";
+type LotteryRow = { id: string; status: LotteryStatus; owner_order: string[]; owner_snapshot: Array<{ id: string; teamName: string; displayName: string; nickname?: string | null; logoUrl?: string | null; primaryColor?: string | null; accentColor?: string | null }>; order_commitment: string; reveal_interval_seconds: number; revealed_count: number; started_at: string | null; elapsed_ms_before_pause: number; paused_at: string | null; completed_at: string | null; abort_reason: string | null; created_at: string };
+type LotteryRevealRow = { id: string; lottery_id: string; reveal_index: number; draft_position: number; owner_id: string; revealed_at: string };
 
 const ownerPath = "b36_owners";
 const slotPath = "b36_draft_slots";
 const queuePath = "b36_draft_queue_entries";
+const lotteryPath = "b36_draft_lotteries";
 
 const asNumber = (value: number | string | null) => value === null ? null : Number(value);
 const normalizeSchoolName = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
@@ -173,6 +177,32 @@ export async function getLeagueSnapshot() {
     ? ruleRows.map(rule => ({ id: rule.id, label: rule.label, eventType: rule.event_type, positionScope: rule.position_scope, minYards: asNumber(rule.min_yards), maxYards: asNumber(rule.max_yards), flatPoints: asNumber(rule.flat_points), pointsPerUnit: asNumber(rule.points_per_unit), isActive: rule.is_active ? "true" : "false" }))
     : yearOneRules.map((rule, index) => ({ id: `fallback-${index + 1}`, label: rule.label, eventType: rule.eventType, positionScope: rule.positionScope, minYards: rule.minYards, maxYards: rule.maxYards, flatPoints: rule.flatPoints, pointsPerUnit: null, isActive: "true" as const }));
   return { divisions, owners, overallStandings, weeks: weekRows.map(week => ({ id: week.id, weekNumber: week.week_number, label: week.label, status: week.status })), weeklySummaries, rules, leaderboard, events, champions, draftTurns, draftState: { status: state.status, activePosition: null, updatedAt: state.updated_at, currentTurn: activeTurn ? { id: activeTurn.id, ownerId: activeTurn.owner_id, teamName: turnOwner?.teamName ?? "Unassigned team", draftPosition: activeTurn.global_pick, roundNumber: activeTurn.round_number, expiresAt: activeTurn.expires_at } : null }, totals: { ownerCount: owners.length, divisionCount: divisions.length, draftPickCount: slotRows.filter(slot => slot.school_name).length, scoringEventCount: events.length } };
+}
+
+export async function getPublicDraftLottery() {
+  const lotteries = await supabaseRest<LotteryRow[]>(lotteryPath, { query: { select: "id,status,owner_order,owner_snapshot,order_commitment,reveal_interval_seconds,revealed_count,started_at,elapsed_ms_before_pause,paused_at,completed_at,abort_reason,created_at", status: "in.(RUNNING,PAUSED,COMPLETE)", order: "created_at.desc", limit: "1" } });
+  let lottery = lotteries[0];
+  if (!lottery) return null;
+  if (lottery.status === "RUNNING") {
+    await supabaseRpc("b36_sync_draft_lottery", { p_lottery_id: lottery.id });
+    const refreshed = await supabaseRest<LotteryRow[]>(lotteryPath, { query: { select: "id,status,owner_order,owner_snapshot,order_commitment,reveal_interval_seconds,revealed_count,started_at,elapsed_ms_before_pause,paused_at,completed_at,abort_reason,created_at", id: q.eq(lottery.id), limit: "1" } });
+    lottery = refreshed[0] ?? lottery;
+  }
+  const reveals = await supabaseRest<LotteryRevealRow[]>("b36_draft_lottery_reveals", { query: { select: "id,lottery_id,reveal_index,draft_position,owner_id,revealed_at", lottery_id: q.eq(lottery.id), order: "reveal_index.asc" } });
+  const ownersById = new Map(lottery.owner_snapshot.map(owner => [owner.id, owner]));
+  return {
+    id: lottery.id,
+    status: lottery.status,
+    orderCommitment: lottery.order_commitment,
+    revealIntervalSeconds: lottery.reveal_interval_seconds,
+    revealedCount: lottery.revealed_count,
+    startedAt: lottery.started_at,
+    elapsedMsBeforePause: Number(lottery.elapsed_ms_before_pause),
+    pausedAt: lottery.paused_at,
+    completedAt: lottery.completed_at,
+    totalPrograms: 36,
+    reveals: reveals.map(reveal => ({ revealIndex: reveal.reveal_index, draftPosition: reveal.draft_position, revealedAt: reveal.revealed_at, owner: ownersById.get(reveal.owner_id) ?? { id: reveal.owner_id, teamName: "36 Football Program", displayName: "Owner" } })),
+  };
 }
 
 export function publicDraftResearchUnit(row: ResearchUnitRow) {

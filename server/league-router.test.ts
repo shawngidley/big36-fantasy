@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   getDraftOwnerState: vi.fn(),
   getDraftSlotByGroup: vi.fn(),
   getLeagueSnapshot: vi.fn(),
+  getPublicDraftLottery: vi.fn(),
   getOrClaimOwner: vi.fn(),
   getScoreEvent: vi.fn(),
   getScoringRulesForEvent: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock("./league-data", () => ({
   getDraftOwnerState: mocks.getDraftOwnerState,
   getDraftSlotByGroup: mocks.getDraftSlotByGroup,
   getLeagueSnapshot: mocks.getLeagueSnapshot,
+  getPublicDraftLottery: mocks.getPublicDraftLottery,
   getOrClaimOwner: mocks.getOrClaimOwner,
   getScoreEvent: mocks.getScoreEvent,
   getScoringRulesForEvent: mocks.getScoringRulesForEvent,
@@ -225,6 +227,23 @@ describe("Big 36 owner draft procedures", () => {
     const ownerCaller = appRouter.createCaller(createContext("user"));
     await expect(ownerCaller.league.admin.ownerRegistrations()).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(mocks.supabaseRest).not.toHaveBeenCalled();
+  });
+
+  it("starts an auditable locked 36-program lottery without placing the private order in the audit detail", async () => {
+    vi.setSystemTime(new Date("2026-08-23T16:00:00.000Z"));
+    const owners = Array.from({ length: 36 }, (_, index) => ({ id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`, teamName: `Team ${index + 1}`, displayName: `Owner ${index + 1}`, nickname: null, logoUrl: null }));
+    mocks.getLeagueSnapshot.mockResolvedValue({ owners, divisions: [], totals: { ownerCount: 36, draftPickCount: 0 } });
+    mocks.supabaseRest
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "11111111-1111-4111-8111-111111111111" }])
+      .mockResolvedValueOnce([]);
+    const caller = appRouter.createCaller(createContext("admin"));
+
+    await expect(caller.league.admin.startDraftLottery()).resolves.toEqual({ success: true, lotteryId: "11111111-1111-4111-8111-111111111111" });
+    expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_draft_lotteries", expect.objectContaining({ method: "POST", body: expect.objectContaining({ status: "RUNNING", reveal_interval_seconds: 20, revealed_count: 0, owner_order: expect.arrayContaining(owners.map(owner => owner.id)) }) }));
+    const audit = mocks.supabaseRest.mock.calls.find(call => call[0] === "b36_audit_events");
+    expect(audit?.[1]?.body).toMatchObject({ action: "DRAFT_LOTTERY_STARTED", detail: { reveal_interval_seconds: 20 } });
+    expect(audit?.[1]?.body.detail).not.toHaveProperty("owner_order");
   });
 
   it("grants commissioner review access to the configured Matt Janssen email without changing other owner access", async () => {

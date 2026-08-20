@@ -9,6 +9,7 @@ const publicNav = [
   { label: "Join League", path: "/join" },
   { label: "Standings", path: "/standings" },
   { label: "Draft Board", path: "/draft" },
+  { label: "Lottery", path: "/draft-lottery" },
   { label: "2025 Research", path: "/research" },
   { label: "Leaders", path: "/leaders" },
   { label: "Weekly", path: "/weekly" },

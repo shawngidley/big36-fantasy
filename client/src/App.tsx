@@ -7,6 +7,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import Commissioner from "./pages/Commissioner";
 import CommissionerRegistrations from "./pages/CommissionerRegistrations";
 import DraftBoard from "./pages/DraftBoard";
+import DraftLottery from "./pages/DraftLottery";
 import DraftResearch from "./pages/DraftResearch";
 import Home from "./pages/Home";
 import JoinLeague from "./pages/JoinLeague";
@@ -28,6 +29,7 @@ function Router() {
     <Route path="/payment" component={Prizes} />
     <Route path="/standings" component={Standings} />
     <Route path="/draft" component={DraftBoard} />
+    <Route path="/draft-lottery" component={DraftLottery} />
     <Route path="/research" component={DraftResearch} />
     <Route path="/leaders" component={Leaderboards} />
     <Route path="/weekly" component={Weekly} />
