@@ -9,6 +9,7 @@ import CommissionerRegistrations from "./pages/CommissionerRegistrations";
 import DraftBoard from "./pages/DraftBoard";
 import DraftLottery from "./pages/DraftLottery";
 import DraftResearch from "./pages/DraftResearch";
+import CollegeFootballGuide from "./pages/CollegeFootballGuide";
 import Home from "./pages/Home";
 import JoinLeague from "./pages/JoinLeague";
 import Landing from "./pages/Landing";
@@ -32,6 +33,7 @@ function Router() {
     <Route path="/draft" component={DraftBoard} />
     <Route path="/draft-lottery" component={DraftLottery} />
     <Route path="/research" component={DraftResearch} />
+    <Route path="/college-football-guide" component={CollegeFootballGuide} />
     <Route path="/scoring" component={Scoring} />
     <Route path="/leaders" component={Leaderboards} />
     <Route path="/weekly" component={Weekly} />

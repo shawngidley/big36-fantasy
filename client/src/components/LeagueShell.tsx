@@ -10,6 +10,7 @@ const publicNav = [
   { label: "Standings", path: "/standings" },
   { label: "Scoring", path: "/scoring" },
   { label: "2025 Research", path: "/research" },
+  { label: "2026 Guide", path: "/college-football-guide" },
   { label: "Leaders", path: "/leaders" },
   { label: "Weekly", path: "/weekly" },
   { label: "My Team", path: "/my-team" },
