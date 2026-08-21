@@ -17,6 +17,7 @@ import MyDraft from "./pages/MyDraft";
 import MyTeam from "./pages/MyTeam";
 import NotFound from "./pages/NotFound";
 import Prizes from "./pages/Prizes";
+import Scoring from "./pages/Scoring";
 import Standings from "./pages/Standings";
 import Team from "./pages/Team";
 import Weekly from "./pages/Weekly";
@@ -31,6 +32,7 @@ function Router() {
     <Route path="/draft" component={DraftBoard} />
     <Route path="/draft-lottery" component={DraftLottery} />
     <Route path="/research" component={DraftResearch} />
+    <Route path="/scoring" component={Scoring} />
     <Route path="/leaders" component={Leaderboards} />
     <Route path="/weekly" component={Weekly} />
     <Route path="/my-draft" component={MyDraft} />

@@ -8,6 +8,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 const publicNav = [
   { label: "Join League", path: "/join" },
   { label: "Standings", path: "/standings" },
+  { label: "Scoring", path: "/scoring" },
   { label: "2025 Research", path: "/research" },
   { label: "Leaders", path: "/leaders" },
   { label: "Weekly", path: "/weekly" },
