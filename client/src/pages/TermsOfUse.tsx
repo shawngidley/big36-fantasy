@@ -3,7 +3,7 @@ import LeagueShell from "@/components/LeagueShell";
 const terms = [
   {
     title: "1. Ownership",
-    body: "The 36 Football League system, including its ruleset, scoring methodology, draft format, game-cap structure, league operations, website design, and original content published at 36football.com, is the intellectual property of 36 Football. The website is designed and developed by Ascend CX and maintained for the league.",
+    body: "36 Football was conceived by Matt Janssen. The 36 Football League system, including its ruleset, scoring methodology, draft format, game-cap structure, league operations, website design, and original content published at 36football.com, is the intellectual property of 36 Football. The website is designed and developed by Ascend CX and maintained for the league.",
   },
   {
     title: "2. Permitted Use",
