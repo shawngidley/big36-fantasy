@@ -17,10 +17,12 @@ import Leaderboards from "./pages/Leaderboards";
 import MyDraft from "./pages/MyDraft";
 import MyTeam from "./pages/MyTeam";
 import NotFound from "./pages/NotFound";
+import PrivacyPolicy from "./pages/PrivacyPolicy";
 import Prizes from "./pages/Prizes";
 import Scoring from "./pages/Scoring";
 import Standings from "./pages/Standings";
 import Team from "./pages/Team";
+import TermsOfUse from "./pages/TermsOfUse";
 import Weekly from "./pages/Weekly";
 
 function Router() {
@@ -35,6 +37,8 @@ function Router() {
     <Route path="/research" component={DraftResearch} />
     <Route path="/college-football-guide" component={CollegeFootballGuide} />
     <Route path="/scoring" component={Scoring} />
+    <Route path="/terms" component={TermsOfUse} />
+    <Route path="/privacy" component={PrivacyPolicy} />
     <Route path="/leaders" component={Leaderboards} />
     <Route path="/weekly" component={Weekly} />
     <Route path="/my-draft" component={MyDraft} />
