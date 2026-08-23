@@ -1,1 +1,0 @@
-ALTER TABLE `scoring_events` ADD `auditAction` enum('ENTRY','REVERSAL','CORRECTION') DEFAULT 'ENTRY' NOT NULL;

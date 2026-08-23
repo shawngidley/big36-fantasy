@@ -26,7 +26,7 @@ const draftNav = [
 function Brand() {
   return <Link href="/" className="group flex items-center gap-3" aria-label="36 Football home">
     <span className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md bg-[#13100d] transition-transform duration-200 group-hover:-rotate-3">
-      <img src="/manus-storage/36football-helmet-wordmark-192_f71497b3.png" alt="" className="h-full w-full object-contain" />
+      <img src="https://fjzlwifohkehwymisaoh.supabase.co/storage/v1/object/public/brand-assets/36football-helmet-wordmark-192_f71497b3.png" alt="" className="h-full w-full object-contain" />
     </span>
     <span className="leading-none">
       <span className="block font-display text-xl font-extrabold tracking-[-0.06em] text-[var(--header-foreground)]">36 FOOTBALL</span>
