@@ -348,6 +348,19 @@ export const leagueRouter = router({
       } catch (error) { asError(error); }
       return { success: true as const };
     }),
+    swapOwnerDivisions: adminProcedure.input(z.object({ ownerAId: uuid, ownerBId: uuid })).mutation(async ({ ctx, input }) => {
+      if (input.ownerAId === input.ownerBId) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose two different programs to swap." });
+      try {
+        const snapshot = await getLeagueSnapshot();
+        const ownerA = snapshot.owners.find(owner => owner.id === input.ownerAId);
+        const ownerB = snapshot.owners.find(owner => owner.id === input.ownerBId);
+        if (!ownerA || !ownerB) throw new Error("Choose two existing Big 36 programs to swap.");
+        await supabaseRest("b36_owners", { method: "PATCH", query: { id: q.eq(ownerA.id) }, body: { division_id: ownerB.divisionId } });
+        await supabaseRest("b36_owners", { method: "PATCH", query: { id: q.eq(ownerB.id) }, body: { division_id: ownerA.divisionId } });
+        await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "SWAP_OWNER_DIVISIONS", entity_type: "b36_owners", entity_id: ownerA.id, detail: { swappedWith: ownerB.id } } });
+      } catch (error) { asError(error); }
+      return { success: true as const };
+    }),
     saveDraftPlan: adminProcedure.input(z.object({ ownerId: uuid, assignments: z.array(z.object({ position: positionSchema, draftPosition: z.number().int().min(1).max(36) })).length(6) })).mutation(async ({ ctx, input }) => {
       if (!hasBalancedDraftAssignments(input.assignments)) throw new TRPCError({ code: "BAD_REQUEST", message: "Every owner must have one draft slot per position and the six positions must total exactly 111." });
       try {
