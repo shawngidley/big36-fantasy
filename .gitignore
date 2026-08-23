@@ -113,3 +113,7 @@ temp/
 client/public/__manus__/version.json
 .project-config.json
 .vercel
+.env*.local
+
+# Source PDFs uploaded to Supabase Storage; not needed in the repo
+assets/draft-guides

@@ -21,6 +21,7 @@ const draftNav = [
   { label: "Lottery", path: "/draft-lottery" },
   { label: "My Draft", path: "/my-draft" },
   { label: "Draft Order", path: "/draft" },
+  { label: "Draft Guide", path: "/draft-guide" },
 ];
 
 function Brand() {

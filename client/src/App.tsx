@@ -7,6 +7,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import Commissioner from "./pages/Commissioner";
 import CommissionerRegistrations from "./pages/CommissionerRegistrations";
 import DraftBoard from "./pages/DraftBoard";
+import DraftGuide from "./pages/DraftGuide";
 import DraftLottery from "./pages/DraftLottery";
 import DraftResearch from "./pages/DraftResearch";
 import CollegeFootballGuide from "./pages/CollegeFootballGuide";
@@ -34,6 +35,7 @@ function Router() {
     <Route path="/standings" component={Standings} />
     <Route path="/draft" component={DraftBoard} />
     <Route path="/draft-lottery" component={DraftLottery} />
+    <Route path="/draft-guide" component={DraftGuide} />
     <Route path="/research" component={DraftResearch} />
     <Route path="/college-football-guide" component={CollegeFootballGuide} />
     <Route path="/scoring" component={Scoring} />
