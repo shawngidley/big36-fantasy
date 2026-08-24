@@ -236,6 +236,19 @@ export const leagueRouter = router({
         return { success: true as const, sid };
       } catch (error) { asError(error); }
     }),
+    sendWelcomeDraftSms: adminProcedure.mutation(async ({ ctx }) => {
+      try {
+        const registrations = await supabaseRest<Array<{ id: string; display_name: string; team_name: string; phone_e164: string | null; assigned_owner_id: string | null }>>(registrationTable, { query: { select: "id,display_name,team_name,phone_e164,assigned_owner_id", status: q.eq("APPROVED") } });
+        const recipients = registrations.filter(registration => registration.assigned_owner_id && registration.phone_e164);
+        const body = "🏈 Welcome to the 36 Football League! You'll get a text 10 minutes before your pick, with a link to your My Draft page. Can't pick during that window? No problem — return and pick anytime after. Thanks for being part of our inaugural season, and good luck! 36football.com/my-draft";
+        const results = await Promise.allSettled(recipients.map(recipient => sendDraftSms(recipient.phone_e164!, body)));
+        const sent = results.filter(result => result.status === "fulfilled").length;
+        const failed = results.length - sent;
+        const skipped = registrations.length - recipients.length;
+        await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "WELCOME_SMS_BLAST", entity_type: registrationTable, entity_id: null, detail: { sent, failed, skipped, totalApproved: registrations.length } } });
+        return { success: true as const, sent, failed, skipped };
+      } catch (error) { asError(error); }
+    }),
     initializeSixDivisions: adminProcedure.mutation(async ({ ctx }) => {
       const existing = await supabaseRest<Array<{ id: string }>>("b36_divisions", { query: { select: "id" } });
       if (existing.length) throw new TRPCError({ code: "CONFLICT", message: "Divisions are already configured." });
