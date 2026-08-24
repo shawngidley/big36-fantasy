@@ -103,4 +103,29 @@ describe("advanceExpiredDraftTurn auto-draft from queue", () => {
     expect(result.advanced).toBe(false);
     expect(mocks.supabaseRest).toHaveBeenCalledTimes(1);
   });
+
+  it("self-heals by activating the next pending turn when nobody is currently on the clock", async () => {
+    mocks.supabaseRest
+      .mockResolvedValueOnce([]) // no ACTIVE turn found
+      .mockResolvedValueOnce([{ id: "turn-stuck", global_pick: 12, round_number: 1 }]) // next pending lookup
+      .mockResolvedValueOnce([{ id: "turn-stuck", global_pick: 12, round_number: 1, status: "ACTIVE" }]); // activation PATCH
+
+    const result = await advanceExpiredDraftTurn(insideWindow);
+
+    expect(result.advanced).toBe(true);
+    expect(result.nextPick).toBe(12);
+    expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_draft_turns", expect.objectContaining({ method: "PATCH", query: { id: "eq.turn-stuck", status: "eq.PENDING" }, body: expect.objectContaining({ status: "ACTIVE" }) }));
+    expect(mocks.notifyOwnerWhenUpcomingPickSafely).toHaveBeenCalledWith("turn-stuck");
+  });
+
+  it("does nothing when no turn is active and no picks remain", async () => {
+    mocks.supabaseRest
+      .mockResolvedValueOnce([]) // no ACTIVE turn
+      .mockResolvedValueOnce([]); // no PENDING turns either — draft is genuinely complete
+
+    const result = await advanceExpiredDraftTurn(insideWindow);
+
+    expect(result.advanced).toBe(false);
+    expect(result.nextPick).toBe(null);
+  });
 });

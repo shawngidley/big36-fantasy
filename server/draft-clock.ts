@@ -26,13 +26,34 @@ async function autoDraftFromQueue(turn: DraftTurnRow, now: Date) {
   return null;
 }
 
+async function activateNextPendingTurn(now: Date, window: ReturnType<typeof inauguralDraftWindow>) {
+  const pendingRows = await supabaseRest<DraftTurnRow[]>("b36_draft_turns", { query: { select: "id,global_pick,round_number,owner_id,status,expires_at", status: "eq.PENDING", order: "global_pick.asc", limit: "1" } });
+  const next = pendingRows[0];
+  if (!next) return { nextPick: null as number | null, expiresAt: undefined as string | undefined, deferred: undefined as string | undefined };
+  if (next.round_number < window.day!.rounds[0] || next.round_number > window.day!.rounds[1]) return { nextPick: null, expiresAt: undefined, deferred: "next-round-on-later-draft-day" as string | undefined };
+  const expiresAt = new Date(now.getTime() + 600_000).toISOString();
+  const activated = await supabaseRest<DraftTurnRow[]>("b36_draft_turns", { method: "PATCH", query: { id: `eq.${next.id}`, status: "eq.PENDING" }, prefer: "return=representation", body: { status: "ACTIVE", expires_at: expiresAt } });
+  if (!activated[0]) return { nextPick: null, expiresAt: undefined, deferred: undefined }; // another process already claimed it — fine, nothing more to do
+  await notifyOwnerWhenUpcomingPickSafely(next.id);
+  return { nextPick: next.global_pick, expiresAt, deferred: undefined as string | undefined };
+}
+
 export async function advanceExpiredDraftTurn(now = new Date()) {
   const window = inauguralDraftWindow(now);
   if (!window.isOpen) return { advanced: false, skippedPick: null, nextPick: null, deferred: "outside-draft-window" };
   const activeRows = await supabaseRest<DraftTurnRow[]>("b36_draft_turns", { query: { select: "id,global_pick,round_number,owner_id,status,expires_at", status: "eq.ACTIVE", limit: "1" } });
   const active = activeRows[0];
-  if (active && (active.round_number < window.day!.rounds[0] || active.round_number > window.day!.rounds[1])) return { advanced: false, skippedPick: null, nextPick: null, deferred: "outside-round-window" };
-  if (!active?.expires_at || new Date(active.expires_at).getTime() > now.getTime()) return { advanced: false, skippedPick: null, nextPick: null };
+
+  if (!active) {
+    // Self-heal: nobody is currently on the clock. If picks remain today, put the next one on the clock
+    // immediately — this recovers automatically from any prior step that filled a slot but didn't finish
+    // advancing the turn (a slow notification, a transient network hiccup, etc.).
+    const healed = await activateNextPendingTurn(now, window);
+    return { advanced: Boolean(healed.nextPick), skippedPick: null, nextPick: healed.nextPick, expiresAt: healed.expiresAt, deferred: healed.deferred };
+  }
+
+  if (active.round_number < window.day!.rounds[0] || active.round_number > window.day!.rounds[1]) return { advanced: false, skippedPick: null, nextPick: null, deferred: "outside-round-window" };
+  if (!active.expires_at || new Date(active.expires_at).getTime() > now.getTime()) return { advanced: false, skippedPick: null, nextPick: null };
 
   const autoDraft = await autoDraftFromQueue(active, now);
   const resolved = autoDraft
@@ -41,12 +62,6 @@ export async function advanceExpiredDraftTurn(now = new Date()) {
   if (!resolved[0]) return { advanced: false, skippedPick: null, nextPick: null };
   if (autoDraft) await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: "system:auto-draft", action: "AUTO_DRAFT_FROM_QUEUE", entity_type: "b36_draft_turns", entity_id: active.id, detail: { schoolName: autoDraft.draftedSchool, position: autoDraft.draftedPosition, globalPick: active.global_pick } } });
 
-  const pendingRows = await supabaseRest<DraftTurnRow[]>("b36_draft_turns", { query: { select: "id,global_pick,round_number,owner_id,status,expires_at", status: "eq.PENDING", order: "global_pick.asc", limit: "1" } });
-  const next = pendingRows[0];
-  if (!next) return { advanced: true, skippedPick: resolved[0].global_pick, nextPick: null, autoDrafted: Boolean(autoDraft) };
-  if (next.round_number < window.day!.rounds[0] || next.round_number > window.day!.rounds[1]) return { advanced: true, skippedPick: resolved[0].global_pick, nextPick: null, deferred: "next-round-on-later-draft-day", autoDrafted: Boolean(autoDraft) };
-  const expiresAt = new Date(now.getTime() + 600_000).toISOString();
-  await supabaseRest("b36_draft_turns", { method: "PATCH", query: { id: `eq.${next.id}`, status: "eq.PENDING" }, body: { status: "ACTIVE", expires_at: expiresAt } });
-  await notifyOwnerWhenUpcomingPickSafely(next.id);
-  return { advanced: true, skippedPick: resolved[0].global_pick, nextPick: next.global_pick, expiresAt, autoDrafted: Boolean(autoDraft) };
+  const advanced = await activateNextPendingTurn(now, window);
+  return { advanced: true, skippedPick: resolved[0].global_pick, nextPick: advanced.nextPick, expiresAt: advanced.expiresAt, deferred: advanced.deferred, autoDrafted: Boolean(autoDraft) };
 }
