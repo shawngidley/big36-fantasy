@@ -64,13 +64,14 @@ function getTwilioConfig() {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
   const fromNumber = process.env.TWILIO_FROM_NUMBER;
-  if (!accountSid || !authToken || !fromNumber) throw new Error("Twilio SMS configuration is incomplete.");
-  return { accountSid, authToken, fromNumber };
+  const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID;
+  if (!accountSid || !authToken || (!fromNumber && !messagingServiceSid)) throw new Error("Twilio SMS configuration is incomplete.");
+  return { accountSid, authToken, fromNumber, messagingServiceSid };
 }
 
 export async function sendDraftSms(toPhoneE164: string, body: string) {
-  const { accountSid, authToken, fromNumber } = getTwilioConfig();
-  const payload = new URLSearchParams({ To: toPhoneE164, From: fromNumber, Body: body });
+  const { accountSid, authToken, fromNumber, messagingServiceSid } = getTwilioConfig();
+  const payload = new URLSearchParams({ To: toPhoneE164, Body: body, ...(messagingServiceSid ? { MessagingServiceSid: messagingServiceSid } : { From: fromNumber! }) });
   const credentials = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
   const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
     method: "POST",
