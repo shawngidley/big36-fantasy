@@ -126,7 +126,7 @@ export async function getLeagueSnapshot() {
     position, label: positionLabel[position],
     entries: slotRows.filter(slot => slot.position === position && slot.school_name).map(slot => {
       const owner = owners.find(item => item.id === slot.owner_id);
-      return { ...camelSlot(slot), schoolName: slot.school_name!, teamName: owner?.teamName ?? "Unassigned team", ownerName: owner?.displayName ?? "Unknown owner", totalPoints: Number((pointsBySlot.get(slot.id) ?? 0).toFixed(2)) };
+      return { ...camelSlot(slot), schoolName: slot.school_name!, teamName: owner?.teamName ?? "Unassigned team", ownerName: owner?.displayName ?? "Unknown owner", logoUrl: owner?.logoUrl ?? null, totalPoints: Number((pointsBySlot.get(slot.id) ?? 0).toFixed(2)) };
     }).sort((a, b) => b.totalPoints - a.totalPoints || a.schoolName.localeCompare(b.schoolName)),
   }));
   const weeklySummaries = weekRows.map(week => ({
