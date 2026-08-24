@@ -302,6 +302,36 @@ describe("Big 36 owner draft procedures", () => {
     expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_draft_slots", expect.objectContaining({ method: "PATCH", body: expect.objectContaining({ school_name: "Texas", selected_by_open_id: "owner-open-id" }) }));
   });
 
+  it("resolves a skipped turn as PICKED when the commissioner records an override for it, without advancing anyone's clock", async () => {
+    const ownerId = "11111111-1111-4111-8111-111111111111";
+    mocks.getAllDraftSlots.mockResolvedValue([{ id: "22222222-2222-4222-8222-222222222222", owner_id: ownerId, position: "QB", draft_position: 1, school_name: null }]);
+    mocks.supabaseRest
+      .mockResolvedValueOnce([]) // slot PATCH
+      .mockResolvedValueOnce([{ id: "turn-skipped", status: "SKIPPED", global_pick: 1 }]) // owner turns lookup
+      .mockResolvedValueOnce([]); // turn PATCH to PICKED
+    const caller = appRouter.createCaller(createContext("admin"));
+
+    await expect(caller.league.admin.recordDraftPick({ ownerId, position: "QB", schoolName: "Oregon" })).resolves.toEqual({ success: true, draftPosition: 1 });
+    expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_draft_turns", expect.objectContaining({ method: "PATCH", query: { id: "eq.turn-skipped" }, body: expect.objectContaining({ status: "PICKED", draft_slot_id: "22222222-2222-4222-8222-222222222222" }) }));
+    expect(mocks.supabaseRest).not.toHaveBeenCalledWith("b36_draft_turns", expect.objectContaining({ body: expect.objectContaining({ status: "ACTIVE" }) }));
+  });
+
+  it("resolves an owner's active turn and advances the next pending turn when the commissioner records the pick", async () => {
+    const ownerId = "11111111-1111-4111-8111-111111111111";
+    mocks.getAllDraftSlots.mockResolvedValue([{ id: "slot-1", owner_id: ownerId, position: "QB", draft_position: 2, school_name: null }]);
+    mocks.supabaseRest
+      .mockResolvedValueOnce([]) // slot PATCH
+      .mockResolvedValueOnce([{ id: "turn-active", status: "ACTIVE", global_pick: 2 }]) // owner turns lookup
+      .mockResolvedValueOnce([]) // turn PATCH to PICKED
+      .mockResolvedValueOnce([{ id: "turn-next", global_pick: 3 }]) // next pending lookup
+      .mockResolvedValueOnce([]); // next turn PATCH to ACTIVE
+    const caller = appRouter.createCaller(createContext("admin"));
+
+    await expect(caller.league.admin.recordDraftPick({ ownerId, position: "QB", schoolName: "Oregon" })).resolves.toEqual({ success: true, draftPosition: 2 });
+    expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_draft_turns", expect.objectContaining({ method: "PATCH", query: { id: "eq.turn-active" }, body: expect.objectContaining({ status: "PICKED" }) }));
+    expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_draft_turns", expect.objectContaining({ method: "PATCH", query: { id: "eq.turn-next", status: "eq.PENDING" }, body: expect.objectContaining({ status: "ACTIVE" }) }));
+  });
+
   it("blocks a seventh owner from being placed into a six-owner division", async () => {
     const divisionId = "11111111-1111-4111-8111-111111111111";
     mocks.getLeagueSnapshot.mockResolvedValue({
