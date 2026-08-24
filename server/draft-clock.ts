@@ -30,7 +30,10 @@ async function activateNextPendingTurn(now: Date, window: ReturnType<typeof inau
   const pendingRows = await supabaseRest<DraftTurnRow[]>("b36_draft_turns", { query: { select: "id,global_pick,round_number,owner_id,status,expires_at", status: "eq.PENDING", order: "global_pick.asc", limit: "1" } });
   const next = pendingRows[0];
   if (!next) return { nextPick: null as number | null, expiresAt: undefined as string | undefined, deferred: undefined as string | undefined };
-  if (next.round_number < window.day!.rounds[0] || next.round_number > window.day!.rounds[1]) return { nextPick: null, expiresAt: undefined, deferred: "next-round-on-later-draft-day" as string | undefined };
+  if (next.round_number < window.day!.rounds[0] || next.round_number > window.day!.rounds[1]) {
+    await supabaseRest("b36_draft_state", { method: "PATCH", query: { id: `eq.true` }, body: { status: "PAUSED", active_position: null, updated_at: now.toISOString(), updated_by_open_id: "system:round-boundary" } });
+    return { nextPick: null, expiresAt: undefined, deferred: "next-round-on-later-draft-day" as string | undefined };
+  }
   const expiresAt = new Date(now.getTime() + 600_000).toISOString();
   const activated = await supabaseRest<DraftTurnRow[]>("b36_draft_turns", { method: "PATCH", query: { id: `eq.${next.id}`, status: "eq.PENDING" }, prefer: "return=representation", body: { status: "ACTIVE", expires_at: expiresAt } });
   if (!activated[0]) return { nextPick: null, expiresAt: undefined, deferred: undefined }; // another process already claimed it — fine, nothing more to do

@@ -128,4 +128,19 @@ describe("advanceExpiredDraftTurn auto-draft from queue", () => {
     expect(result.advanced).toBe(false);
     expect(result.nextPick).toBe(null);
   });
+
+  it("automatically pauses the draft when the next pick belongs to a round not scheduled for today", async () => {
+    mocks.supabaseRest
+      .mockResolvedValueOnce([]) // no ACTIVE turn
+      .mockResolvedValueOnce([{ id: "turn-round3", global_pick: 73, round_number: 3 }]) // next pending is round 3, but today only allows rounds 1-2
+      .mockResolvedValueOnce([]); // draft_state PATCH to PAUSED
+
+    const result = await advanceExpiredDraftTurn(insideWindow);
+
+    expect(result.advanced).toBe(false);
+    expect(result.nextPick).toBe(null);
+    expect(result.deferred).toBe("next-round-on-later-draft-day");
+    expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_draft_state", expect.objectContaining({ method: "PATCH", body: expect.objectContaining({ status: "PAUSED" }) }));
+    expect(mocks.notifyOwnerWhenUpcomingPickSafely).not.toHaveBeenCalled();
+  });
 });
