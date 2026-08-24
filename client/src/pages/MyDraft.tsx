@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, CheckCircle2, CircleDashed, Info, ListOrdered, LockKeyhole, Plus, Search, Send, TimerReset, Trash2 } from "lucide-react";
 import LeagueShell from "@/components/LeagueShell";
 import { EmptyLedger, LeagueError, LeagueLoading } from "@/components/LeagueState";
@@ -18,7 +18,22 @@ type Position = (typeof positions)[number];
 type CatalogFilter = (typeof catalogFilters)[number];
 type ResearchUnit = { normalizedPoints: number | null; eligibleGames: number; statSummary?: Record<string, unknown> };
 
-const labelFor = (position: string) => position === "K_ST" ? "K/ST" : position;
+function labelFor(position: string) { return position === "K_ST" ? "K/ST" : position; }
+
+function CountdownClock({ expiresAt, className }: { expiresAt: string; className?: string }) {
+  const target = useMemo(() => new Date(expiresAt).getTime(), [expiresAt]);
+  const [remainingMs, setRemainingMs] = useState(() => target - Date.now());
+  useEffect(() => {
+    setRemainingMs(target - Date.now());
+    const interval = window.setInterval(() => setRemainingMs(target - Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [target]);
+  if (remainingMs <= 0) return <span className={className}>Time's up — checking for the next pick…</span>;
+  const totalSeconds = Math.floor(remainingMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return <span className={className}>{minutes}:{seconds.toString().padStart(2, "0")} remaining</span>;
+}
 
 function researchStatus(unit: ResearchUnit) {
   if (unit.normalizedPoints === null) return { badge: "2025 total", value: "0.0 pts", detail: "No scoring events recorded in the verified archive.", tone: "certified" as const };
@@ -41,7 +56,7 @@ function ResearchDetail({ unit }: { unit: ResearchUnit }) {
 export default function MyDraft() {
   const { user, loading, isAuthenticated } = useAuth();
   const utils = trpc.useUtils();
-  const mine = trpc.league.myDraft.useQuery(undefined, { enabled: isAuthenticated });
+  const mine = trpc.league.myDraft.useQuery(undefined, { enabled: isAuthenticated, refetchInterval: 15000 });
   const [schoolName, setSchoolName] = useState("");
   const [position, setPosition] = useState<Position>("QB");
   const [directPick, setDirectPick] = useState<{ schoolName: string; position: Position } | null>(null);
@@ -79,12 +94,12 @@ export default function MyDraft() {
   };
 
   return <LeagueShell eyebrow="Owner draft portal"><section className="container py-9 sm:py-12">
-    <header className="flex flex-col gap-5 border-b border-border pb-8 sm:flex-row sm:items-end sm:justify-between"><div><p className="section-kicker">Your 36 Football program</p><h1 className="display-title mt-3">{owner.teamName}</h1><p className="mt-2 text-sm text-muted-foreground">{owner.displayName} · Build a private board before each of your six selections.</p></div><div className="rounded-2xl border border-primary/15 bg-primary/5 px-5 py-4"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Current pick</p><p className="mt-1 font-display text-xl font-extrabold">{currentTurn ? `#${currentTurn.draftPosition} · Round ${currentTurn.roundNumber}` : "Awaiting start"}</p><p className="mt-1 text-xs text-muted-foreground">{data.draftState.status}</p></div></header>
+    <header className="flex flex-col gap-5 border-b border-border pb-8 sm:flex-row sm:items-end sm:justify-between"><div><p className="section-kicker">Your 36 Football program</p><h1 className="display-title mt-3">{owner.teamName}</h1><p className="mt-2 text-sm text-muted-foreground">{owner.displayName} · Build a private board before each of your six selections.</p></div><div className="rounded-2xl border border-primary/15 bg-primary/5 px-5 py-4"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Current pick</p><p className="mt-1 font-display text-xl font-extrabold">{currentTurn ? `#${currentTurn.draftPosition} · Round ${currentTurn.roundNumber}` : "Awaiting start"}</p>{currentTurn?.expiresAt ? <CountdownClock expiresAt={currentTurn.expiresAt} className="mt-1 block text-xs font-bold text-primary" /> : <p className="mt-1 text-xs text-muted-foreground">{data.draftState.status}</p>}</div></header>
     {alert ? <div className="mt-5 rounded-xl border border-primary/25 bg-primary/5 px-4 py-3 text-sm font-semibold text-primary">{alert}</div> : null}
     {data.correctionAlerts.length ? <section className="mt-5 rounded-xl border border-border bg-card p-4"><p className="section-kicker">Official stat update</p><div className="mt-2 grid gap-2">{data.correctionAlerts.map(event => <p key={event.id} className="text-sm"><span className="font-bold text-primary">{event.schoolName} {event.positionLabel}</span> · {event.eventType.replaceAll("_", " ")} · {event.computedPoints > 0 ? "+" : ""}{event.computedPoints.toFixed(2)} points</p>)}</div></section> : null}
 
     <div className="mt-8 grid gap-6 xl:grid-cols-[.85fr_1.15fr]">
-      <section className={data.canPick ? "rounded-2xl border border-primary/25 bg-primary/5 p-6" : "rounded-2xl border border-border bg-card p-6"}><div className="flex items-start justify-between gap-4"><div><p className="section-kicker">Your turn status</p><h2 className="mt-2 font-display text-2xl font-extrabold">{data.canPick ? data.skippedTurns.length ? "Make an available selection" : "You are on the clock" : "Waiting for your turn"}</h2></div>{data.canPick ? <TimerReset className="h-6 w-6 text-primary" /> : <CircleDashed className="h-6 w-6 text-muted-foreground" />}</div>{data.canPick && available.length ? <form className="mt-6 grid gap-3" onSubmit={event => { event.preventDefault(); pick.mutate({ position: selectedPosition, schoolName }); }}><Label>Roster group</Label><Select value={selectedPosition} onValueChange={value => setPosition(value as Position)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{available.map(item => <SelectItem key={item} value={item}>{labelFor(item)}</SelectItem>)}</SelectContent></Select><Label>Your {labelFor(selectedPosition)} school</Label><Input autoFocus placeholder="e.g., Ohio State" value={schoolName} onChange={event => setSchoolName(event.target.value)} required /><Button type="submit" disabled={pick.isPending}><Send className="mr-2 h-4 w-4" /> Submit selection</Button><p className="text-xs leading-5 text-muted-foreground">{data.skippedTurns.length ? `You have ${data.skippedTurns.length} missed selection${data.skippedTurns.length === 1 ? "" : "s"} available. You may use one now without stopping the active clock.` : `Your ten-minute clock ends at ${deadline ?? "the configured deadline"}.`}</p></form> : <div className="mt-6 rounded-xl border border-border bg-background/60 p-4 text-sm leading-6 text-muted-foreground">{data.draftState.status !== "OPEN" ? "The commissioner has not opened the serpentine draft yet." : `${currentTurn?.teamName ?? "Another program"} is currently on the clock${deadline ? ` until ${deadline}` : ""}.`}</div>}</section>
+      <section className={data.canPick ? "rounded-2xl border border-primary/25 bg-primary/5 p-6" : "rounded-2xl border border-border bg-card p-6"}><div className="flex items-start justify-between gap-4"><div><p className="section-kicker">Your turn status</p><h2 className="mt-2 font-display text-2xl font-extrabold">{data.canPick ? data.skippedTurns.length ? "Make an available selection" : "You are on the clock" : "Waiting for your turn"}</h2></div>{data.canPick ? <TimerReset className="h-6 w-6 text-primary" /> : <CircleDashed className="h-6 w-6 text-muted-foreground" />}</div>{data.canPick && available.length ? <form className="mt-6 grid gap-3" onSubmit={event => { event.preventDefault(); pick.mutate({ position: selectedPosition, schoolName }); }}><Label>Roster group</Label><Select value={selectedPosition} onValueChange={value => setPosition(value as Position)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{available.map(item => <SelectItem key={item} value={item}>{labelFor(item)}</SelectItem>)}</SelectContent></Select><Label>Your {labelFor(selectedPosition)} school</Label><Input autoFocus placeholder="e.g., Ohio State" value={schoolName} onChange={event => setSchoolName(event.target.value)} required /><Button type="submit" disabled={pick.isPending}><Send className="mr-2 h-4 w-4" /> Submit selection</Button><p className="text-xs leading-5 text-muted-foreground">{data.skippedTurns.length ? `You have ${data.skippedTurns.length} missed selection${data.skippedTurns.length === 1 ? "" : "s"} available. You may use one now without stopping the active clock.` : currentTurn?.expiresAt ? <CountdownClock expiresAt={currentTurn.expiresAt} className="font-bold text-primary" /> : `Your ten-minute clock ends at ${deadline ?? "the configured deadline"}.`}</p></form> : <div className="mt-6 rounded-xl border border-border bg-background/60 p-4 text-sm leading-6 text-muted-foreground">{data.draftState.status !== "OPEN" ? "The commissioner has not opened the serpentine draft yet." : <>{currentTurn?.teamName ?? "Another program"} is currently on the clock{currentTurn?.expiresAt ? <> — <CountdownClock expiresAt={currentTurn.expiresAt} className="font-bold text-foreground" /></> : deadline ? ` until ${deadline}` : "."}</>}</div>}</section>
       <section className="rounded-2xl border border-border bg-card p-6"><p className="section-kicker">Your six roster groups</p><h2 className="mt-2 font-display text-2xl font-extrabold">Draft card</h2><div className="mt-5 grid gap-3 sm:grid-cols-2">{positions.map(item => { const selection = owner.picks.find(pick => pick.position === item); return <div key={item} className="flex items-center justify-between rounded-xl border border-border px-4 py-3"><div><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">{labelFor(item)}</p><p className="mt-1 font-semibold">{selection?.schoolName ?? "Available"}</p></div><div className="text-right">{selection ? <CheckCircle2 className="ml-auto h-4 w-4 text-primary" /> : null}<p className="mt-1 text-xs text-muted-foreground">{selection ? `Pick ${selection.draftPosition}` : "Unfilled"}</p></div></div>})}</div></section>
     </div>
 
