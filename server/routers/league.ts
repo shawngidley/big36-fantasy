@@ -14,7 +14,7 @@ import { runGamedayRefresh } from "../gameday-refresh";
 import { syncFbsPoolAndSchedule } from "../gameday-refresh";
 import { decodeRegistrationLogo, hashRegistrationPin, normalizeRegistrationEmail, normalizeRegistrationPhone, verifyRegistrationPin } from "../registration";
 import { storagePut } from "../storage";
-import { notifyOwnerWhenUpcomingPickSafely } from "../draft-alerts";
+import { notifyOwnerWhenUpcomingPickSafely, sendDraftSms } from "../draft-alerts";
 import { lotteryCommitment, LOTTERY_REVEAL_INTERVAL_SECONDS, secureShuffle } from "../draft-lottery";
 
 const positionSchema = z.enum(positions);
@@ -226,6 +226,14 @@ export const leagueRouter = router({
         await supabaseRest("b36_owner_sessions", { method: "PATCH", query: { registration_id: q.eq(registration.id), revoked_at: q.isNull }, body: { revoked_at: now }, prefer: "return=minimal" });
         await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "OWNER_PIN_RESET", entity_type: "b36_owners", entity_id: registration.assigned_owner_id, detail: { registration_id: registration.id } } });
         return { success: true as const, teamName: registration.team_name, displayName: registration.display_name };
+      } catch (error) { asError(error); }
+    }),
+    sendTestDraftSms: adminProcedure.input(z.object({ phone: z.string().trim().min(10).max(32) })).mutation(async ({ input }) => {
+      try {
+        const phone = normalizeRegistrationPhone(input.phone);
+        const body = `🏈 36 Football — TEST: This is a test of the draft on-deck alert. When it's really your turn, you'll get a text with this same link: 36football.com/my-draft`;
+        const sid = await sendDraftSms(phone, body);
+        return { success: true as const, sid };
       } catch (error) { asError(error); }
     }),
     initializeSixDivisions: adminProcedure.mutation(async ({ ctx }) => {

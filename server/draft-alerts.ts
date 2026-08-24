@@ -68,6 +68,20 @@ function getTwilioConfig() {
   return { accountSid, authToken, fromNumber };
 }
 
+export async function sendDraftSms(toPhoneE164: string, body: string) {
+  const { accountSid, authToken, fromNumber } = getTwilioConfig();
+  const payload = new URLSearchParams({ To: toPhoneE164, From: fromNumber, Body: body });
+  const credentials = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
+  const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
+    method: "POST",
+    headers: { Authorization: `Basic ${credentials}`, "Content-Type": "application/x-www-form-urlencoded" },
+    body: payload.toString(),
+  });
+  const data = await response.json() as { sid?: string; message?: string };
+  if (!response.ok || !data.sid) throw new Error(data.message ?? `Twilio rejected the SMS (${response.status}).`);
+  return data.sid;
+}
+
 export async function notifyOwnerWhenUpcomingPick(activeTurnId?: string): Promise<UpcomingPickAlertResult> {
   const activeRows = activeTurnId
     ? await supabaseRest<TurnRow[]>("b36_draft_turns", { query: { select: "id,global_pick,round_number,owner_id", id: `eq.${activeTurnId}`, status: "eq.ACTIVE", limit: "1" } })
@@ -107,20 +121,11 @@ export async function notifyOwnerWhenUpcomingPick(activeTurnId?: string): Promis
     return { status: "SKIPPED", activeTurnId: active.id, recipientOwnerId: recipient.ownerId, detail: "no-phone" };
   }
 
-  const { accountSid, authToken, fromNumber } = getTwilioConfig();
   const body = `🏈 36 Football — ON DECK: ${recipient.teamName}. The owner ahead is on the clock for Pick ${active.global_pick}. Your Pick ${recipient.globalPick} (Round ${recipient.roundNumber}) is next. You have this 10-minute clock to prepare: 36football.com/my-draft`;
-  const payload = new URLSearchParams({ To: recipient.phoneE164, From: fromNumber, Body: body });
-  const credentials = Buffer.from(`${accountSid}:${authToken}`).toString("base64");
   try {
-    const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
-      method: "POST",
-      headers: { Authorization: `Basic ${credentials}`, "Content-Type": "application/x-www-form-urlencoded" },
-      body: payload.toString(),
-    });
-    const data = await response.json() as { sid?: string; message?: string };
-    if (!response.ok || !data.sid) throw new Error(data.message ?? `Twilio rejected the SMS (${response.status}).`);
-    await updateDraftSmsAlert(alert.id, "SENT", { twilio_message_sid: data.sid, error_message: null, sent_at: new Date().toISOString() });
-    return { status: "SENT", activeTurnId: active.id, recipientOwnerId: recipient.ownerId, detail: data.sid };
+    const sid = await sendDraftSms(recipient.phoneE164, body);
+    await updateDraftSmsAlert(alert.id, "SENT", { twilio_message_sid: sid, error_message: null, sent_at: new Date().toISOString() });
+    return { status: "SENT", activeTurnId: active.id, recipientOwnerId: recipient.ownerId, detail: sid };
   } catch (error) {
     await updateDraftSmsAlert(alert.id, "FAILED", { twilio_message_sid: null, error_message: error instanceof Error ? error.message.slice(0, 1000) : "Unknown Twilio delivery failure.", sent_at: null });
     return { status: "FAILED", activeTurnId: active.id, recipientOwnerId: recipient.ownerId, detail: error instanceof Error ? error.message : "twilio-delivery-failed" };
