@@ -418,8 +418,25 @@ export const leagueRouter = router({
         const target = slots.find(slot => slot.owner_id === input.ownerId && slot.position === input.position);
         if (!target) throw new Error("This owner has no approved draft slot for that position.");
         assertSchoolPositionAvailable(slots.filter(slot => slot.school_name).map(slot => ({ ownerId: slot.owner_id as unknown as number, schoolName: slot.school_name!, position: slot.position })), { ownerId: input.ownerId as unknown as number, schoolName: input.schoolName, position: input.position });
-        await supabaseRest("b36_draft_slots", { method: "PATCH", query: { id: q.eq(target.id) }, body: { school_name: normalizeSchoolName(input.schoolName), selected_at: new Date().toISOString(), selected_by_open_id: ctx.user.openId } });
-        await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "ADMIN_DRAFT_OVERRIDE", entity_type: "b36_draft_slots", entity_id: target.id } });
+        const now = new Date().toISOString();
+        await supabaseRest("b36_draft_slots", { method: "PATCH", query: { id: q.eq(target.id) }, body: { school_name: normalizeSchoolName(input.schoolName), selected_at: now, selected_by_open_id: ctx.user.openId } });
+        const ownerTurns = await supabaseRest<Array<{ id: string; status: "PENDING" | "ACTIVE" | "SKIPPED" | "PICKED"; global_pick: number }>>("b36_draft_turns", { query: { select: "id,status,global_pick", owner_id: q.eq(input.ownerId), status: "in.(SKIPPED,ACTIVE)" } });
+        const skippedTurn = ownerTurns.find(turn => turn.status === "SKIPPED");
+        const activeTurn = ownerTurns.find(turn => turn.status === "ACTIVE");
+        const turnToResolve = skippedTurn ?? activeTurn;
+        if (turnToResolve) {
+          await supabaseRest("b36_draft_turns", { method: "PATCH", query: { id: q.eq(turnToResolve.id) }, body: { status: "PICKED", picked_at: now, draft_slot_id: target.id, expires_at: null } });
+          if (turnToResolve === activeTurn) {
+            const pendingRows = await supabaseRest<Array<{ id: string; global_pick: number }>>("b36_draft_turns", { query: { select: "id,global_pick", status: "eq.PENDING", order: "global_pick.asc", limit: "1" } });
+            const next = pendingRows[0];
+            if (next) {
+              const expiresAt = new Date(Date.now() + 600_000).toISOString();
+              await supabaseRest("b36_draft_turns", { method: "PATCH", query: { id: q.eq(next.id), status: "eq.PENDING" }, body: { status: "ACTIVE", expires_at: expiresAt } });
+              await notifyOwnerWhenUpcomingPickSafely(next.id);
+            }
+          }
+        }
+        await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "ADMIN_DRAFT_OVERRIDE", entity_type: "b36_draft_slots", entity_id: target.id, detail: { resolvedTurnId: turnToResolve?.id ?? null } } });
         return { success: true as const, draftPosition: target.draft_position };
       } catch (error) { asError(error); }
     }),
