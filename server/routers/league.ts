@@ -215,6 +215,19 @@ export const leagueRouter = router({
         return { success: true as const };
       } catch (error) { asError(error); }
     }),
+    resetOwnerPin: adminProcedure.input(z.object({ registrationId: uuid, newPin: z.string().min(4).max(12) })).mutation(async ({ ctx, input }) => {
+      try {
+        const registrations = await supabaseRest<RegistrationRow[]>(registrationTable, { query: { select: "id,display_name,team_name,email,assigned_owner_id,status", id: q.eq(input.registrationId), limit: "1" } });
+        const registration = registrations[0];
+        if (!registration) throw new Error("Registration not found.");
+        if (registration.status !== "APPROVED" || !registration.assigned_owner_id) throw new Error("Only an approved owner registration can have its PIN reset.");
+        const now = new Date().toISOString();
+        await supabaseRest(registrationTable, { method: "PATCH", query: { id: q.eq(registration.id) }, body: { pin_hash: hashRegistrationPin(input.newPin), updated_at: now } });
+        await supabaseRest("b36_owner_sessions", { method: "PATCH", query: { registration_id: q.eq(registration.id), revoked_at: q.isNull }, body: { revoked_at: now }, prefer: "return=minimal" });
+        await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "OWNER_PIN_RESET", entity_type: "b36_owners", entity_id: registration.assigned_owner_id, detail: { registration_id: registration.id } } });
+        return { success: true as const, teamName: registration.team_name, displayName: registration.display_name };
+      } catch (error) { asError(error); }
+    }),
     initializeSixDivisions: adminProcedure.mutation(async ({ ctx }) => {
       const existing = await supabaseRest<Array<{ id: string }>>("b36_divisions", { query: { select: "id" } });
       if (existing.length) throw new TRPCError({ code: "CONFLICT", message: "Divisions are already configured." });
