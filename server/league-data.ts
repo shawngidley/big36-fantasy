@@ -212,15 +212,15 @@ export async function getDraftLotterySchedule() {
 }
 
 export function publicDraftResearchUnit(row: ResearchUnitRow) {
-  const historicalPointHold = (row.stat_summary as Record<string, unknown> | null)?.historical_points_hold === true;
+  const numberOrNull = (value: unknown) => value === null || value === undefined ? null : Number(value);
   return {
     season: row.season,
     schoolName: row.school_name,
     position: row.position,
-    officialPoints: historicalPointHold ? null : Number(row.official_points),
+    officialPoints: numberOrNull(row.official_points),
     eligibleGames: row.eligible_games,
     normalizationFactor: Number(row.normalization_factor),
-    normalizedPoints: historicalPointHold ? null : Number(row.normalized_points),
+    normalizedPoints: numberOrNull(row.normalized_points),
     eventCounts: row.event_counts ?? {},
     statSummary: row.stat_summary ?? {},
     sourceNote: row.source_note,

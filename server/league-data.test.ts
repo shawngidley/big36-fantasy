@@ -26,19 +26,19 @@ describe("Big 36 public live-results snapshot", () => {
     expect(completedScheduleNormalization("Hawaii", [...completedEleven, { season: 2026, season_type: "regular", completed: false, home_team: "Hawaii", away_team: "Future Opponent" }])).toBe(1);
   });
 
-  it("suppresses point totals for a research unit held pending historical event reconciliation", () => {
+  it("surfaces the underlying point total for a research unit held pending historical event reconciliation, so it can be shown as an unverified estimate", () => {
     const unit = publicDraftResearchUnit({ season: 2025, school_name: "Utah State", position: "QB", official_points: 255, eligible_games: 12, normalization_factor: 1, normalized_points: 255, event_counts: {}, stat_summary: { historical_points_hold: true }, source_note: "Held", calculated_at: "2026-08-19T00:00:00.000Z" });
-    expect(unit).toMatchObject({ schoolName: "Utah State", officialPoints: null, normalizedPoints: null });
+    expect(unit).toMatchObject({ schoolName: "Utah State", officialPoints: 255, normalizedPoints: 255, statSummary: { historical_points_hold: true } });
   });
 
-  it("returns no usable point total through the public research query for a held record", async () => {
-    mocks.supabaseRest.mockResolvedValueOnce([{ season: 2025, school_name: "Utah State", position: "QB", official_points: 255, eligible_games: 12, normalization_factor: 1, normalized_points: 255, event_counts: {}, stat_summary: { historical_points_hold: true }, source_note: "Held", calculated_at: "2026-08-19T00:00:00.000Z" }]);
-    await expect(getDraftResearchCatalog("QB")).resolves.toMatchObject([{ schoolName: "Utah State", officialPoints: null, normalizedPoints: null }]);
+  it("returns null for a held record when no point total was ever computed", () => {
+    const unit = publicDraftResearchUnit({ season: 2025, school_name: "Air Force", position: "QB", official_points: null, eligible_games: 12, normalization_factor: 1, normalized_points: null, event_counts: {}, stat_summary: { historical_points_hold: true }, source_note: "Held", calculated_at: "2026-08-19T00:00:00.000Z" });
+    expect(unit).toMatchObject({ schoolName: "Air Force", officialPoints: null, normalizedPoints: null });
   });
 
-	it("returns no usable K/ST point total through the public research query when a component remains held", async () => {
+	it("surfaces an unverified K/ST point total through the public research query when a component remains held", async () => {
 	  mocks.supabaseRest.mockResolvedValueOnce([{ season: 2025, school_name: "Georgia Tech", position: "K_ST", official_points: 174, eligible_games: 12, normalization_factor: 1, normalized_points: 174, event_counts: { BLOCK: 1 }, stat_summary: { historical_points_hold: true, historical_points_hold_reason: "Block cross-check incomplete" }, source_note: "Held", calculated_at: "2026-08-19T00:00:00.000Z" }]);
-	  await expect(getDraftResearchCatalog("K_ST")).resolves.toMatchObject([{ schoolName: "Georgia Tech", officialPoints: null, normalizedPoints: null }]);
+	  await expect(getDraftResearchCatalog("K_ST")).resolves.toMatchObject([{ schoolName: "Georgia Tech", officialPoints: 174, normalizedPoints: 174, statSummary: { historical_points_hold: true } }]);
 	});
 
   it("builds a private filtered board that hides drafted units and carries 2025 research values into queued entries", async () => {
@@ -52,11 +52,11 @@ describe("Big 36 public live-results snapshot", () => {
 
     const board = await getOwnerDraftBoard("owner-1", "RB");
 
-    expect(board.availableUnits).toEqual([expect.objectContaining({ schoolName: "Texas", position: "RB", normalizedPoints: null, isQueued: true, canQueue: true })]);
-    expect(board.queue).toEqual([expect.objectContaining({ schoolName: "Texas", priority: 1, isAvailable: true, unit: expect.objectContaining({ normalizedPoints: null }) })]);
+    expect(board.availableUnits).toEqual([expect.objectContaining({ schoolName: "Texas", position: "RB", normalizedPoints: 210, isQueued: true, canQueue: true, statSummary: expect.objectContaining({ historical_points_hold: true }) })]);
+    expect(board.queue).toEqual([expect.objectContaining({ schoolName: "Texas", priority: 1, isAvailable: true, unit: expect.objectContaining({ normalizedPoints: 210 }) })]);
   });
 
-  it("sorts usable 2025 point totals ahead of held records in the owner draft board", async () => {
+  it("sorts usable 2025 point totals ahead of no-data held records in the owner draft board", async () => {
     const certified = { season: 2025, school_name: "Indiana", position: "QB", official_points: 318, eligible_games: 12, normalization_factor: 1, normalized_points: 318, event_counts: {}, stat_summary: {}, source_note: "Certified", calculated_at: "2026-08-19T00:00:00.000Z" };
     const held = { season: 2025, school_name: "Air Force", position: "QB", official_points: null, eligible_games: 12, normalization_factor: 1, normalized_points: null, event_counts: {}, stat_summary: { historical_points_hold: true }, source_note: "Held", calculated_at: "2026-08-19T00:00:00.000Z" };
     mocks.supabaseRest
