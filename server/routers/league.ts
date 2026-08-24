@@ -412,6 +412,20 @@ export const leagueRouter = router({
       await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "SET_DRAFT_STATE", entity_type: "b36_draft_state", detail: { status: input.status, active_position: input.activePosition } } });
       return { success: true as const };
     }),
+    clearDraftPick: adminProcedure.input(z.object({ globalPick: z.number().int().min(1).max(216) })).mutation(async ({ ctx, input }) => {
+      try {
+        const turns = await supabaseRest<Array<{ id: string; status: string; draft_slot_id: string | null; owner_id: string }>>("b36_draft_turns", { query: { select: "id,status,draft_slot_id,owner_id", global_pick: q.eq(input.globalPick), limit: "1" } });
+        const turn = turns[0];
+        if (!turn) throw new Error("No draft turn exists for that pick number.");
+        if (turn.status !== "PICKED" || !turn.draft_slot_id) throw new Error("That pick has not been made yet, so there is nothing to clear.");
+        const slots = await supabaseRest<Array<{ id: string; school_name: string | null; position: string }>>("b36_draft_slots", { query: { select: "id,school_name,position", id: q.eq(turn.draft_slot_id), limit: "1" } });
+        const slot = slots[0];
+        await supabaseRest("b36_draft_slots", { method: "PATCH", query: { id: q.eq(turn.draft_slot_id) }, body: { school_name: null, selected_at: null, selected_by_open_id: null } });
+        await supabaseRest("b36_draft_turns", { method: "PATCH", query: { id: q.eq(turn.id) }, body: { status: "SKIPPED", picked_at: null, draft_slot_id: null, skipped_at: new Date().toISOString() } });
+        await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "DRAFT_PICK_CLEARED", entity_type: "b36_draft_turns", entity_id: turn.id, detail: { globalPick: input.globalPick, clearedSchool: slot?.school_name ?? null, position: slot?.position ?? null, ownerId: turn.owner_id } } });
+        return { success: true as const, clearedSchool: slot?.school_name ?? null, position: slot?.position ?? null };
+      } catch (error) { asError(error); }
+    }),
     recordDraftPick: adminProcedure.input(z.object({ ownerId: uuid, position: positionSchema, schoolName: z.string().trim().min(2).max(120) })).mutation(async ({ ctx, input }) => {
       try {
         const slots = await getAllDraftSlots();
