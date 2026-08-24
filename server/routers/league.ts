@@ -4,7 +4,7 @@ import { positions, scoringEventTypes, type Position } from "../../drizzle/schem
 import { getAllDraftSlots, getDraftLotterySchedule, getOwnerDraftBoard, getDraftOwnerState, getDraftSlotByGroup, getDraftResearchCatalog, getLeagueSnapshot, getOrClaimOwner, getPublicDraftLottery, getScoreEvent, getScoringRulesForEvent } from "../league-data";
 import { assertSchoolPositionAvailable, buildReversal, calculateEventScore, hasBalancedDraftAssignments, normalizeSchoolName } from "../league-scoring";
 import { buildSerpentineTurns } from "../serpentine-draft";
-import { assertInauguralDraftOrderCanBePublished, assertInauguralDraftRoundIsOpen, assertInauguralDraftWindow } from "../../shared/draft-schedule";
+import { assertInauguralDraftOrderCanBePublished, assertInauguralDraftRoundIsOpen, assertInauguralDraftWindow, inauguralDraftWindow } from "../../shared/draft-schedule";
 import { q, supabaseRest, supabaseRpc } from "../supabase";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { getSessionCookieOptions } from "../_core/cookies";
@@ -15,6 +15,7 @@ import { syncFbsPoolAndSchedule } from "../gameday-refresh";
 import { decodeRegistrationLogo, hashRegistrationPin, normalizeRegistrationEmail, normalizeRegistrationPhone, verifyRegistrationPin } from "../registration";
 import { storagePut } from "../storage";
 import { notifyOwnerWhenUpcomingPickSafely, sendDraftSms } from "../draft-alerts";
+import { activateNextPendingTurn } from "../draft-clock";
 import { lotteryCommitment, LOTTERY_REVEAL_INTERVAL_SECONDS, secureShuffle } from "../draft-lottery";
 
 const positionSchema = z.enum(positions);
@@ -440,16 +441,9 @@ export const leagueRouter = router({
         const activeTurn = ownerTurns.find(turn => turn.status === "ACTIVE");
         const turnToResolve = skippedTurn ?? activeTurn;
         if (turnToResolve) {
+          const now2 = new Date();
           await supabaseRest("b36_draft_turns", { method: "PATCH", query: { id: q.eq(turnToResolve.id) }, body: { status: "PICKED", picked_at: now, draft_slot_id: target.id, expires_at: null } });
-          if (turnToResolve === activeTurn) {
-            const pendingRows = await supabaseRest<Array<{ id: string; global_pick: number }>>("b36_draft_turns", { query: { select: "id,global_pick", status: "eq.PENDING", order: "global_pick.asc", limit: "1" } });
-            const next = pendingRows[0];
-            if (next) {
-              const expiresAt = new Date(Date.now() + 600_000).toISOString();
-              await supabaseRest("b36_draft_turns", { method: "PATCH", query: { id: q.eq(next.id), status: "eq.PENDING" }, body: { status: "ACTIVE", expires_at: expiresAt } });
-              await notifyOwnerWhenUpcomingPickSafely(next.id);
-            }
-          }
+          if (turnToResolve === activeTurn) await activateNextPendingTurn(now2, inauguralDraftWindow(now2));
         }
         await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "ADMIN_DRAFT_OVERRIDE", entity_type: "b36_draft_slots", entity_id: target.id, detail: { resolvedTurnId: turnToResolve?.id ?? null } } });
         return { success: true as const, draftPosition: target.draft_position };

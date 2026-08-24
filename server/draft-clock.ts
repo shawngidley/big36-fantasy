@@ -26,7 +26,7 @@ async function autoDraftFromQueue(turn: DraftTurnRow, now: Date) {
   return null;
 }
 
-async function activateNextPendingTurn(now: Date, window: ReturnType<typeof inauguralDraftWindow>) {
+export async function activateNextPendingTurn(now: Date, window: ReturnType<typeof inauguralDraftWindow>) {
   const pendingRows = await supabaseRest<DraftTurnRow[]>("b36_draft_turns", { query: { select: "id,global_pick,round_number,owner_id,status,expires_at", status: "eq.PENDING", order: "global_pick.asc", limit: "1" } });
   const next = pendingRows[0];
   if (!next) return { nextPick: null as number | null, expiresAt: undefined as string | undefined, deferred: undefined as string | undefined };
