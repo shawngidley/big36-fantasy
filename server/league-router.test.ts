@@ -322,6 +322,7 @@ describe("Big 36 owner draft procedures", () => {
 
     await expect(caller.league.admin.recordDraftPick({ ownerId, position: "TE", schoolName: "  Texas  " })).resolves.toEqual({ success: true, draftPosition: 8 });
     expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_draft_slots", expect.objectContaining({ method: "PATCH", body: expect.objectContaining({ school_name: "Texas", selected_by_open_id: "owner-open-id" }) }));
+    expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_draft_queue_entries", expect.objectContaining({ method: "DELETE", query: { owner_id: "eq.11111111-1111-4111-8111-111111111111", position: "eq.TE" } }));
   });
 
   it("resolves a skipped turn as PICKED when the commissioner records an override for it, without advancing anyone's clock", async () => {
@@ -330,6 +331,7 @@ describe("Big 36 owner draft procedures", () => {
     mocks.getAllDraftSlots.mockResolvedValue([{ id: "22222222-2222-4222-8222-222222222222", owner_id: ownerId, position: "QB", draft_position: 1, school_name: null }]);
     mocks.supabaseRest
       .mockResolvedValueOnce([]) // slot PATCH
+      .mockResolvedValueOnce([]) // queue entry DELETE
       .mockResolvedValueOnce([{ id: "turn-skipped", status: "SKIPPED", global_pick: 1 }]) // owner turns lookup
       .mockResolvedValueOnce([]); // turn PATCH to PICKED
     const caller = appRouter.createCaller(createContext("admin"));
@@ -345,6 +347,7 @@ describe("Big 36 owner draft procedures", () => {
     mocks.getAllDraftSlots.mockResolvedValue([{ id: "slot-1", owner_id: ownerId, position: "QB", draft_position: 2, school_name: null }]);
     mocks.supabaseRest
       .mockResolvedValueOnce([]) // slot PATCH
+      .mockResolvedValueOnce([]) // queue entry DELETE
       .mockResolvedValueOnce([{ id: "turn-active", status: "ACTIVE", global_pick: 2 }]) // owner turns lookup
       .mockResolvedValueOnce([]) // turn PATCH to PICKED
       .mockResolvedValueOnce([{ id: "turn-next", global_pick: 3 }]) // next pending lookup

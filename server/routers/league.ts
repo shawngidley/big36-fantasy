@@ -434,6 +434,7 @@ export const leagueRouter = router({
         assertSchoolPositionAvailable(slots.filter(slot => slot.school_name).map(slot => ({ ownerId: slot.owner_id as unknown as number, schoolName: slot.school_name!, position: slot.position })), { ownerId: input.ownerId as unknown as number, schoolName: input.schoolName, position: input.position });
         const now = new Date().toISOString();
         await supabaseRest("b36_draft_slots", { method: "PATCH", query: { id: q.eq(target.id) }, body: { school_name: normalizeSchoolName(input.schoolName), selected_at: now, selected_by_open_id: ctx.user.openId } });
+        await supabaseRest("b36_draft_queue_entries", { method: "DELETE", query: { owner_id: q.eq(input.ownerId), position: q.eq(input.position) } });
         const ownerTurns = await supabaseRest<Array<{ id: string; status: "PENDING" | "ACTIVE" | "SKIPPED" | "PICKED"; global_pick: number }>>("b36_draft_turns", { query: { select: "id,status,global_pick", owner_id: q.eq(input.ownerId), status: "in.(SKIPPED,ACTIVE)" } });
         const skippedTurn = ownerTurns.find(turn => turn.status === "SKIPPED");
         const activeTurn = ownerTurns.find(turn => turn.status === "ACTIVE");
