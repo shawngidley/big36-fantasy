@@ -292,6 +292,24 @@ describe("Big 36 owner draft procedures", () => {
     expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_draft_state", expect.objectContaining({ method: "PATCH", body: expect.objectContaining({ status: "OPEN", active_position: "WR" }) }));
   });
 
+  it("gives the active turn a fresh 10-minute clock when the draft resumes to OPEN, so paused time doesn't count against the owner", async () => {
+    mocks.supabaseRest.mockResolvedValue([]);
+    const adminCaller = appRouter.createCaller(createContext("admin"));
+
+    await adminCaller.league.admin.setDraftState({ status: "OPEN", activePosition: null });
+
+    expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_draft_turns", expect.objectContaining({ method: "PATCH", query: { status: "eq.ACTIVE" }, body: expect.objectContaining({ expires_at: expect.any(String), opened_at: expect.any(String) }) }));
+  });
+
+  it("does not touch turn clocks when pausing the draft", async () => {
+    mocks.supabaseRest.mockResolvedValue([]);
+    const adminCaller = appRouter.createCaller(createContext("admin"));
+
+    await adminCaller.league.admin.setDraftState({ status: "PAUSED", activePosition: null });
+
+    expect(mocks.supabaseRest).not.toHaveBeenCalledWith("b36_draft_turns", expect.anything());
+  });
+
   it("clears a pick made in error, freeing the school and giving the owner a usable skipped turn", async () => {
     mocks.supabaseRest.mockReset();
     mocks.supabaseRest

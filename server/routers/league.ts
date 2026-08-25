@@ -409,6 +409,13 @@ export const leagueRouter = router({
     }),
     setDraftState: adminProcedure.input(z.object({ status: z.enum(["SETUP", "OPEN", "PAUSED", "COMPLETE"]), activePosition: positionSchema.nullable() })).mutation(async ({ ctx, input }) => {
       await supabaseRest("b36_draft_state", { method: "PATCH", query: { id: q.eq(true) }, body: { status: input.status, active_position: input.status === "OPEN" ? input.activePosition : null, updated_at: new Date().toISOString(), updated_by_open_id: ctx.user.openId } });
+      if (input.status === "OPEN") {
+        // Resuming from a pause (or starting fresh): give any turn that's already ACTIVE a brand-new
+        // 10-minute clock, so time that passed while the draft was paused doesn't silently count against
+        // the owner currently on the clock.
+        const freshExpiresAt = new Date(Date.now() + 600_000).toISOString();
+        await supabaseRest("b36_draft_turns", { method: "PATCH", query: { status: q.eq("ACTIVE") }, body: { expires_at: freshExpiresAt, opened_at: new Date().toISOString() } });
+      }
       await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "SET_DRAFT_STATE", entity_type: "b36_draft_state", detail: { status: input.status, active_position: input.activePosition } } });
       return { success: true as const };
     }),
