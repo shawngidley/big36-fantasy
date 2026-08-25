@@ -343,6 +343,35 @@ describe("Big 36 owner draft procedures", () => {
     expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_draft_queue_entries", expect.objectContaining({ method: "DELETE", query: { owner_id: "eq.11111111-1111-4111-8111-111111111111", position: "eq.TE" } }));
   });
 
+  it("resolves the exact specified pick when the owner has multiple skipped turns, instead of an arbitrary one", async () => {
+    mocks.supabaseRest.mockReset();
+    const ownerId = "11111111-1111-4111-8111-111111111111";
+    mocks.getAllDraftSlots.mockResolvedValue([{ id: "slot-def", owner_id: ownerId, position: "DEF", draft_position: 5, school_name: null }]);
+    mocks.supabaseRest
+      .mockResolvedValueOnce([]) // slot PATCH
+      .mockResolvedValueOnce([]) // queue entry DELETE
+      .mockResolvedValueOnce([{ id: "turn-140", status: "SKIPPED", global_pick: 140, owner_id: ownerId }]) // specific turn lookup by globalPick
+      .mockResolvedValueOnce([]); // turn PATCH to PICKED
+    const caller = appRouter.createCaller(createContext("admin"));
+
+    await expect(caller.league.admin.recordDraftPick({ ownerId, position: "DEF", schoolName: "South Carolina", globalPick: 140 })).resolves.toEqual({ success: true, draftPosition: 5 });
+    expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_draft_turns", expect.objectContaining({ query: { select: "id,status,global_pick,owner_id", global_pick: "eq.140", limit: "1" } }));
+    expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_draft_turns", expect.objectContaining({ method: "PATCH", query: { id: "eq.turn-140" }, body: expect.objectContaining({ status: "PICKED", draft_slot_id: "slot-def" }) }));
+  });
+
+  it("refuses to resolve a specified pick that belongs to a different owner", async () => {
+    mocks.supabaseRest.mockReset();
+    const ownerId = "11111111-1111-4111-8111-111111111111";
+    mocks.getAllDraftSlots.mockResolvedValue([{ id: "slot-def", owner_id: ownerId, position: "DEF", draft_position: 5, school_name: null }]);
+    mocks.supabaseRest
+      .mockResolvedValueOnce([]) // slot PATCH
+      .mockResolvedValueOnce([]) // queue entry DELETE
+      .mockResolvedValueOnce([{ id: "turn-140", status: "SKIPPED", global_pick: 140, owner_id: "someone-else" }]);
+    const caller = appRouter.createCaller(createContext("admin"));
+
+    await expect(caller.league.admin.recordDraftPick({ ownerId, position: "DEF", schoolName: "South Carolina", globalPick: 140 })).rejects.toThrow("does not belong to this owner");
+  });
+
   it("resolves a skipped turn as PICKED when the commissioner records an override for it, without advancing anyone's clock", async () => {
     mocks.supabaseRest.mockReset();
     const ownerId = "11111111-1111-4111-8111-111111111111";

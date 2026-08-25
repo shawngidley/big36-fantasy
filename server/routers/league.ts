@@ -453,7 +453,7 @@ export const leagueRouter = router({
         return { success: true as const, clearedSchool: slot?.school_name ?? null, position: slot?.position ?? null };
       } catch (error) { asError(error); }
     }),
-    recordDraftPick: adminProcedure.input(z.object({ ownerId: uuid, position: positionSchema, schoolName: z.string().trim().min(2).max(120) })).mutation(async ({ ctx, input }) => {
+    recordDraftPick: adminProcedure.input(z.object({ ownerId: uuid, position: positionSchema, schoolName: z.string().trim().min(2).max(120), globalPick: z.number().int().min(1).max(216).optional() })).mutation(async ({ ctx, input }) => {
       try {
         const slots = await getAllDraftSlots();
         const target = slots.find(slot => slot.owner_id === input.ownerId && slot.position === input.position);
@@ -462,16 +462,25 @@ export const leagueRouter = router({
         const now = new Date().toISOString();
         await supabaseRest("b36_draft_slots", { method: "PATCH", query: { id: q.eq(target.id) }, body: { school_name: normalizeSchoolName(input.schoolName), selected_at: now, selected_by_open_id: ctx.user.openId } });
         await supabaseRest("b36_draft_queue_entries", { method: "DELETE", query: { owner_id: q.eq(input.ownerId), position: q.eq(input.position) } });
-        const ownerTurns = await supabaseRest<Array<{ id: string; status: "PENDING" | "ACTIVE" | "SKIPPED" | "PICKED"; global_pick: number }>>("b36_draft_turns", { query: { select: "id,status,global_pick", owner_id: q.eq(input.ownerId), status: "in.(SKIPPED,ACTIVE)" } });
-        const skippedTurn = ownerTurns.find(turn => turn.status === "SKIPPED");
-        const activeTurn = ownerTurns.find(turn => turn.status === "ACTIVE");
-        const turnToResolve = skippedTurn ?? activeTurn;
+        let turnToResolve: { id: string; status: "PENDING" | "ACTIVE" | "SKIPPED" | "PICKED"; global_pick: number } | undefined;
+        if (input.globalPick) {
+          const specificTurns = await supabaseRest<Array<{ id: string; status: "PENDING" | "ACTIVE" | "SKIPPED" | "PICKED"; global_pick: number; owner_id: string }>>("b36_draft_turns", { query: { select: "id,status,global_pick,owner_id", global_pick: q.eq(input.globalPick), limit: "1" } });
+          const specific = specificTurns[0];
+          if (!specific) throw new Error(`No draft turn exists for pick ${input.globalPick}.`);
+          if (specific.owner_id !== input.ownerId) throw new Error(`Pick ${input.globalPick} does not belong to this owner.`);
+          if (specific.status !== "SKIPPED" && specific.status !== "ACTIVE") throw new Error(`Pick ${input.globalPick} is not currently skipped or active (status: ${specific.status}).`);
+          turnToResolve = specific;
+        } else {
+          const ownerTurns = await supabaseRest<Array<{ id: string; status: "PENDING" | "ACTIVE" | "SKIPPED" | "PICKED"; global_pick: number }>>("b36_draft_turns", { query: { select: "id,status,global_pick", owner_id: q.eq(input.ownerId), status: "in.(SKIPPED,ACTIVE)", order: "global_pick.asc" } });
+          turnToResolve = ownerTurns.find(turn => turn.status === "SKIPPED") ?? ownerTurns.find(turn => turn.status === "ACTIVE");
+        }
         if (turnToResolve) {
           const now2 = new Date();
+          const wasActive = turnToResolve.status === "ACTIVE";
           await supabaseRest("b36_draft_turns", { method: "PATCH", query: { id: q.eq(turnToResolve.id) }, body: { status: "PICKED", picked_at: now, draft_slot_id: target.id, expires_at: null } });
-          if (turnToResolve === activeTurn) await activateNextPendingTurn(now2, inauguralDraftWindow(now2));
+          if (wasActive) await activateNextPendingTurn(now2, inauguralDraftWindow(now2));
         }
-        await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "ADMIN_DRAFT_OVERRIDE", entity_type: "b36_draft_slots", entity_id: target.id, detail: { resolvedTurnId: turnToResolve?.id ?? null } } });
+        await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "ADMIN_DRAFT_OVERRIDE", entity_type: "b36_draft_slots", entity_id: target.id, detail: { resolvedTurnId: turnToResolve?.id ?? null, resolvedGlobalPick: turnToResolve?.global_pick ?? null } } });
         return { success: true as const, draftPosition: target.draft_position };
       } catch (error) { asError(error); }
     }),
