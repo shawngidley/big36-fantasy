@@ -44,6 +44,8 @@ export async function activateNextPendingTurn(now: Date, window: ReturnType<type
 export async function advanceExpiredDraftTurn(now = new Date()) {
   const window = inauguralDraftWindow(now);
   if (!window.isOpen) return { advanced: false, skippedPick: null, nextPick: null, deferred: "outside-draft-window" };
+  const stateRows = await supabaseRest<Array<{ status: string }>>("b36_draft_state", { query: { select: "status", id: "eq.true", limit: "1" } });
+  if (stateRows[0]?.status !== "OPEN") return { advanced: false, skippedPick: null, nextPick: null, deferred: "draft-not-open" };
   const activeRows = await supabaseRest<DraftTurnRow[]>("b36_draft_turns", { query: { select: "id,global_pick,round_number,owner_id,status,expires_at", status: "eq.ACTIVE", limit: "1" } });
   const active = activeRows[0];
 

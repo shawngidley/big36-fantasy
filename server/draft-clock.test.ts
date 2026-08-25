@@ -16,6 +16,28 @@ import { advanceExpiredDraftTurn } from "./draft-clock";
 // Monday, August 24, 2026, 11:00 AM Eastern — inside the Day 1 (rounds 1-2) draft window.
 const insideWindow = new Date("2026-08-24T15:00:00.000Z");
 const expiredAt = new Date("2026-08-24T14:50:00.000Z").toISOString();
+const draftOpen = [{ status: "OPEN" }];
+
+describe("advanceExpiredDraftTurn respects the commissioner's pause state", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("does nothing at all when the draft is paused, even if a turn has expired", async () => {
+    mocks.supabaseRest.mockResolvedValueOnce([{ status: "PAUSED" }]);
+
+    const result = await advanceExpiredDraftTurn(insideWindow);
+
+    expect(result.advanced).toBe(false);
+    expect(result.deferred).toBe("draft-not-open");
+    expect(mocks.supabaseRest).toHaveBeenCalledTimes(1); // only the status check — nothing else runs
+  });
+
+  it("does nothing when the draft is in SETUP or COMPLETE", async () => {
+    mocks.supabaseRest.mockResolvedValueOnce([{ status: "SETUP" }]);
+    const result = await advanceExpiredDraftTurn(insideWindow);
+    expect(result.advanced).toBe(false);
+    expect(result.deferred).toBe("draft-not-open");
+  });
+});
 
 describe("advanceExpiredDraftTurn auto-draft from queue", () => {
   beforeEach(() => vi.clearAllMocks());
@@ -23,15 +45,16 @@ describe("advanceExpiredDraftTurn auto-draft from queue", () => {
   it("auto-drafts the owner's top available queued unit instead of skipping when their clock expires", async () => {
     const active = { id: "turn-1", global_pick: 5, round_number: 1, owner_id: "owner-1", status: "ACTIVE" as const, expires_at: expiredAt };
     mocks.supabaseRest
-      .mockResolvedValueOnce([active]) // active turn lookup
-      .mockResolvedValueOnce([{ id: "q1", school_name: "Oregon", position: "QB", priority: 1 }]) // queue entries
-      .mockResolvedValueOnce([{ id: "slot-1", owner_id: "owner-1", position: "QB", school_name: null }]) // owner slots
-      .mockResolvedValueOnce([]) // all taken slots (nothing taken)
-      .mockResolvedValueOnce([]) // slot PATCH (fill Oregon)
-      .mockResolvedValueOnce([]) // queue entry DELETE
-      .mockResolvedValueOnce([active]) // turn PATCH to PICKED
-      .mockResolvedValueOnce([]) // audit event POST
-      .mockResolvedValueOnce([]); // next pending lookup (none)
+      .mockResolvedValueOnce(draftOpen)
+      .mockResolvedValueOnce([active])
+      .mockResolvedValueOnce([{ id: "q1", school_name: "Oregon", position: "QB", priority: 1 }])
+      .mockResolvedValueOnce([{ id: "slot-1", owner_id: "owner-1", position: "QB", school_name: null }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([active])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
 
     const result = await advanceExpiredDraftTurn(insideWindow);
 
@@ -44,12 +67,13 @@ describe("advanceExpiredDraftTurn auto-draft from queue", () => {
   it("skips a queued entry whose position is already filled and drafts the next usable one", async () => {
     const active = { id: "turn-1", global_pick: 5, round_number: 1, owner_id: "owner-1", status: "ACTIVE" as const, expires_at: expiredAt };
     mocks.supabaseRest
+      .mockResolvedValueOnce(draftOpen)
       .mockResolvedValueOnce([active])
       .mockResolvedValueOnce([{ id: "q1", school_name: "Georgia", position: "QB", priority: 1 }, { id: "q2", school_name: "Alabama", position: "RB", priority: 2 }])
       .mockResolvedValueOnce([{ id: "slot-qb", owner_id: "owner-1", position: "QB", school_name: "Indiana" }, { id: "slot-rb", owner_id: "owner-1", position: "RB", school_name: null }])
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]) // slot PATCH for RB
-      .mockResolvedValueOnce([]) // queue DELETE for q2
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([active])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
@@ -64,11 +88,12 @@ describe("advanceExpiredDraftTurn auto-draft from queue", () => {
   it("skips a queued school-position that another owner already drafted", async () => {
     const active = { id: "turn-1", global_pick: 5, round_number: 1, owner_id: "owner-1", status: "ACTIVE" as const, expires_at: expiredAt };
     mocks.supabaseRest
+      .mockResolvedValueOnce(draftOpen)
       .mockResolvedValueOnce([active])
       .mockResolvedValueOnce([{ id: "q1", school_name: "Ohio State", position: "QB", priority: 1 }])
       .mockResolvedValueOnce([{ id: "slot-qb", owner_id: "owner-1", position: "QB", school_name: null }])
-      .mockResolvedValueOnce([{ id: "other-slot", owner_id: "owner-9", position: "QB", school_name: "Ohio State" }]) // already taken elsewhere
-      .mockResolvedValueOnce([active]) // falls through to SKIPPED
+      .mockResolvedValueOnce([{ id: "other-slot", owner_id: "owner-9", position: "QB", school_name: "Ohio State" }])
+      .mockResolvedValueOnce([active])
       .mockResolvedValueOnce([]);
 
     const result = await advanceExpiredDraftTurn(insideWindow);
@@ -81,8 +106,9 @@ describe("advanceExpiredDraftTurn auto-draft from queue", () => {
   it("falls back to a normal skip when the owner's queue is empty", async () => {
     const active = { id: "turn-1", global_pick: 5, round_number: 1, owner_id: "owner-1", status: "ACTIVE" as const, expires_at: expiredAt };
     mocks.supabaseRest
+      .mockResolvedValueOnce(draftOpen)
       .mockResolvedValueOnce([active])
-      .mockResolvedValueOnce([]) // no queue entries
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([{ id: "slot-qb", owner_id: "owner-1", position: "QB", school_name: null }])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([active])
@@ -96,19 +122,22 @@ describe("advanceExpiredDraftTurn auto-draft from queue", () => {
 
   it("does nothing when the active turn has not actually expired yet", async () => {
     const active = { id: "turn-1", global_pick: 5, round_number: 1, owner_id: "owner-1", status: "ACTIVE" as const, expires_at: new Date(insideWindow.getTime() + 600_000).toISOString() };
-    mocks.supabaseRest.mockResolvedValueOnce([active]);
+    mocks.supabaseRest
+      .mockResolvedValueOnce(draftOpen)
+      .mockResolvedValueOnce([active]);
 
     const result = await advanceExpiredDraftTurn(insideWindow);
 
     expect(result.advanced).toBe(false);
-    expect(mocks.supabaseRest).toHaveBeenCalledTimes(1);
+    expect(mocks.supabaseRest).toHaveBeenCalledTimes(2);
   });
 
   it("self-heals by activating the next pending turn when nobody is currently on the clock", async () => {
     mocks.supabaseRest
-      .mockResolvedValueOnce([]) // no ACTIVE turn found
-      .mockResolvedValueOnce([{ id: "turn-stuck", global_pick: 12, round_number: 1 }]) // next pending lookup
-      .mockResolvedValueOnce([{ id: "turn-stuck", global_pick: 12, round_number: 1, status: "ACTIVE" }]); // activation PATCH
+      .mockResolvedValueOnce(draftOpen)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "turn-stuck", global_pick: 12, round_number: 1 }])
+      .mockResolvedValueOnce([{ id: "turn-stuck", global_pick: 12, round_number: 1, status: "ACTIVE" }]);
 
     const result = await advanceExpiredDraftTurn(insideWindow);
 
@@ -120,8 +149,9 @@ describe("advanceExpiredDraftTurn auto-draft from queue", () => {
 
   it("does nothing when no turn is active and no picks remain", async () => {
     mocks.supabaseRest
-      .mockResolvedValueOnce([]) // no ACTIVE turn
-      .mockResolvedValueOnce([]); // no PENDING turns either — draft is genuinely complete
+      .mockResolvedValueOnce(draftOpen)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
 
     const result = await advanceExpiredDraftTurn(insideWindow);
 
@@ -131,9 +161,10 @@ describe("advanceExpiredDraftTurn auto-draft from queue", () => {
 
   it("automatically pauses the draft when the next pick belongs to a round not scheduled for today", async () => {
     mocks.supabaseRest
-      .mockResolvedValueOnce([]) // no ACTIVE turn
-      .mockResolvedValueOnce([{ id: "turn-round3", global_pick: 73, round_number: 3 }]) // next pending is round 3, but today only allows rounds 1-2
-      .mockResolvedValueOnce([]); // draft_state PATCH to PAUSED
+      .mockResolvedValueOnce(draftOpen)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: "turn-round3", global_pick: 73, round_number: 3 }])
+      .mockResolvedValueOnce([]);
 
     const result = await advanceExpiredDraftTurn(insideWindow);
 
