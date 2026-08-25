@@ -453,6 +453,22 @@ export const leagueRouter = router({
         return { success: true as const, clearedSchool: slot?.school_name ?? null, position: slot?.position ?? null };
       } catch (error) { asError(error); }
     }),
+    clearOwnerPositionSlot: adminProcedure.input(z.object({ ownerId: uuid, position: positionSchema })).mutation(async ({ ctx, input }) => {
+      try {
+        const slots = await getAllDraftSlots();
+        const target = slots.find(slot => slot.owner_id === input.ownerId && slot.position === input.position);
+        if (!target) throw new Error("This owner has no draft slot for that position.");
+        if (!target.school_name) throw new Error("This position hasn't been drafted yet — nothing to clear.");
+        const clearedSchool = target.school_name;
+        await supabaseRest("b36_draft_slots", { method: "PATCH", query: { id: q.eq(target.id) }, body: { school_name: null, selected_at: null, selected_by_open_id: null } });
+        const linkedTurns = await supabaseRest<Array<{ id: string; global_pick: number }>>("b36_draft_turns", { query: { select: "id,global_pick", draft_slot_id: q.eq(target.id) } });
+        for (const turn of linkedTurns) {
+          await supabaseRest("b36_draft_turns", { method: "PATCH", query: { id: q.eq(turn.id) }, body: { status: "SKIPPED", picked_at: null, draft_slot_id: null, skipped_at: new Date().toISOString() } });
+        }
+        await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "DRAFT_SLOT_CLEARED", entity_type: "b36_draft_slots", entity_id: target.id, detail: { ownerId: input.ownerId, position: input.position, clearedSchool, relinkedTurns: linkedTurns.map(turn => turn.global_pick) } } });
+        return { success: true as const, clearedSchool };
+      } catch (error) { asError(error); }
+    }),
     recordDraftPick: adminProcedure.input(z.object({ ownerId: uuid, position: positionSchema, schoolName: z.string().trim().min(2).max(120), globalPick: z.number().int().min(1).max(216).optional() })).mutation(async ({ ctx, input }) => {
       try {
         const slots = await getAllDraftSlots();

@@ -332,6 +332,29 @@ describe("Big 36 owner draft procedures", () => {
     await expect(caller.league.admin.clearDraftPick({ globalPick: 5 })).rejects.toThrow("has not been made yet");
   });
 
+  it("clears a selection directly by owner and position, bypassing turn lookup entirely", async () => {
+    mocks.supabaseRest.mockReset();
+    const ownerId = "11111111-1111-4111-8111-111111111111";
+    mocks.getAllDraftSlots.mockResolvedValue([{ id: "slot-def", owner_id: ownerId, position: "DEF", draft_position: 5, school_name: "South Carolina" }]);
+    mocks.supabaseRest
+      .mockResolvedValueOnce([]) // slot PATCH clearing school_name
+      .mockResolvedValueOnce([]) // linked turns lookup (none found — orphaned slot)
+      .mockResolvedValueOnce([]); // audit event POST
+    const caller = appRouter.createCaller(createContext("admin"));
+
+    await expect(caller.league.admin.clearOwnerPositionSlot({ ownerId, position: "DEF" })).resolves.toEqual({ success: true, clearedSchool: "South Carolina" });
+    expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_draft_slots", expect.objectContaining({ method: "PATCH", query: { id: "eq.slot-def" }, body: { school_name: null, selected_at: null, selected_by_open_id: null } }));
+  });
+
+  it("refuses to clear a position that was never drafted", async () => {
+    mocks.supabaseRest.mockReset();
+    const ownerId = "11111111-1111-4111-8111-111111111111";
+    mocks.getAllDraftSlots.mockResolvedValue([{ id: "slot-def", owner_id: ownerId, position: "DEF", draft_position: 5, school_name: null }]);
+    const caller = appRouter.createCaller(createContext("admin"));
+
+    await expect(caller.league.admin.clearOwnerPositionSlot({ ownerId, position: "DEF" })).rejects.toThrow("nothing to clear");
+  });
+
   it("allows the commissioner to record an explicit draft override for an assigned slot", async () => {
     const ownerId = "11111111-1111-4111-8111-111111111111";
     mocks.getAllDraftSlots.mockResolvedValue([{ id: "22222222-2222-4222-8222-222222222222", owner_id: ownerId, position: "TE", draft_position: 8, school_name: null }]);
