@@ -181,6 +181,16 @@ export const leagueRouter = router({
     } catch (error) { asError(error); }
   }),
   myDraft: protectedProcedure.query(({ ctx }) => getDraftOwnerState(ctx.user.openId, ctx.user.email)),
+  futureIdeas: protectedProcedure.query(() => supabaseRest<Array<{ id: string; title: string; content: string; submitted_by_team_name: string | null; created_at: string }>>("b36_future_ideas", { query: { select: "id,title,content,submitted_by_team_name,created_at", is_owner_submitted: q.eq(true), order: "created_at.desc" } })),
+  submitFutureIdea: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(200), content: z.string().trim().min(1).max(5000) })).mutation(async ({ ctx, input }) => {
+    try {
+      const owner = await getOrClaimOwner(ctx.user.openId, ctx.user.email);
+      if (!owner) throw new Error("Your approved program is not linked to a draft slot yet.");
+      const now = new Date().toISOString();
+      await supabaseRest("b36_future_ideas", { method: "POST", body: { title: input.title, season: "Owner suggestions", status: "SUBMITTED", content: input.content, created_by_open_id: ctx.user.openId, submitted_by_owner_id: owner.id, submitted_by_team_name: owner.teamName, is_owner_submitted: true, created_at: now, updated_at: now } });
+      return { success: true as const };
+    } catch (error) { asError(error); }
+  }),
   submitMyPick: protectedProcedure.input(z.object({ position: positionSchema, schoolName: z.string().trim().min(2).max(120) })).mutation(async ({ ctx, input }) => {
     const owner = await getOrClaimOwner(ctx.user.openId, ctx.user.email);
     if (!owner) throw new TRPCError({ code: "FORBIDDEN", message: "Your email has not been assigned to a Big 36 owner record yet." });

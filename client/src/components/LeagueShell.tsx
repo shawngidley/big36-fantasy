@@ -14,6 +14,7 @@ const publicNav = [
   { label: "Leaders", path: "/leaders" },
   { label: "Weekly", path: "/weekly" },
   { label: "My Team", path: "/my-team" },
+  { label: "Future Ideas", path: "/future-ideas" },
   { label: "Prizes", path: "/prizes" },
 ];
 
