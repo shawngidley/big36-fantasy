@@ -196,6 +196,26 @@ export const leagueRouter = router({
     } catch (error) { asError(error); }
   }),
   admin: router({
+    futureIdeas: adminProcedure.query(() => supabaseRest<Array<{ id: string; title: string; season: string; status: string; content: string; created_at: string; updated_at: string }>>("b36_future_ideas", { query: { select: "*", order: "created_at.desc" } })),
+    createFutureIdea: adminProcedure.input(z.object({ title: z.string().trim().min(1).max(200), season: z.string().trim().min(1).max(20), content: z.string().trim().min(1).max(50000) })).mutation(async ({ ctx, input }) => {
+      try {
+        const now = new Date().toISOString();
+        await supabaseRest("b36_future_ideas", { method: "POST", body: { title: input.title, season: input.season, content: input.content, status: "PROPOSED", created_by_open_id: ctx.user.openId, created_at: now, updated_at: now } });
+        return { success: true as const };
+      } catch (error) { asError(error); }
+    }),
+    updateFutureIdea: adminProcedure.input(z.object({ id: uuid, title: z.string().trim().min(1).max(200), season: z.string().trim().min(1).max(20), status: z.string().trim().min(1).max(30), content: z.string().trim().min(1).max(50000) })).mutation(async ({ input }) => {
+      try {
+        await supabaseRest("b36_future_ideas", { method: "PATCH", query: { id: q.eq(input.id) }, body: { title: input.title, season: input.season, status: input.status, content: input.content, updated_at: new Date().toISOString() } });
+        return { success: true as const };
+      } catch (error) { asError(error); }
+    }),
+    deleteFutureIdea: adminProcedure.input(z.object({ id: uuid })).mutation(async ({ input }) => {
+      try {
+        await supabaseRest("b36_future_ideas", { method: "DELETE", query: { id: q.eq(input.id) } });
+        return { success: true as const };
+      } catch (error) { asError(error); }
+    }),
     ownerRegistrations: adminProcedure.query(() => supabaseRest<RegistrationRow[]>(registrationTable, { query: { select: "id,display_name,team_name,nickname,program_identity,inspiration,primary_color,accent_color,branding_notes,rivalry_preference,email,phone_e164,logo_key,logo_url,status,assigned_owner_id,review_note,created_at,reviewed_at", order: "created_at.desc" } })),
     reviewOwnerRegistration: adminProcedure.input(z.object({ registrationId: uuid, status: z.enum(["APPROVED", "DECLINED"]), ownerId: uuid.nullable(), reviewNote: z.string().trim().max(1000).nullable().optional() })).mutation(async ({ ctx, input }) => {
       try {
