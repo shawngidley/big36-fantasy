@@ -212,6 +212,21 @@ export const leagueRouter = router({
     } catch (error) { asError(error); }
   }),
   admin: router({
+    paymentStatus: adminProcedure.query(async () => {
+      const rows = await supabaseRest<Array<{ id: string; team_name: string; display_name: string; is_paid: boolean; paid_at: string | null }>>("b36_owners", { query: { select: "id,team_name,display_name,is_paid,paid_at", order: "team_name.asc" } });
+      return rows.map(row => ({ ownerId: row.id, teamName: row.team_name, displayName: row.display_name, isPaid: row.is_paid, paidAt: row.paid_at }));
+    }),
+    markOwnerPaid: adminProcedure.input(z.object({ ownerId: uuid })).mutation(async ({ ctx, input }) => {
+      const now = new Date().toISOString();
+      await supabaseRest("b36_owners", { method: "PATCH", query: { id: q.eq(input.ownerId) }, body: { is_paid: true, paid_at: now, paid_marked_by_open_id: ctx.user.openId } });
+      await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "OWNER_MARKED_PAID", entity_type: "b36_owners", entity_id: input.ownerId } });
+      return { success: true as const, paidAt: now };
+    }),
+    markOwnerUnpaid: adminProcedure.input(z.object({ ownerId: uuid })).mutation(async ({ ctx, input }) => {
+      await supabaseRest("b36_owners", { method: "PATCH", query: { id: q.eq(input.ownerId) }, body: { is_paid: false, paid_at: null, paid_marked_by_open_id: null } });
+      await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "OWNER_MARKED_UNPAID", entity_type: "b36_owners", entity_id: input.ownerId } });
+      return { success: true as const };
+    }),
     futureIdeas: adminProcedure.query(() => supabaseRest<Array<{ id: string; title: string; season: string; status: string; content: string; created_at: string; updated_at: string }>>("b36_future_ideas", { query: { select: "*", order: "created_at.desc" } })),
     createFutureIdea: adminProcedure.input(z.object({ title: z.string().trim().min(1).max(200), season: z.string().trim().min(1).max(20), content: z.string().trim().min(1).max(50000) })).mutation(async ({ ctx, input }) => {
       try {
