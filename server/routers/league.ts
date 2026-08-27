@@ -181,6 +181,12 @@ export const leagueRouter = router({
     } catch (error) { asError(error); }
   }),
   myDraft: protectedProcedure.query(({ ctx }) => getDraftOwnerState(ctx.user.openId, ctx.user.email)),
+  teamBranding: publicProcedure.input(z.object({ ownerId: uuid })).query(async ({ input }) => {
+    const registrations = await supabaseRest<Array<{ nickname: string | null; program_identity: string | null; inspiration: string | null; rivalry_preference: string | null; logo_url: string | null }>>(registrationTable, { query: { select: "nickname,program_identity,inspiration,rivalry_preference,logo_url", assigned_owner_id: q.eq(input.ownerId), status: q.eq("APPROVED"), limit: "1" } });
+    const registration = registrations[0];
+    if (!registration) return null;
+    return { nickname: registration.nickname, programIdentity: registration.program_identity, inspiration: registration.inspiration, rivalryPreference: registration.rivalry_preference, logoUrl: registration.logo_url };
+  }),
   futureIdeas: protectedProcedure.query(() => supabaseRest<Array<{ id: string; title: string; content: string; submitted_by_team_name: string | null; created_at: string }>>("b36_future_ideas", { query: { select: "id,title,content,submitted_by_team_name,created_at", is_owner_submitted: q.eq(true), order: "created_at.desc" } })),
   submitFutureIdea: protectedProcedure.input(z.object({ title: z.string().trim().min(1).max(200), content: z.string().trim().min(1).max(5000) })).mutation(async ({ ctx, input }) => {
     try {
