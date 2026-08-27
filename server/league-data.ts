@@ -101,20 +101,27 @@ export async function getLeagueSnapshot() {
   const season = automationRows[0]?.season;
   const regularGames = sourceGameRows.filter(game => game.season === season && game.season_type.toLowerCase() === "regular");
   const normalizationFactorForSchool = (schoolName: string) => completedScheduleNormalization(schoolName, regularGames);
+  const gamesPlayedForSchool = (schoolName: string) => regularGames.filter(game => (game.home_team === schoolName || game.away_team === schoolName) && game.completed).length;
 
   const owners = ownerRows.map(row => {
     const owner = camelOwner(row);
     const slots = slotRows.filter(slot => slot.owner_id === row.id);
-    const picks = slots.filter(slot => slot.school_name).map(slot => ({
-      ...camelSlot(slot),
-      schoolName: slot.school_name!,
-      positionLabel: positionLabel[slot.position],
-      rawSeasonPoints: Number((pointsBySlot.get(slot.id) ?? 0).toFixed(2)),
-      normalizationFactor: normalizationFactorForSchool(slot.school_name!),
-      seasonPoints: Number(((pointsBySlot.get(slot.id) ?? 0) * normalizationFactorForSchool(slot.school_name!)).toFixed(2)),
-      weeklyPoints: weekRows.map(week => ({ weekId: week.id, weekNumber: week.week_number, points: Number((weeklyPointsBySlot.get(`${week.id}::${slot.id}`) ?? 0).toFixed(2)) })),
-    }));
-    return { ...owner, assignments: slots.map(camelSlot), picks, totalPoints: Number(picks.reduce((sum, pick) => sum + pick.seasonPoints, 0).toFixed(2)) };
+    const picks = slots.filter(slot => slot.school_name).map(slot => {
+      const gamesPlayed = gamesPlayedForSchool(slot.school_name!);
+      const seasonPoints = Number(((pointsBySlot.get(slot.id) ?? 0) * normalizationFactorForSchool(slot.school_name!)).toFixed(2));
+      return {
+        ...camelSlot(slot),
+        schoolName: slot.school_name!,
+        positionLabel: positionLabel[slot.position],
+        rawSeasonPoints: Number((pointsBySlot.get(slot.id) ?? 0).toFixed(2)),
+        normalizationFactor: normalizationFactorForSchool(slot.school_name!),
+        seasonPoints,
+        gamesPlayed,
+        averagePoints: gamesPlayed > 0 ? Number((seasonPoints / gamesPlayed).toFixed(2)) : 0,
+        weeklyPoints: weekRows.map(week => ({ weekId: week.id, weekNumber: week.week_number, points: Number((weeklyPointsBySlot.get(`${week.id}::${slot.id}`) ?? 0).toFixed(2)) })),
+      };
+    });
+    return { ...owner, assignments: slots.map(camelSlot), picks, totalPoints: Number(picks.reduce((sum, pick) => sum + pick.seasonPoints, 0).toFixed(2)), averagePoints: Number(picks.reduce((sum, pick) => sum + pick.averagePoints, 0).toFixed(2)) };
   });
 
   const divisions = divisionRows.map(row => ({
@@ -126,7 +133,9 @@ export async function getLeagueSnapshot() {
     position, label: positionLabel[position],
     entries: slotRows.filter(slot => slot.position === position && slot.school_name).map(slot => {
       const owner = owners.find(item => item.id === slot.owner_id);
-      return { ...camelSlot(slot), schoolName: slot.school_name!, teamName: owner?.teamName ?? "Unassigned team", ownerName: owner?.displayName ?? "Unknown owner", logoUrl: owner?.logoUrl ?? null, totalPoints: Number((pointsBySlot.get(slot.id) ?? 0).toFixed(2)) };
+      const totalPoints = Number((pointsBySlot.get(slot.id) ?? 0).toFixed(2));
+      const gamesPlayed = gamesPlayedForSchool(slot.school_name!);
+      return { ...camelSlot(slot), schoolName: slot.school_name!, teamName: owner?.teamName ?? "Unassigned team", ownerName: owner?.displayName ?? "Unknown owner", logoUrl: owner?.logoUrl ?? null, totalPoints, gamesPlayed, averagePoints: gamesPlayed > 0 ? Number((totalPoints / gamesPlayed).toFixed(2)) : 0 };
     }).sort((a, b) => b.totalPoints - a.totalPoints || a.schoolName.localeCompare(b.schoolName)),
   }));
   const weeklySummaries = weekRows.map(week => ({
