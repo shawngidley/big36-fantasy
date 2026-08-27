@@ -49,9 +49,10 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
     const snapshot = await getLeagueSnapshot();
     const selectedSchoolPositions = snapshot.owners.flatMap(owner => owner.picks.map(pick => ({ schoolName: pick.schoolName, position: pick.position as LivePosition, draftSlotId: pick.id })));
     const scoreboard = await getLiveScoreboard();
+    const scoreboardStatusById = new Map(scoreboard.filter(game => game.id).map(game => [game.id, game.status ?? null]));
     const scoreboardGames = scoreboard.filter(game => game.id).map(game => schedule.games.find(source => source.id === game.id)).filter((game): game is CfbdGame => Boolean(game));
     const relevantGames = scoreboardGames.filter(game => selectedSchoolPositions.some(selection => selection.schoolName === game.homeTeam || selection.schoolName === game.awayTeam));
-    const activeGames = relevantGames.filter(game => !game.completed);
+    const trulyInProgress = relevantGames.filter(game => scoreboardStatusById.get(game.id) === "in_progress");
     let insertedEvents = 0;
     const byWeek = new Map<number, CfbdGame[]>();
     for (const game of relevantGames) byWeek.set(game.week, [...(byWeek.get(game.week) ?? []), game]);
@@ -113,8 +114,8 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
         }
       }
     }
-    await writeRefreshStatus({ last_refresh_status: "ok", last_refresh_detail: { active_games: relevantGames.length, inserted_events: insertedEvents, team_count: schedule.teamCount } });
-    return { activeGames: relevantGames.length, insertedEvents, teamCount: schedule.teamCount };
+    await writeRefreshStatus({ last_refresh_status: "ok", last_refresh_detail: { active_games: trulyInProgress.length, relevant_games: relevantGames.length, inserted_events: insertedEvents, team_count: schedule.teamCount } });
+    return { activeGames: trulyInProgress.length, relevantGames: relevantGames.length, insertedEvents, teamCount: schedule.teamCount };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown gameday refresh failure";
     await writeRefreshStatus({ last_refresh_status: "error", last_refresh_detail: { message } });

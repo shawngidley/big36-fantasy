@@ -87,4 +87,19 @@ describe("36 Football gameday source reconciliation", () => {
     await runGamedayRefresh({ force: true });
     expect(writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST")?.options.body).toMatchObject({ audit_action: "CORRECTION", computed_points: 3, correction_of_event_id: "event-1" });
   });
+
+  it("only counts games with a live 'in_progress' scoreboard status as active, not every game that isn't yet marked completed", async () => {
+    const liveGame = { ...game, id: 201, completed: false, status: "in_progress" };
+    const scheduledGame = { ...game, id: 202, completed: false, status: "scheduled", homeTeam: "Georgia", awayTeam: "Alabama" };
+    mocks.getRegularSeasonGames.mockResolvedValue([liveGame, scheduledGame]);
+    mocks.getLiveScoreboard.mockResolvedValue([liveGame, scheduledGame]);
+    mocks.getLeagueSnapshot.mockResolvedValue({ owners: [{ picks: [{ id: "slot-qb", schoolName: "Ohio State", position: "QB" }, { id: "slot-rb", schoolName: "Georgia", position: "RB" }] }], weeks: [{ id: "week-1", weekNumber: 1 }] });
+    arrange([]);
+    mocks.mapLivePlayToCandidates.mockReturnValue([]);
+
+    const result = await runGamedayRefresh({ force: true });
+
+    expect(result.relevantGames).toBe(2);
+    expect(result.activeGames).toBe(1);
+  });
 });
