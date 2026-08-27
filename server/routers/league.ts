@@ -376,6 +376,10 @@ export const leagueRouter = router({
       } catch (error) { asError(error); }
       return { success: true as const };
     }),
+    liveAutomationStatus: adminProcedure.query(async () => {
+      const rows = await supabaseRest<Array<{ season: number; enabled: boolean; last_refresh_at: string | null }>>("b36_automation_config", { query: { select: "season,enabled,last_refresh_at", id: q.eq(true) } });
+      return rows[0] ?? null;
+    }),
     setLiveAutomation: adminProcedure.input(z.object({ enabled: z.boolean() })).mutation(async ({ ctx, input }) => {
       await supabaseRest("b36_automation_config", { method: "PATCH", query: { id: q.eq(true) }, body: { enabled: input.enabled, updated_at: new Date().toISOString() } });
       await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: input.enabled ? "ENABLE_LIVE_AUTOMATION" : "DISABLE_LIVE_AUTOMATION", entity_type: "b36_automation_config" } });
