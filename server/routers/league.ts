@@ -213,7 +213,7 @@ export const leagueRouter = router({
   }),
   admin: router({
     paymentStatus: adminProcedure.query(async () => {
-      const rows = await supabaseRest<Array<{ id: string; team_name: string; display_name: string; is_paid: boolean; paid_at: string | null }>>("b36_owners", { query: { select: "id,team_name,display_name,is_paid,paid_at", order: "team_name.asc" } });
+      const rows = await supabaseRest<Array<{ id: string; team_name: string; display_name: string; is_paid: boolean; paid_at: string | null }>>("b36_owners", { query: { select: "id,team_name,display_name,is_paid,paid_at", order: "display_name.asc" } });
       return rows.map(row => ({ ownerId: row.id, teamName: row.team_name, displayName: row.display_name, isPaid: row.is_paid, paidAt: row.paid_at }));
     }),
     markOwnerPaid: adminProcedure.input(z.object({ ownerId: uuid })).mutation(async ({ ctx, input }) => {
