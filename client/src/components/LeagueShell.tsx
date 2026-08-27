@@ -60,7 +60,7 @@ export default function LeagueShell({ children, eyebrow }: { children: React.Rea
         </div>
       </div>
     </header>
-    <main>{eyebrow ? <div className="border-b border-border/60 bg-accent/40"><div className="container py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">{eyebrow}</div></div> : null}{children}</main>
+    <main>{eyebrow ? <div className="bg-accent/40"><div className="container py-2 text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">{eyebrow}</div><div className="field-divider" /></div> : null}{children}</main>
     <footer className="league-footer mt-16"><div className="container flex flex-col gap-4 py-8 font-condensed text-sm tracking-wide sm:flex-row sm:items-center sm:justify-between"><p className="leading-6">© 2026 36 Football. All rights reserved. Website designed and developed by <a href="https://ascend-cx.com" target="_blank" rel="noreferrer" className="font-bold underline decoration-orange-400/70 underline-offset-4 transition-colors hover:text-orange-300">Ascend CX</a>.</p><nav className="flex flex-wrap items-center gap-x-3 gap-y-1 font-bold" aria-label="Legal navigation"><Link href="/terms" className="transition-colors hover:text-orange-300">Terms of Use</Link><span aria-hidden="true" className="opacity-50">|</span><Link href="/privacy" className="transition-colors hover:text-orange-300">Privacy Policy</Link></nav></div></footer>
   </div>;
 }
