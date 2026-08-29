@@ -16,7 +16,7 @@ import { decodeRegistrationLogo, hashRegistrationPin, normalizeRegistrationEmail
 import { storagePut } from "../storage";
 import { notifyOwnerWhenUpcomingPickSafely, sendDraftSms } from "../draft-alerts";
 import { activateNextPendingTurn } from "../draft-clock";
-import { getLiveScoreboard, getRegularSeasonGames, getWeekPlays } from "../cfbd";
+import { getLivePlays, getLiveScoreboard, getRegularSeasonGames, getWeekPlays } from "../cfbd";
 import { lotteryCommitment, LOTTERY_REVEAL_INTERVAL_SECONDS, secureShuffle } from "../draft-lottery";
 
 const positionSchema = z.enum(positions);
@@ -300,6 +300,7 @@ export const leagueRouter = router({
       if (input.team) return plays.filter(play => play.offense?.toLowerCase().includes(input.team!.toLowerCase()) || play.defense?.toLowerCase().includes(input.team!.toLowerCase()));
       return { totalPlays: plays.length, sample: plays.slice(0, 5), uniqueGameIds: Array.from(new Set(plays.map(play => play.gameId))).slice(0, 100) };
     }),
+    debugLivePlays: adminProcedure.input(z.object({ gameId: z.number() })).query(({ input }) => getLivePlays(input.gameId)),
     paymentStatus: adminProcedure.query(async () => {
       const rows = await supabaseRest<Array<{ id: string; team_name: string; display_name: string; is_paid: boolean; paid_at: string | null }>>("b36_owners", { query: { select: "id,team_name,display_name,is_paid,paid_at", order: "display_name.asc" } });
       return rows.map(row => ({ ownerId: row.id, teamName: row.team_name, displayName: row.display_name, isPaid: row.is_paid, paidAt: row.paid_at }));

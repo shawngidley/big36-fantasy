@@ -62,6 +62,8 @@ export const getLiveScoreboard = () => cachedCfbdGet<CfbdScoreboardGame[]>("/sco
 // Plays are heavier for CFBD to serve and don't need to be as instantaneous as the live score —
 // a longer cache window here meaningfully cuts call volume during high-traffic Saturday windows.
 export const getWeekPlays = (year: number, week: number) => cachedCfbdGet<CfbdPlay[]>("/plays", { year, week, seasonType: "regular" }, 45_000);
+// The actual live, in-progress play feed — /plays only populates after a game finishes, per CFBD support.
+export const getLivePlays = (gameId: number) => cachedCfbdGet<CfbdPlay[]>("/live/plays", { gameId }, 15_000);
 export const getWeekPlayStats = (year: number, week: number) => cachedCfbdGet<CfbdPlayStat[]>("/plays/stats", { year, week, seasonType: "regular" }, 45_000);
 // Rosters barely change during a season — a short cache here was the single biggest driver of
 // API call volume (89% of total usage in practice). A day-long cache is still fully correct for
