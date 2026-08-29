@@ -24,14 +24,15 @@ export default function RealScoresStrip({ compact = false, scope = "league" }: {
     </div>
     {!compact && scores.data?.availableWeeks.length ? <div className="flex gap-1.5 overflow-x-auto border-b border-border bg-background/50 px-5 py-3">{scores.data.availableWeeks.map(item => <button key={item} onClick={() => setWeek(item)} className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${item === activeWeek ? "bg-primary text-primary-foreground" : "bg-accent text-accent-foreground hover:bg-primary/10"}`}>Wk {item}</button>)}</div> : null}
     {games.length ? <div className={compact ? "grid gap-px bg-border sm:grid-cols-2" : "grid gap-px bg-border sm:grid-cols-2 lg:grid-cols-3"}>
-      {games.map(game => <div key={game.id} className="bg-card p-4">
+      {games.map(game => <Link key={game.id} href={`/scores/${game.week}/${game.id}`} className="block bg-card p-4 transition-colors hover:bg-accent/30">
         <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground"><span className={game.status === "in_progress" ? "text-primary" : ""}>{statusLabel(game.status, game.period, game.clock)}</span><span>{formatKickoff(game.startDate)}</span></div>
         <div className="mt-2 space-y-1.5">
           <div className="flex items-center justify-between"><span className="truncate text-sm font-bold">{game.awayTeam}</span><span className="font-display text-lg font-extrabold tabular-nums">{game.awayPoints}</span></div>
           <div className="flex items-center justify-between"><span className="truncate text-sm font-bold">{game.homeTeam}</span><span className="font-display text-lg font-extrabold tabular-nums">{game.homePoints}</span></div>
         </div>
         {(game.homeOwners.length || game.awayOwners.length) ? <p className="mt-2.5 truncate text-[11px] text-muted-foreground">{[...game.awayOwners, ...game.homeOwners].map(o => `${o.teamName} (${o.position})`).join(" · ")}</p> : null}
-      </div>)}
+        {game.status === "in_progress" || game.status === "completed" ? <p className="mt-2 text-[11px] font-bold text-primary">View play-by-play →</p> : null}
+      </Link>)}
     </div> : <div className="p-8 text-center text-sm text-muted-foreground">{scope === "all" ? "No FBS games scheduled this week." : "No games involving drafted schools this week."}</div>}
   </section>;
 }

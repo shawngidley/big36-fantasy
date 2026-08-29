@@ -16,7 +16,7 @@ import { decodeRegistrationLogo, hashRegistrationPin, normalizeRegistrationEmail
 import { storagePut } from "../storage";
 import { notifyOwnerWhenUpcomingPickSafely, sendDraftSms } from "../draft-alerts";
 import { activateNextPendingTurn } from "../draft-clock";
-import { getLiveScoreboard, getRegularSeasonGames } from "../cfbd";
+import { getLiveScoreboard, getRegularSeasonGames, getWeekPlays } from "../cfbd";
 import { lotteryCommitment, LOTTERY_REVEAL_INTERVAL_SECONDS, secureShuffle } from "../draft-lottery";
 
 const positionSchema = z.enum(positions);
@@ -83,6 +83,27 @@ export const leagueRouter = router({
       .map(game => ({ ...game, homeOwners: ownersBySchool.get(game.homeTeam.toLowerCase()) ?? [], awayOwners: ownersBySchool.get(game.awayTeam.toLowerCase()) ?? [] }))
       .sort((a, b) => (a.status === "in_progress" ? 0 : 1) - (b.status === "in_progress" ? 0 : 1) || new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
     return { week: targetWeek, currentWeek, availableWeeks, games };
+  }),
+  gameDetail: publicProcedure.input(z.object({ gameId: z.number(), week: z.number() })).query(async ({ input }) => {
+    const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
+    const season = automationRows[0]?.season;
+    if (!season) throw new Error("Season is not configured yet.");
+    const [plays, league] = await Promise.all([getWeekPlays(season, input.week), getLeagueSnapshot()]);
+    const ownersBySchool = new Map<string, Array<{ teamName: string; position: string }>>();
+    for (const owner of league.owners) for (const pick of owner.picks) {
+      const key = pick.schoolName.toLowerCase();
+      if (!ownersBySchool.has(key)) ownersBySchool.set(key, []);
+      ownersBySchool.get(key)!.push({ teamName: owner.teamName, position: pick.position === "K_ST" ? "K/ST" : pick.position });
+    }
+    return plays.filter(play => play.gameId === input.gameId).map(play => ({
+      id: play.id,
+      period: play.period ?? null,
+      clock: play.clock ? `${play.clock.minutes ?? 0}:${String(play.clock.seconds ?? 0).padStart(2, "0")}` : null,
+      offense: play.offense, defense: play.defense,
+      playType: play.playType ?? "Play", playText: play.playText ?? "", scoring: play.scoring,
+      offenseOwners: ownersBySchool.get(play.offense.toLowerCase()) ?? [],
+      defenseOwners: ownersBySchool.get(play.defense.toLowerCase()) ?? [],
+    }));
   }),
   draftLottery: publicProcedure.query(() => getPublicDraftLottery()),
   draftLotterySchedule: publicProcedure.query(() => getDraftLotterySchedule()),
