@@ -124,4 +124,34 @@ describe("36 Football gameday source reconciliation", () => {
     const liveWrite = writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST" && (write.options.body as Record<string, unknown>).recorded_by_open_id === "cfbd-live-detection");
     expect(liveWrite?.options.body).toMatchObject({ audit_action: "ENTRY", is_provisional: true, source_game_id: 301 });
   });
+
+  it("automatically creates the scoring week if it doesn't exist yet, instead of silently skipping every event (the real bug found in production)", async () => {
+    const liveGame = { ...game, id: 401, week: 1, completed: false, status: "in_progress" };
+    mocks.getRegularSeasonGames.mockResolvedValue([liveGame]);
+    mocks.getLiveScoreboard.mockResolvedValue([liveGame]);
+    mocks.getLeagueSnapshot.mockResolvedValue({ owners: [{ picks: [{ id: "slot-qb", schoolName: "Ohio State", position: "QB" }] }], weeks: [] }); // <-- no weeks exist at all
+    mocks.getLivePlays.mockResolvedValue({
+      teams: [{ team: "Ohio State", homeAway: "home", points: 7 }, { team: "Texas", homeAway: "away", points: 0 }],
+      drives: [{ id: "d1", offense: "Ohio State", defense: "Texas", plays: [
+        { id: "5001", homeScore: 7, awayScore: 0, period: 1, clock: "9:00", teamId: 1, team: "Ohio State", playType: "Rushing Touchdown", playText: "5 Yd run, TOUCHDOWN", yardsGained: 5 },
+      ] }],
+    });
+    const writes: Array<{ table: string; options: Record<string, unknown> }> = [];
+    mocks.supabaseRest.mockImplementation(async (table: string, options: Record<string, unknown> = {}) => {
+      if (table === "b36_automation_config" && options.method !== "PATCH") return [{ season: 2026, enabled: true, last_refresh_at: null, schedule_cron_task_uid: null }];
+      if (table === "b36_scoring_events" && options.query) return [];
+      if (table === "b36_scoring_weeks" && !options.method) return []; // fresh DB check: doesn't exist yet
+      if (table === "b36_scoring_weeks" && options.method === "POST") { writes.push({ table, options }); return [{ id: "week-created-1", week_number: 1 }]; }
+      if (options.method) writes.push({ table, options });
+      return [];
+    });
+    mocks.mapLivePlayToCandidates.mockImplementation(({ play }: { play: { scoring: boolean } }) => play.scoring ? [{ ...candidate, sourceGameId: 401 }] : []);
+
+    const result = await runGamedayRefresh({ force: true });
+
+    expect(writes.some(write => write.table === "b36_scoring_weeks" && write.options.method === "POST")).toBe(true);
+    expect(result.insertedEvents).toBeGreaterThan(0);
+    const eventWrite = writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST");
+    expect(eventWrite?.options.body).toMatchObject({ week_id: "week-created-1" });
+  });
 });

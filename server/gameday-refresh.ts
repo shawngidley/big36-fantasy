@@ -31,6 +31,24 @@ async function writeRefreshStatus(values: Record<string, unknown>) {
   await supabaseRest("b36_automation_config", { method: "PATCH", query: { id: "eq.true" }, body: { ...values, last_refresh_at: new Date().toISOString(), updated_at: new Date().toISOString() } });
 }
 
+// The season schedule already tells us which week every game belongs to, so there's no reason a
+// commissioner should ever need to manually create a "Week N" scoring period before scoring can
+// happen — that was a hidden dependency, not an intentional control. This creates it automatically
+// the first time it's needed, and keeps the in-memory snapshot in sync so later lookups within the
+// same refresh find it too.
+async function ensureWeekRow(weekNumber: number, weeks: Array<{ id: string; weekNumber: number }>): Promise<{ id: string; weekNumber: number }> {
+  const existing = weeks.find(item => item.weekNumber === weekNumber);
+  if (existing) return existing;
+  // Check the database fresh (not just the in-memory snapshot) in case it was already created
+  // moments ago by a concurrent refresh, before creating a new one.
+  const freshRows = await supabaseRest<Array<{ id: string; week_number: number }>>("b36_scoring_weeks", { query: { select: "id,week_number", week_number: `eq.${weekNumber}`, limit: "1" } });
+  if (freshRows[0]) { const row = { id: freshRows[0].id, weekNumber: freshRows[0].week_number }; weeks.push(row); return row; }
+  const created = await supabaseRest<Array<{ id: string; week_number: number }>>("b36_scoring_weeks", { method: "POST", body: { week_number: weekNumber, label: `Week ${weekNumber}`, status: "OPEN" } });
+  const row = { id: created[0].id, weekNumber: created[0].week_number };
+  weeks.push(row);
+  return row;
+}
+
 // /plays only populates once a game finishes, so it's useless for detecting scoring as it happens.
 // /live/plays has the real in-progress data, but nests plays under drives with a different shape
 // (no offense/defense/gameId/scoring fields) — this adapts it into the shape mapLivePlayToCandidates
@@ -87,7 +105,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
         debugEntry.legacyPlayCount = legacyPlays.length;
         const existingRows = await supabaseRest<Array<{ source_event_key: string | null }>>("b36_scoring_events", { query: { select: "source_event_key", source_game_id: `eq.${game.id}`, audit_action: "eq.ENTRY" } });
         const knownLiveKeys = new Set(existingRows.filter(row => row.source_event_key).map(row => row.source_event_key));
-        const weekRow = snapshot.weeks.find(item => item.weekNumber === game.week);
+        const weekRow = await ensureWeekRow(game.week, snapshot.weeks);
         debugEntry.weekRowFound = Boolean(weekRow);
         debugEntry.availableWeekNumbers = snapshot.weeks.map(item => item.weekNumber);
         let candidateCount = 0, insertedForGame = 0, skippedNoSlot = 0;
@@ -101,7 +119,6 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
             if (knownLiveKeys.has(candidate.sourceEventKey)) continue;
             const slot = selectedSchoolPositions.find(selection => selection.schoolName === candidate.schoolName && selection.position === candidate.position);
             if (!slot) { skippedNoSlot += 1; continue; }
-            if (!weekRow) continue;
             const rules = await getScoringRulesForEvent(candidate.eventType as never);
             const score = calculateEventScore(rules, { eventType: candidate.eventType as never, position: candidate.position, statValue: candidate.statValue, yardDistance: candidate.yardDistance });
             await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: weekRow.id, draft_slot_id: slot.draftSlotId, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points, note: `${candidate.note} (live)`, audit_action: "ENTRY", recorded_by_open_id: "cfbd-live-detection", source_event_key: candidate.sourceEventKey, source_game_id: game.id, is_provisional: true } });
@@ -122,8 +139,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
       const schools = Array.from(new Set<string>(games.flatMap(game => [game.homeTeam, game.awayTeam]).filter(school => selectedSchoolPositions.some(selection => selection.schoolName === school))));
       const rosterEntries: Array<[string, CfbdRosterAthlete[]]> = await Promise.all(schools.map(async school => [school, await getRoster(school, config.season)]));
       const rosters = new Map<string, CfbdRosterAthlete[]>(rosterEntries);
-      const weekRow = snapshot.weeks.find(item => item.weekNumber === week);
-      if (!weekRow) continue;
+      const weekRow = await ensureWeekRow(week, snapshot.weeks);
       const eventRows = await supabaseRest<SourceEvent[]>("b36_scoring_events", { query: { select: "id,source_event_key,source_game_id,audit_action,week_id,draft_slot_id,event_type,stat_value,yard_distance,computed_points,is_provisional", source_game_id: `in.(${games.map(game => game.id).join(",")})` } });
       const knownKeys = new Set(eventRows.filter(row => row.source_event_key && row.audit_action !== "REVERSAL").map(row => row.source_event_key));
       const reversedKeys = new Set(eventRows.filter(row => row.audit_action === "REVERSAL" && row.source_event_key).map(row => row.source_event_key));
