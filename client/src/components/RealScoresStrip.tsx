@@ -30,7 +30,7 @@ export default function RealScoresStrip({ compact = false, scope = "league" }: {
           <div className="flex items-center justify-between"><span className="truncate text-sm font-bold">{game.awayTeam}</span><span className="font-display text-lg font-extrabold tabular-nums">{game.awayPoints}</span></div>
           <div className="flex items-center justify-between"><span className="truncate text-sm font-bold">{game.homeTeam}</span><span className="font-display text-lg font-extrabold tabular-nums">{game.homePoints}</span></div>
         </div>
-        {(game.homeOwners.length || game.awayOwners.length) ? <div className="mt-2.5 space-y-0.5">{game.awayOwners.map((o, i) => <p key={`away-${i}`} className="text-[11px] text-muted-foreground">{o.teamName} ({o.position}) · {game.awayTeam}</p>)}{game.homeOwners.map((o, i) => <p key={`home-${i}`} className="text-[11px] text-muted-foreground">{o.teamName} ({o.position}) · {game.homeTeam}</p>)}</div> : null}
+        {(game.homeOwners.length || game.awayOwners.length) ? <div className="mt-2.5 space-y-0.5">{game.awayOwners.map((o, i) => <p key={`away-${i}`} className="text-[11px] text-muted-foreground">{game.awayTeam} ({o.position}) - {o.teamName}</p>)}{game.homeOwners.map((o, i) => <p key={`home-${i}`} className="text-[11px] text-muted-foreground">{game.homeTeam} ({o.position}) - {o.teamName}</p>)}</div> : null}
         {game.status === "in_progress" || game.status === "completed" ? <p className="mt-2 text-[11px] font-bold text-primary">View play-by-play →</p> : null}
       </Link>)}
     </div> : <div className="p-8 text-center text-sm text-muted-foreground">{scope === "all" ? "No FBS games scheduled this week." : "No games involving drafted schools this week."}</div>}
