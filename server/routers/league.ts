@@ -50,6 +50,12 @@ export const leagueRouter = router({
   snapshot: publicProcedure.query(() => getLeagueSnapshot()),
   liveScores: publicProcedure.input(z.object({ scope: z.enum(["league", "all"]).default("league"), week: z.number().int().min(0).max(20).optional() }).optional()).query(async ({ input }) => {
     const asText = (value: unknown): string | null => typeof value === "string" && value.length > 0 ? value : null;
+    const asNumber = (value: unknown): number | null => {
+      if (typeof value === "number" && Number.isFinite(value)) return value;
+      if (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) return Number(value);
+      return null;
+    };
+    const sumLineScores = (value: unknown): number | null => Array.isArray(value) ? value.reduce((sum: number | null, entry) => { const n = asNumber(entry); return n === null ? sum : (sum ?? 0) + n; }, null) : null;
     const [scoreboard, league, automationRows] = await Promise.all([getLiveScoreboard(), getLeagueSnapshot(), supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } })]);
     const season = automationRows[0]?.season;
     const scheduleGames = season ? await getRegularSeasonGames(season) : [];
@@ -72,10 +78,10 @@ export const leagueRouter = router({
       const status = asText(live?.status) ?? (game.completed ? "completed" : "scheduled");
       return {
         id: game.id, week: game.week, startDate: game.startDate, status,
-        period: typeof live?.period === "number" ? live.period : null, clock: asText(live?.clock),
+        period: asNumber(live?.period), clock: asText(live?.clock),
         homeTeam, awayTeam,
-        homePoints: typeof live?.homePoints === "number" ? live.homePoints : (typeof game.homePoints === "number" ? game.homePoints : 0),
-        awayPoints: typeof live?.awayPoints === "number" ? live.awayPoints : (typeof game.awayPoints === "number" ? game.awayPoints : 0),
+        homePoints: asNumber(live?.homePoints) ?? sumLineScores(live?.homeLineScores) ?? asNumber(game.homePoints) ?? 0,
+        awayPoints: asNumber(live?.awayPoints) ?? sumLineScores(live?.awayLineScores) ?? asNumber(game.awayPoints) ?? 0,
       };
     });
     const scoped = input?.scope === "all" ? resolved : resolved.filter(game => ownersBySchool.has(game.homeTeam.toLowerCase()) || ownersBySchool.has(game.awayTeam.toLowerCase()));
