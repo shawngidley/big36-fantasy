@@ -78,30 +78,41 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
     // These insert as provisional events; once the game completes, the existing final-reconciliation
     // pass below naturally supersedes them (its keys differ, so old provisional entries get reversed
     // and replaced with the official confirmed ones — no double-counting).
+    const liveDebug: Array<Record<string, unknown>> = [];
     for (const game of trulyInProgress) {
+      const debugEntry: Record<string, unknown> = { gameId: game.id, homeTeam: game.homeTeam, awayTeam: game.awayTeam, week: game.week };
       try {
         const live = await getLivePlays(game.id);
         const legacyPlays = adaptLiveGameToLegacyPlays(game.id, live);
+        debugEntry.legacyPlayCount = legacyPlays.length;
         const existingRows = await supabaseRest<Array<{ source_event_key: string | null }>>("b36_scoring_events", { query: { select: "source_event_key", source_game_id: `eq.${game.id}`, audit_action: "eq.ENTRY" } });
         const knownLiveKeys = new Set(existingRows.filter(row => row.source_event_key).map(row => row.source_event_key));
+        const weekRow = snapshot.weeks.find(item => item.weekNumber === game.week);
+        debugEntry.weekRowFound = Boolean(weekRow);
+        debugEntry.availableWeekNumbers = snapshot.weeks.map(item => item.weekNumber);
+        let candidateCount = 0, insertedForGame = 0, skippedNoSlot = 0;
         for (const school of [game.homeTeam, game.awayTeam]) {
           if (!selectedSchoolPositions.some(selection => selection.schoolName === school)) continue;
           const roster = await getRoster(school, config.season);
           const schoolPlays = legacyPlays.filter((play, index) => play.offense === school && !isSupersededInterceptionPlay(play, legacyPlays[index + 1]));
           const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: [], roster, selectedSchoolPositions: selectedSchoolPositions.map(selection => ({ schoolName: selection.schoolName, position: selection.position })), provisional: true }));
+          candidateCount += candidates.length;
           for (const candidate of candidates) {
             if (knownLiveKeys.has(candidate.sourceEventKey)) continue;
             const slot = selectedSchoolPositions.find(selection => selection.schoolName === candidate.schoolName && selection.position === candidate.position);
-            if (!slot) continue;
-            const weekRow = snapshot.weeks.find(item => item.weekNumber === game.week);
+            if (!slot) { skippedNoSlot += 1; continue; }
             if (!weekRow) continue;
             const rules = await getScoringRulesForEvent(candidate.eventType as never);
             const score = calculateEventScore(rules, { eventType: candidate.eventType as never, position: candidate.position, statValue: candidate.statValue, yardDistance: candidate.yardDistance });
             await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: weekRow.id, draft_slot_id: slot.draftSlotId, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points, note: `${candidate.note} (live)`, audit_action: "ENTRY", recorded_by_open_id: "cfbd-live-detection", source_event_key: candidate.sourceEventKey, source_game_id: game.id, is_provisional: true } });
-            knownLiveKeys.add(candidate.sourceEventKey); insertedEvents += 1;
+            knownLiveKeys.add(candidate.sourceEventKey); insertedEvents += 1; insertedForGame += 1;
           }
         }
-      } catch { /* one game's live feed failing shouldn't block the rest of the refresh */ }
+        debugEntry.candidateCount = candidateCount; debugEntry.insertedForGame = insertedForGame; debugEntry.skippedNoSlot = skippedNoSlot; debugEntry.alreadyKnownCount = knownLiveKeys.size;
+      } catch (error) {
+        debugEntry.error = error instanceof Error ? error.message : String(error);
+      }
+      liveDebug.push(debugEntry);
     }
 
     const byWeek = new Map<number, CfbdGame[]>();
@@ -164,8 +175,8 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
         }
       }
     }
-    await writeRefreshStatus({ last_refresh_status: "ok", last_refresh_detail: { active_games: trulyInProgress.length, relevant_games: relevantGames.length, inserted_events: insertedEvents, team_count: schedule.teamCount } });
-    return { activeGames: trulyInProgress.length, relevantGames: relevantGames.length, insertedEvents, teamCount: schedule.teamCount };
+    await writeRefreshStatus({ last_refresh_status: "ok", last_refresh_detail: { active_games: trulyInProgress.length, relevant_games: relevantGames.length, inserted_events: insertedEvents, team_count: schedule.teamCount, live_debug: liveDebug } });
+    return { activeGames: trulyInProgress.length, relevantGames: relevantGames.length, insertedEvents, teamCount: schedule.teamCount, liveDebug };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown gameday refresh failure";
     await writeRefreshStatus({ last_refresh_status: "error", last_refresh_detail: { message } });
