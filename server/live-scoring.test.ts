@@ -26,6 +26,19 @@ describe("36 Football automatic scoring map", () => {
     const candidates = mapLivePlayToCandidates({ play: { id: 552, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Pass Interception Return", playText: "A. Manning pass intercepted by Defender" }, stats: [], roster: [{ id: 1, firstName: "Arch", lastName: "Manning", position: "QB" }], selectedSchoolPositions: [{ schoolName: "Ohio State", position: "QB" }] });
     expect(candidates).toEqual([expect.objectContaining({ position: "QB", eventType: "INTERCEPTION_THROWN", sourceEventKey: "552:INTERCEPTION_THROWN:QB" })]);
   });
+  it("credits the intercepting defense's DEF unit from play text alone when no player-stat rows are available yet (live games)", () => {
+    const candidates = mapLivePlayToCandidates({ play: { id: 553, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Pass Interception Return", playText: "A. Manning pass intercepted by Defender, returned 12 yards" }, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Opponent", position: "DEF" }] });
+    expect(candidates).toEqual([expect.objectContaining({ schoolName: "Opponent", position: "DEF", eventType: "DEFENSIVE_TURNOVER", sourceEventKey: "553:DEFENSIVE_TURNOVER:unit" })]);
+  });
+  it("credits a sack to the defense's DEF unit from play text alone when no player-stat rows are available yet", () => {
+    const candidates = mapLivePlayToCandidates({ play: { id: 554, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Sack", playText: "A. Manning sacked for a loss of 7 yards" }, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Opponent", position: "DEF" }] });
+    expect(candidates).toEqual([expect.objectContaining({ schoolName: "Opponent", position: "DEF", eventType: "SACK", sourceEventKey: "554:SACK:unit" })]);
+  });
+  it("does not double-credit a defensive turnover from text when official player-stat rows are already present", () => {
+    const candidates = mapLivePlayToCandidates({ play: { id: 555, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Pass Interception Return", playText: "A. Manning pass intercepted by #4 Defender" }, stats: [{ playId: 555, athleteId: 9, team: "Opponent", statType: "Interception", stat: 1 }], roster: [{ id: 9, position: "DEF" }], selectedSchoolPositions: [{ schoolName: "Opponent", position: "DEF" }] });
+    expect(candidates.filter(candidate => candidate.eventType === "DEFENSIVE_TURNOVER")).toHaveLength(1);
+    expect(candidates.find(candidate => candidate.eventType === "DEFENSIVE_TURNOVER")?.sourceEventKey).toBe("555:DEFENSIVE_TURNOVER:9");
+  });
   it("recognizes alternative pass-from wording while excluding interception returns and nullified touchdowns", () => {
     const roster = [{ id: 1, firstName: "Sawyer", lastName: "Robertson", position: "QB" }, { id: 2, firstName: "Kobe", lastName: "Prentice", position: "WR" }];
     const selectedSchoolPositions = [{ schoolName: "Baylor", position: "QB" as const }, { schoolName: "Baylor", position: "WR" as const }];

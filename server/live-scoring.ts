@@ -159,7 +159,7 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   if (eligibleSelection(schoolName, "K_ST") && mentionsFieldGoal && !fieldGoalMissedOrBlocked) candidates.push({ sourceEventKey: `${play.id}:FIELD_GOAL:K_ST`, sourceGameId: play.gameId, schoolName, position: "K_ST", eventType: "FIELD_GOAL", statValue: 1, yardDistance: play.yardsGained ?? null, provisional, note: `CFBD play ${play.id} · made field goal` });
   if (eligibleSelection(schoolName, "K_ST") && hasMadePat(play.playType, play.playText)) candidates.push({ sourceEventKey: `${play.id}:EXTRA_POINT:K_ST`, sourceGameId: play.gameId, schoolName, position: "K_ST", eventType: "EXTRA_POINT", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · made PAT` });
   const defensiveSchool = play.defense;
-  const defensiveStats = scoringStats.filter(stat => normalizeSchoolForComparison(stat.team) === normalizeSchoolForComparison(defensiveSchool));
+  const defensiveStats = input.stats.filter(stat => normalizeSchoolForComparison(stat.team) === normalizeSchoolForComparison(defensiveSchool) && Number(stat.stat) !== 0);
   const playText = `${play.playType ?? ""} ${play.playText ?? ""}`.toLowerCase();
   const specialTeamsPlay = isSpecialTeamsPlayType(play.playType);
   const defensiveCandidate = (eventType: string, stat: CfbdPlayStat, position: LivePosition, distance: number | null = null) => ({ sourceEventKey: `${play.id}:${eventType}:${stat.athleteId}`, sourceGameId: play.gameId, schoolName: defensiveSchool, position, eventType, statValue: 1, yardDistance: distance, provisional, note: `CFBD play ${play.id} · ${stat.statType}` } satisfies ScoringCandidate);
@@ -176,6 +176,20 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
     if (eligibleSelection(defensiveSchool, "DEF") && type.includes("sack")) candidates.push(defensiveCandidate("SACK", stat, "DEF"));
     if (eligibleSelection(defensiveSchool, "DEF") && (type.includes("interception") || type.includes("fumble recovery"))) candidates.push(defensiveCandidate("DEFENSIVE_TURNOVER", stat, "DEF"));
     if (play.scoring && !specialTeamsPlay && eligibleSelection(defensiveSchool, "DEF") && type.includes("touchdown")) candidates.push(defensiveCandidate("DEFENSIVE_TOUCHDOWN", stat, "DEF", play.yardsGained ?? null));
+  }
+  // Live play data has no player-level stats to drive the loop above (only the final, post-game feed
+  // does) — so defensive credit needs a text-based fallback here too, the same way offensive
+  // touchdowns already do. Only fires when no structured stat already matched, to avoid double-crediting
+  // once official stats do become available after the game.
+  if (defensiveStats.length === 0 && eligibleSelection(defensiveSchool, "DEF")) {
+    const isSackPlay = /\bsack(ed)?\b/.test(playText) && !isInvalidated;
+    // Interceptions are reliably flagged by playType alone. Fumbles are left to the final,
+    // stats-based pass — play text alone can't reliably tell which team recovered a fumble, so a
+    // text-only fumble check here would be too unreliable to trust; better a short delay than a
+    // wrong credit.
+    const isTurnoverPlay = isInterceptionReturn && !isInvalidated;
+    if (isSackPlay) candidates.push({ sourceEventKey: `${play.id}:SACK:unit`, sourceGameId: play.gameId, schoolName: defensiveSchool, position: "DEF", eventType: "SACK", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · sack (text match)` });
+    if (isTurnoverPlay) candidates.push({ sourceEventKey: `${play.id}:DEFENSIVE_TURNOVER:unit`, sourceGameId: play.gameId, schoolName: defensiveSchool, position: "DEF", eventType: "DEFENSIVE_TURNOVER", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · turnover (text match)` });
   }
   const specialTeamType = specialTeamsTouchdownType(play.playType);
   if (specialTeamType && eligibleSelection(schoolName, "K_ST")) {
