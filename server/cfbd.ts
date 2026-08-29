@@ -63,4 +63,7 @@ export const getLiveScoreboard = () => cachedCfbdGet<CfbdScoreboardGame[]>("/sco
 // a longer cache window here meaningfully cuts call volume during high-traffic Saturday windows.
 export const getWeekPlays = (year: number, week: number) => cachedCfbdGet<CfbdPlay[]>("/plays", { year, week, seasonType: "regular" }, 45_000);
 export const getWeekPlayStats = (year: number, week: number) => cachedCfbdGet<CfbdPlayStat[]>("/plays/stats", { year, week, seasonType: "regular" }, 45_000);
-export const getRoster = (team: string, year: number) => cachedCfbdGet<CfbdRosterAthlete[]>("/roster", { team, year }, 60 * 60_000);
+// Rosters barely change during a season — a short cache here was the single biggest driver of
+// API call volume (89% of total usage in practice). A day-long cache is still fully correct for
+// our purposes (mapping players to positions) while cutting that volume by roughly 24x.
+export const getRoster = (team: string, year: number) => cachedCfbdGet<CfbdRosterAthlete[]>("/roster", { team, year }, 24 * 60 * 60_000);
