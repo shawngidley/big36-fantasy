@@ -101,10 +101,7 @@ export const leagueRouter = router({
     return { week: targetWeek, currentWeek, availableWeeks, games };
   }),
   gameDetail: publicProcedure.input(z.object({ gameId: z.number(), week: z.number() })).query(async ({ input }) => {
-    const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
-    const season = automationRows[0]?.season;
-    if (!season) throw new Error("Season is not configured yet.");
-    const [plays, league] = await Promise.all([getWeekPlays(season, input.week), getLeagueSnapshot()]);
+    const [live, league] = await Promise.all([getLivePlays(input.gameId), getLeagueSnapshot()]);
     const ownersBySchool = new Map<string, Array<{ teamName: string; position: string }>>();
     for (const owner of league.owners) for (const pick of owner.picks) {
       const key = pick.schoolName.toLowerCase();
@@ -112,15 +109,24 @@ export const leagueRouter = router({
       ownersBySchool.get(key)!.push({ teamName: owner.teamName, position: pick.position === "K_ST" ? "K/ST" : pick.position });
     }
     Array.from(ownersBySchool.values()).forEach(list => list.sort((a, b) => positionOrder.indexOf(a.position) - positionOrder.indexOf(b.position)));
-    return plays.filter(play => play.gameId === input.gameId).map(play => ({
-      id: play.id,
-      period: play.period ?? null,
-      clock: play.clock ? `${play.clock.minutes ?? 0}:${String(play.clock.seconds ?? 0).padStart(2, "0")}` : null,
-      offense: play.offense, defense: play.defense,
-      playType: play.playType ?? "Play", playText: play.playText ?? "", scoring: play.scoring,
-      offenseOwners: ownersBySchool.get(play.offense.toLowerCase()) ?? [],
-      defenseOwners: ownersBySchool.get(play.defense.toLowerCase()) ?? [],
-    }));
+    // Plays are nested under each drive, in chronological order. Flatten them, and figure out the
+    // defense for each play as "whichever of the two teams isn't currently on offense" — the live
+    // feed only labels the team running the play, not who's defending.
+    const teamNames = (live?.teams ?? []).map(team => team.team);
+    let previousHome = 0, previousAway = 0;
+    const plays = (live?.drives ?? []).flatMap(drive => drive.plays).map(play => {
+      const scoring = play.homeScore !== previousHome || play.awayScore !== previousAway;
+      previousHome = play.homeScore; previousAway = play.awayScore;
+      const defense = teamNames.find(name => name !== play.team) ?? "";
+      return {
+        id: play.id, period: play.period ?? null, clock: play.clock || null,
+        offense: play.team, defense,
+        playType: play.playType ?? "Play", playText: play.playText ?? "", scoring,
+        offenseOwners: ownersBySchool.get(play.team.toLowerCase()) ?? [],
+        defenseOwners: ownersBySchool.get(defense.toLowerCase()) ?? [],
+      };
+    });
+    return plays;
   }),
   draftLottery: publicProcedure.query(() => getPublicDraftLottery()),
   draftLotterySchedule: publicProcedure.query(() => getDraftLotterySchedule()),

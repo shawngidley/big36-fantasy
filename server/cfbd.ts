@@ -53,6 +53,12 @@ export type CfbdTeam = { id: number; school: string; conference?: string | null;
 export type CfbdGame = { id: number; season: number; week: number; seasonType: string; startDate: string; completed: boolean; homeTeam: string; awayTeam: string; homeClassification?: string | null; awayClassification?: string | null; homePoints?: number | null; awayPoints?: number | null };
 export type CfbdPlay = { id: number; gameId: number; driveId?: string | null; playNumber?: number | null; offense: string; defense: string; yardsToGoal?: number | null; yardsGained?: number | null; scoring: boolean; playType?: string | null; playText?: string | null; period?: number | null; clock?: { minutes?: number; seconds?: number } | null };
 export type CfbdPlayStat = { playId: number; athleteId: number; athleteName?: string | null; team: string; statType: string; stat: number | string; yardsToGoal?: number | null };
+// The actual live /live/plays shape: one game object, with plays nested under each drive — not a flat
+// array like /plays. There's no explicit "scoring" flag on a play here; it must be inferred from the
+// score changing between plays.
+export type CfbdLiveGamePlay = { id: string; homeScore: number; awayScore: number; period: number; clock: string; wallClock?: string; teamId: number; team: string; down?: number | null; distance?: number | null; yardsToGoal?: number | null; yardsGained?: number | null; playType?: string | null; playText?: string | null };
+export type CfbdLiveDrive = { id: string; offense: string; defense: string; plays: CfbdLiveGamePlay[] };
+export type CfbdLiveGame = { id: number; status?: string | null; period?: number | null; clock?: string | null; teams: Array<{ team: string; homeAway: "home" | "away"; points: number }>; drives: CfbdLiveDrive[] };
 export type CfbdRosterAthlete = { id: number; firstName?: string | null; lastName?: string | null; position: string; team?: string | null };
 export type CfbdScoreboardGame = { id: number; status?: string | null; period?: number | null; clock?: string | null; homeTeam?: { name?: string | null; points?: number | string | null; lineScores?: Array<number | string> | null } | null; awayTeam?: { name?: string | null; points?: number | string | null; lineScores?: Array<number | string> | null } | null; week?: number | null; season?: number | null };
 
@@ -63,7 +69,8 @@ export const getLiveScoreboard = () => cachedCfbdGet<CfbdScoreboardGame[]>("/sco
 // a longer cache window here meaningfully cuts call volume during high-traffic Saturday windows.
 export const getWeekPlays = (year: number, week: number) => cachedCfbdGet<CfbdPlay[]>("/plays", { year, week, seasonType: "regular" }, 45_000);
 // The actual live, in-progress play feed — /plays only populates after a game finishes, per CFBD support.
-export const getLivePlays = (gameId: number) => cachedCfbdGet<CfbdPlay[]>("/live/plays", { gameId }, 15_000);
+// Returns one game object with plays nested under drives, not a flat array.
+export const getLivePlays = (gameId: number) => cachedCfbdGet<CfbdLiveGame>("/live/plays", { gameId }, 15_000);
 export const getWeekPlayStats = (year: number, week: number) => cachedCfbdGet<CfbdPlayStat[]>("/plays/stats", { year, week, seasonType: "regular" }, 45_000);
 // Rosters barely change during a season — a short cache here was the single biggest driver of
 // API call volume (89% of total usage in practice). A day-long cache is still fully correct for
