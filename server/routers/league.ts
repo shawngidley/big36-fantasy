@@ -16,7 +16,7 @@ import { decodeRegistrationLogo, hashRegistrationPin, normalizeRegistrationEmail
 import { storagePut } from "../storage";
 import { notifyOwnerWhenUpcomingPickSafely, sendDraftSms } from "../draft-alerts";
 import { activateNextPendingTurn } from "../draft-clock";
-import { getLiveScoreboard } from "../cfbd";
+import { getLiveScoreboard, getRegularSeasonGames } from "../cfbd";
 import { lotteryCommitment, LOTTERY_REVEAL_INTERVAL_SECONDS, secureShuffle } from "../draft-lottery";
 
 const positionSchema = z.enum(positions);
@@ -49,20 +49,26 @@ type RegistrationRow = { id: string; display_name: string; team_name: string; ni
 export const leagueRouter = router({
   snapshot: publicProcedure.query(() => getLeagueSnapshot()),
   liveScores: publicProcedure.input(z.object({ scope: z.enum(["league", "all"]).default("league") }).optional()).query(async ({ input }) => {
-    const [scoreboard, league] = await Promise.all([getLiveScoreboard(), getLeagueSnapshot()]);
+    const asText = (value: unknown): string | null => typeof value === "string" && value.length > 0 ? value : null;
+    const [scoreboard, league, automationRows] = await Promise.all([getLiveScoreboard(), getLeagueSnapshot(), supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } })]);
+    const season = automationRows[0]?.season;
+    const scheduleGames = season ? await getRegularSeasonGames(season) : [];
+    const scheduleById = new Map(scheduleGames.filter(game => game.id != null).map(game => [game.id, game]));
     const ownersBySchool = new Map<string, Array<{ teamName: string; position: string }>>();
     for (const owner of league.owners) for (const pick of owner.picks) {
       const key = pick.schoolName.toLowerCase();
       if (!ownersBySchool.has(key)) ownersBySchool.set(key, []);
       ownersBySchool.get(key)!.push({ teamName: owner.teamName, position: pick.position === "K_ST" ? "K/ST" : pick.position });
     }
-    const scoped = input?.scope === "all" ? scoreboard : scoreboard.filter(game => (game.homeTeam && ownersBySchool.has(game.homeTeam.toLowerCase())) || (game.awayTeam && ownersBySchool.has(game.awayTeam.toLowerCase())));
+    const resolved = scoreboard.map(game => {
+      const scheduled = scheduleById.get(game.id);
+      const homeTeam = asText(game.homeTeam) ?? asText(scheduled?.homeTeam) ?? "TBD";
+      const awayTeam = asText(game.awayTeam) ?? asText(scheduled?.awayTeam) ?? "TBD";
+      return { id: game.id, status: asText(game.status) ?? "scheduled", period: typeof game.period === "number" ? game.period : null, clock: asText(game.clock), homeTeam, awayTeam, homePoints: typeof game.homePoints === "number" ? game.homePoints : 0, awayPoints: typeof game.awayPoints === "number" ? game.awayPoints : 0 };
+    });
+    const scoped = input?.scope === "all" ? resolved : resolved.filter(game => ownersBySchool.has(game.homeTeam.toLowerCase()) || ownersBySchool.has(game.awayTeam.toLowerCase()));
     return scoped
-      .map(game => ({
-        id: game.id, status: game.status ?? "scheduled", period: game.period ?? null, clock: game.clock ?? null,
-        homeTeam: game.homeTeam ?? "TBD", awayTeam: game.awayTeam ?? "TBD", homePoints: game.homePoints ?? 0, awayPoints: game.awayPoints ?? 0,
-        homeOwners: ownersBySchool.get((game.homeTeam ?? "").toLowerCase()) ?? [], awayOwners: ownersBySchool.get((game.awayTeam ?? "").toLowerCase()) ?? [],
-      }))
+      .map(game => ({ ...game, homeOwners: ownersBySchool.get(game.homeTeam.toLowerCase()) ?? [], awayOwners: ownersBySchool.get(game.awayTeam.toLowerCase()) ?? [] }))
       .sort((a, b) => (a.status === "in_progress" ? 0 : 1) - (b.status === "in_progress" ? 0 : 1));
   }),
   draftLottery: publicProcedure.query(() => getPublicDraftLottery()),
