@@ -20,6 +20,7 @@ import { getLiveScoreboard, getRegularSeasonGames, getWeekPlays } from "../cfbd"
 import { lotteryCommitment, LOTTERY_REVEAL_INTERVAL_SECONDS, secureShuffle } from "../draft-lottery";
 
 const positionSchema = z.enum(positions);
+const positionOrder = ["QB", "RB", "WR", "TE", "K/ST", "DEF"];
 const eventTypeSchema = z.enum(scoringEventTypes);
 const uuid = z.string().uuid();
 const asError = (error: unknown): never => { throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "The requested Big 36 action could not be completed." }); };
@@ -66,6 +67,7 @@ export const leagueRouter = router({
       if (!ownersBySchool.has(key)) ownersBySchool.set(key, []);
       ownersBySchool.get(key)!.push({ teamName: owner.teamName, position: pick.position === "K_ST" ? "K/ST" : pick.position });
     }
+    Array.from(ownersBySchool.values()).forEach(list => list.sort((a, b) => positionOrder.indexOf(a.position) - positionOrder.indexOf(b.position)));
     const availableWeeks = Array.from(new Set(scheduleGames.map(game => game.week))).sort((a, b) => a - b);
     const now = Date.now();
     const currentWeek = availableWeeks.reduce((best, week) => scheduleGames.some(game => game.week === week && new Date(game.startDate).getTime() <= now) ? week : best, availableWeeks[0] ?? 1);
@@ -109,6 +111,7 @@ export const leagueRouter = router({
       if (!ownersBySchool.has(key)) ownersBySchool.set(key, []);
       ownersBySchool.get(key)!.push({ teamName: owner.teamName, position: pick.position === "K_ST" ? "K/ST" : pick.position });
     }
+    Array.from(ownersBySchool.values()).forEach(list => list.sort((a, b) => positionOrder.indexOf(a.position) - positionOrder.indexOf(b.position)));
     return plays.filter(play => play.gameId === input.gameId).map(play => ({
       id: play.id,
       period: play.period ?? null,
