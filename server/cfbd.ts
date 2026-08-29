@@ -8,11 +8,29 @@ function apiKey() {
 
 export async function cfbdGet<T>(path: string, query: Record<string, string | number | undefined> = {}): Promise<T> {
   const params = new URLSearchParams(Object.entries(query).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)]));
-  const response = await fetch(`${CFBD_BASE_URL}${path}${params.size ? `?${params}` : ""}`, { headers: { Authorization: `Bearer ${apiKey()}`, Accept: "application/json" } });
-  const text = await response.text();
-  const payload = text ? JSON.parse(text) : null;
-  if (!response.ok) throw new Error(payload?.message ?? `CollegeFootballData ${path} failed (${response.status}).`);
-  return payload as T;
+  const url = `${CFBD_BASE_URL}${path}${params.size ? `?${params}` : ""}`;
+  const maxAttempts = 3;
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const response = await fetch(url, { headers: { Authorization: `Bearer ${apiKey()}`, Accept: "application/json" } });
+      const text = await response.text();
+      const payload = text ? JSON.parse(text) : null;
+      if (!response.ok) {
+        // 502/503/504 usually mean CFBD's servers are briefly overloaded (common during peak Saturday
+        // traffic with many simultaneous live games) — worth a quick retry. Other errors (auth, bad
+        // request) won't be fixed by retrying, so fail immediately instead of wasting time.
+        if ([502, 503, 504].includes(response.status) && attempt < maxAttempts) { await new Promise(resolve => setTimeout(resolve, 300 * attempt)); continue; }
+        throw new Error(payload?.message ?? `CollegeFootballData ${path} failed (${response.status}).`);
+      }
+      return payload as T;
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxAttempts && error instanceof TypeError) { await new Promise(resolve => setTimeout(resolve, 300 * attempt)); continue; }
+      throw error;
+    }
+  }
+  throw lastError;
 }
 
 // Many owners can have the site open at once, each polling for live updates. Without this cache,
