@@ -73,15 +73,19 @@ export const leagueRouter = router({
     const weekGames = scheduleGames.filter(game => game.week === targetWeek);
     const resolved = weekGames.map(game => {
       const live = scoreboardById.get(game.id);
-      const homeTeam = asText(live?.homeTeam) ?? asText(game.homeTeam) ?? "TBD";
-      const awayTeam = asText(live?.awayTeam) ?? asText(game.awayTeam) ?? "TBD";
+      // The live scoreboard nests team info under homeTeam/awayTeam objects with full mascot names
+      // (e.g. "TCU Horned Frogs") that won't match drafted school names (e.g. "TCU"). The season
+      // schedule uses the short names owners actually drafted, so that stays the source of truth
+      // for names/matching — only points and quarter-by-quarter scores are read from the live side.
+      const homeTeam = asText(game.homeTeam) ?? asText(live?.homeTeam?.name) ?? "TBD";
+      const awayTeam = asText(game.awayTeam) ?? asText(live?.awayTeam?.name) ?? "TBD";
       const status = asText(live?.status) ?? (game.completed ? "completed" : "scheduled");
       return {
         id: game.id, week: game.week, startDate: game.startDate, status,
         period: asNumber(live?.period), clock: asText(live?.clock),
         homeTeam, awayTeam,
-        homePoints: asNumber(live?.homePoints) ?? sumLineScores(live?.homeLineScores) ?? asNumber(game.homePoints) ?? 0,
-        awayPoints: asNumber(live?.awayPoints) ?? sumLineScores(live?.awayLineScores) ?? asNumber(game.awayPoints) ?? 0,
+        homePoints: asNumber(live?.homeTeam?.points) ?? sumLineScores(live?.homeTeam?.lineScores) ?? asNumber(game.homePoints) ?? 0,
+        awayPoints: asNumber(live?.awayTeam?.points) ?? sumLineScores(live?.awayTeam?.lineScores) ?? asNumber(game.awayPoints) ?? 0,
       };
     });
     const scoped = input?.scope === "all" ? resolved : resolved.filter(game => ownersBySchool.has(game.homeTeam.toLowerCase()) || ownersBySchool.has(game.awayTeam.toLowerCase()));
