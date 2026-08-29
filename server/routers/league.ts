@@ -12,11 +12,13 @@ import { issueOwnerSession, OWNER_SESSION_COOKIE, OWNER_SESSION_MS } from "../co
 import { yearOneRules } from "../year-one-rules";
 import { runGamedayRefresh } from "../gameday-refresh";
 import { syncFbsPoolAndSchedule } from "../gameday-refresh";
+import { adaptLiveGameToLegacyPlays } from "../gameday-refresh";
+import { mapLivePlayToCandidates } from "../live-scoring";
 import { decodeRegistrationLogo, hashRegistrationPin, normalizeRegistrationEmail, normalizeRegistrationPhone, verifyRegistrationPin } from "../registration";
 import { storagePut } from "../storage";
 import { notifyOwnerWhenUpcomingPickSafely, sendDraftSms } from "../draft-alerts";
 import { activateNextPendingTurn } from "../draft-clock";
-import { getLivePlays, getLiveScoreboard, getRegularSeasonGames, getWeekPlays } from "../cfbd";
+import { getLivePlays, getLiveScoreboard, getRegularSeasonGames, getRoster, getWeekPlays } from "../cfbd";
 import { lotteryCommitment, LOTTERY_REVEAL_INTERVAL_SECONDS, secureShuffle } from "../draft-lottery";
 
 const positionSchema = z.enum(positions);
@@ -307,6 +309,15 @@ export const leagueRouter = router({
       return { totalPlays: plays.length, sample: plays.slice(0, 5), uniqueGameIds: Array.from(new Set(plays.map(play => play.gameId))).slice(0, 100) };
     }),
     debugLivePlays: adminProcedure.input(z.object({ gameId: z.number() })).query(({ input }) => getLivePlays(input.gameId)),
+    debugLiveCandidates: adminProcedure.input(z.object({ gameId: z.number(), school: z.string() })).query(async ({ input }) => {
+      const [live, league] = await Promise.all([getLivePlays(input.gameId), getLeagueSnapshot()]);
+      const selectedSchoolPositions = league.owners.flatMap(owner => owner.picks.map(pick => ({ schoolName: pick.schoolName, position: pick.position as never })));
+      const roster = await getRoster(input.school, (await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } }))[0]?.season ?? new Date().getFullYear());
+      const legacyPlays = adaptLiveGameToLegacyPlays(input.gameId, live);
+      const schoolPlays = legacyPlays.filter(play => play.offense === input.school);
+      const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: [], roster, selectedSchoolPositions, provisional: true }));
+      return { totalLegacyPlays: legacyPlays.length, schoolPlays: schoolPlays.length, scoringPlays: schoolPlays.filter(p => p.scoring), rosterSize: roster.length, rosterSample: roster.slice(0, 3), candidates };
+    }),
     paymentStatus: adminProcedure.query(async () => {
       const rows = await supabaseRest<Array<{ id: string; team_name: string; display_name: string; is_paid: boolean; paid_at: string | null }>>("b36_owners", { query: { select: "id,team_name,display_name,is_paid,paid_at", order: "display_name.asc" } });
       return rows.map(row => ({ ownerId: row.id, teamName: row.team_name, displayName: row.display_name, isPaid: row.is_paid, paidAt: row.paid_at }));

@@ -35,7 +35,7 @@ async function writeRefreshStatus(values: Record<string, unknown>) {
 // /live/plays has the real in-progress data, but nests plays under drives with a different shape
 // (no offense/defense/gameId/scoring fields) — this adapts it into the shape mapLivePlayToCandidates
 // already understands, so that function doesn't need to change at all.
-function adaptLiveGameToLegacyPlays(gameId: number, live: CfbdLiveGame): CfbdPlay[] {
+export function adaptLiveGameToLegacyPlays(gameId: number, live: CfbdLiveGame): CfbdPlay[] {
   const teamNames = (live.teams ?? []).map(team => team.team);
   let previousHome = 0, previousAway = 0;
   return (live.drives ?? []).flatMap(drive => drive.plays).map(play => {
