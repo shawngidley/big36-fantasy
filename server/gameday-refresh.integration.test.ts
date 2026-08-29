@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  getFbsTeams: vi.fn(), getLiveScoreboard: vi.fn(), getRegularSeasonGames: vi.fn(), getRoster: vi.fn(), getWeekPlays: vi.fn(), getWeekPlayStats: vi.fn(),
+  getFbsTeams: vi.fn(), getLiveScoreboard: vi.fn(), getRegularSeasonGames: vi.fn(), getRoster: vi.fn(), getWeekPlays: vi.fn(), getWeekPlayStats: vi.fn(), getLivePlays: vi.fn(),
   getLeagueSnapshot: vi.fn(), getScoringRulesForEvent: vi.fn(), calculateEventScore: vi.fn(), mapLivePlayToCandidates: vi.fn(), eligibleGameIdsForSchool: vi.fn(), finalShutoutCandidates: vi.fn(), isSupersededInterceptionPlay: vi.fn(), supabaseRest: vi.fn(),
 }));
 
 vi.mock("./cfbd", () => ({
   getFbsTeams: mocks.getFbsTeams, getLiveScoreboard: mocks.getLiveScoreboard, getRegularSeasonGames: mocks.getRegularSeasonGames,
-  getRoster: mocks.getRoster, getWeekPlays: mocks.getWeekPlays, getWeekPlayStats: mocks.getWeekPlayStats,
+  getRoster: mocks.getRoster, getWeekPlays: mocks.getWeekPlays, getWeekPlayStats: mocks.getWeekPlayStats, getLivePlays: mocks.getLivePlays,
 }));
 vi.mock("./league-data", () => ({ getLeagueSnapshot: mocks.getLeagueSnapshot, getScoringRulesForEvent: mocks.getScoringRulesForEvent }));
 vi.mock("./league-scoring", () => ({ calculateEventScore: mocks.calculateEventScore }));
@@ -47,6 +47,7 @@ describe("36 Football gameday source reconciliation", () => {
     mocks.isSupersededInterceptionPlay.mockReturnValue(false);
     mocks.getScoringRulesForEvent.mockResolvedValue([]);
     mocks.calculateEventScore.mockReturnValue({ points: 9 });
+    mocks.getLivePlays.mockResolvedValue({ teams: [], drives: [] });
   });
 
   it("keeps an unchanged final source event without a duplicate correction or reversal", async () => {
@@ -101,5 +102,26 @@ describe("36 Football gameday source reconciliation", () => {
 
     expect(result.relevantGames).toBe(2);
     expect(result.activeGames).toBe(1);
+  });
+
+  it("detects a scoring play from the live-plays feed for an in-progress game and inserts it as a provisional event, without waiting for the game to finish", async () => {
+    const liveGame = { ...game, id: 301, completed: false, status: "in_progress" };
+    mocks.getRegularSeasonGames.mockResolvedValue([liveGame]);
+    mocks.getLiveScoreboard.mockResolvedValue([liveGame]);
+    mocks.getLivePlays.mockResolvedValue({
+      teams: [{ team: "Ohio State", homeAway: "home", points: 7 }, { team: "Texas", homeAway: "away", points: 0 }],
+      drives: [{ id: "d1", offense: "Ohio State", defense: "Texas", plays: [
+        { id: "9001", homeScore: 0, awayScore: 0, period: 1, clock: "10:00", teamId: 1, team: "Ohio State", playType: "Rush", playText: "First down run", yardsGained: 5 },
+        { id: "9002", homeScore: 7, awayScore: 0, period: 1, clock: "8:30", teamId: 1, team: "Ohio State", playType: "Passing Touchdown", playText: "22 Yd pass, TOUCHDOWN", yardsGained: 22 },
+      ] }],
+    });
+    const writes = arrange([]);
+    mocks.mapLivePlayToCandidates.mockImplementation(({ play }: { play: { scoring: boolean } }) => play.scoring ? [{ ...candidate, sourceGameId: 301 }] : []);
+
+    const result = await runGamedayRefresh({ force: true });
+
+    expect(result.insertedEvents).toBeGreaterThan(0);
+    const liveWrite = writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST" && (write.options.body as Record<string, unknown>).recorded_by_open_id === "cfbd-live-detection");
+    expect(liveWrite?.options.body).toMatchObject({ audit_action: "ENTRY", is_provisional: true, source_game_id: 301 });
   });
 });

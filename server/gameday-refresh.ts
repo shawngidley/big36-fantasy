@@ -1,4 +1,4 @@
-import { getFbsTeams, getLiveScoreboard, getRegularSeasonGames, getRoster, getWeekPlays, getWeekPlayStats, type CfbdGame, type CfbdRosterAthlete } from "./cfbd";
+import { getFbsTeams, getLivePlays, getLiveScoreboard, getRegularSeasonGames, getRoster, getWeekPlays, getWeekPlayStats, type CfbdGame, type CfbdLiveGame, type CfbdPlay, type CfbdRosterAthlete } from "./cfbd";
 import { getLeagueSnapshot, getScoringRulesForEvent } from "./league-data";
 import { calculateEventScore } from "./league-scoring";
 import { eligibleGameIdsForSchool, finalShutoutCandidates, isSupersededInterceptionPlay, mapLivePlayToCandidates, type LivePosition } from "./live-scoring";
@@ -31,6 +31,24 @@ async function writeRefreshStatus(values: Record<string, unknown>) {
   await supabaseRest("b36_automation_config", { method: "PATCH", query: { id: "eq.true" }, body: { ...values, last_refresh_at: new Date().toISOString(), updated_at: new Date().toISOString() } });
 }
 
+// /plays only populates once a game finishes, so it's useless for detecting scoring as it happens.
+// /live/plays has the real in-progress data, but nests plays under drives with a different shape
+// (no offense/defense/gameId/scoring fields) — this adapts it into the shape mapLivePlayToCandidates
+// already understands, so that function doesn't need to change at all.
+function adaptLiveGameToLegacyPlays(gameId: number, live: CfbdLiveGame): CfbdPlay[] {
+  const teamNames = (live.teams ?? []).map(team => team.team);
+  let previousHome = 0, previousAway = 0;
+  return (live.drives ?? []).flatMap(drive => drive.plays).map(play => {
+    const scoring = play.homeScore !== previousHome || play.awayScore !== previousAway;
+    previousHome = play.homeScore; previousAway = play.awayScore;
+    const defense = teamNames.find(name => name !== play.team) ?? "";
+    // Live play ids are strings (e.g. "4018567663"); keep them distinct from /plays' numeric ids so a
+    // provisional live-detected event and its eventual final-confirmed counterpart never collide —
+    // the existing reversal logic already cleanly replaces provisional entries once a game completes.
+    return { id: Number(`9${play.id}`.slice(0, 15)), gameId, offense: play.team, defense, yardsToGoal: play.yardsToGoal ?? null, yardsGained: play.yardsGained ?? null, scoring, playType: play.playType ?? null, playText: play.playText ?? null, period: play.period ?? null, clock: null };
+  });
+}
+
 export async function syncFbsPoolAndSchedule(season: number) {
   const [teams, games] = await Promise.all([getFbsTeams(season), getRegularSeasonGames(season)]);
   if (teams.length < 130) throw new Error("CollegeFootballData did not return the expected FBS school pool.");
@@ -54,6 +72,38 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
     const relevantGames = scoreboardGames.filter(game => selectedSchoolPositions.some(selection => selection.schoolName === game.homeTeam || selection.schoolName === game.awayTeam));
     const trulyInProgress = relevantGames.filter(game => scoreboardStatusById.get(game.id) === "in_progress");
     let insertedEvents = 0;
+
+    // Live detection: for games actually happening right now, use the real live-play feed to catch
+    // scoring as it happens, rather than waiting for the game to finish (when /plays finally populates).
+    // These insert as provisional events; once the game completes, the existing final-reconciliation
+    // pass below naturally supersedes them (its keys differ, so old provisional entries get reversed
+    // and replaced with the official confirmed ones — no double-counting).
+    for (const game of trulyInProgress) {
+      try {
+        const live = await getLivePlays(game.id);
+        const legacyPlays = adaptLiveGameToLegacyPlays(game.id, live);
+        const existingRows = await supabaseRest<Array<{ source_event_key: string | null }>>("b36_scoring_events", { query: { select: "source_event_key", source_game_id: `eq.${game.id}`, audit_action: "eq.ENTRY" } });
+        const knownLiveKeys = new Set(existingRows.filter(row => row.source_event_key).map(row => row.source_event_key));
+        for (const school of [game.homeTeam, game.awayTeam]) {
+          if (!selectedSchoolPositions.some(selection => selection.schoolName === school)) continue;
+          const roster = await getRoster(school, config.season);
+          const schoolPlays = legacyPlays.filter((play, index) => play.offense === school && !isSupersededInterceptionPlay(play, legacyPlays[index + 1]));
+          const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: [], roster, selectedSchoolPositions: selectedSchoolPositions.map(selection => ({ schoolName: selection.schoolName, position: selection.position })), provisional: true }));
+          for (const candidate of candidates) {
+            if (knownLiveKeys.has(candidate.sourceEventKey)) continue;
+            const slot = selectedSchoolPositions.find(selection => selection.schoolName === candidate.schoolName && selection.position === candidate.position);
+            if (!slot) continue;
+            const weekRow = snapshot.weeks.find(item => item.weekNumber === game.week);
+            if (!weekRow) continue;
+            const rules = await getScoringRulesForEvent(candidate.eventType as never);
+            const score = calculateEventScore(rules, { eventType: candidate.eventType as never, position: candidate.position, statValue: candidate.statValue, yardDistance: candidate.yardDistance });
+            await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: weekRow.id, draft_slot_id: slot.draftSlotId, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points, note: `${candidate.note} (live)`, audit_action: "ENTRY", recorded_by_open_id: "cfbd-live-detection", source_event_key: candidate.sourceEventKey, source_game_id: game.id, is_provisional: true } });
+            knownLiveKeys.add(candidate.sourceEventKey); insertedEvents += 1;
+          }
+        }
+      } catch { /* one game's live feed failing shouldn't block the rest of the refresh */ }
+    }
+
     const byWeek = new Map<number, CfbdGame[]>();
     for (const game of relevantGames) byWeek.set(game.week, [...(byWeek.get(game.week) ?? []), game]);
     for (const [week, games] of Array.from(byWeek.entries())) {
