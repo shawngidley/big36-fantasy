@@ -28,7 +28,6 @@ export default function GameDetail() {
       {plays.data?.length ? <div className="max-h-[650px] divide-y divide-border/70 overflow-y-auto">{[...plays.data].reverse().map(play => <div key={play.id} className={`px-5 py-3.5 ${play.scoring ? "bg-primary/5" : ""}`}>
         <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground">{play.scoring ? <Flame className="h-3 w-3 text-primary" /> : null}<span>{play.period ? `Q${play.period}` : ""} {play.clock ?? ""}</span><span>·</span><span>{play.offense} ball</span></div>
         <p className={`mt-1 text-sm ${play.scoring ? "font-bold text-primary" : ""}`}>{play.playText}</p>
-        {(play.offenseOwners.length || play.defenseOwners.length) ? <div className="mt-1 space-y-0.5">{play.offenseOwners.map((o, i) => <p key={`off-${i}`} className="text-[11px] text-muted-foreground">{play.offense} ({o.position}) - {o.teamName}</p>)}{play.defenseOwners.map((o, i) => <p key={`def-${i}`} className="text-[11px] text-muted-foreground">{play.defense} ({o.position}) - {o.teamName}</p>)}</div> : null}
       </div>)}</div> : <div className="p-8"><EmptyLedger title="No plays recorded yet" detail="Play-by-play will appear here once the game is underway." /></div>}
     </section>
   </section></LeagueShell>;
