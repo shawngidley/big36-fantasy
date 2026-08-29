@@ -18,9 +18,11 @@ export async function cfbdGet<T>(path: string, query: Record<string, string | nu
       const payload = text ? JSON.parse(text) : null;
       if (!response.ok) {
         // 502/503/504 usually mean CFBD's servers are briefly overloaded (common during peak Saturday
-        // traffic with many simultaneous live games) — worth a quick retry. Other errors (auth, bad
-        // request) won't be fixed by retrying, so fail immediately instead of wasting time.
+        // traffic with many simultaneous live games); 429 means we've been rate-limited and need to
+        // back off longer before retrying. Other errors (auth, bad request) won't be fixed by
+        // retrying, so fail immediately instead of wasting time.
         if ([502, 503, 504].includes(response.status) && attempt < maxAttempts) { await new Promise(resolve => setTimeout(resolve, 300 * attempt)); continue; }
+        if (response.status === 429 && attempt < maxAttempts) { await new Promise(resolve => setTimeout(resolve, 1500 * attempt)); continue; }
         throw new Error(payload?.message ?? `CollegeFootballData ${path} failed (${response.status}).`);
       }
       return payload as T;
@@ -57,6 +59,8 @@ export type CfbdScoreboardGame = { id: number; status?: string | null; period?: 
 export const getFbsTeams = (year: number) => cachedCfbdGet<CfbdTeam[]>("/teams/fbs", { year }, 6 * 60 * 60_000);
 export const getRegularSeasonGames = (year: number) => cachedCfbdGet<CfbdGame[]>("/games", { year, seasonType: "regular" }, 10 * 60_000);
 export const getLiveScoreboard = () => cachedCfbdGet<CfbdScoreboardGame[]>("/scoreboard", { classification: "fbs" }, 15_000);
-export const getWeekPlays = (year: number, week: number) => cachedCfbdGet<CfbdPlay[]>("/plays", { year, week, seasonType: "regular" }, 15_000);
-export const getWeekPlayStats = (year: number, week: number) => cachedCfbdGet<CfbdPlayStat[]>("/plays/stats", { year, week, seasonType: "regular" }, 15_000);
+// Plays are heavier for CFBD to serve and don't need to be as instantaneous as the live score —
+// a longer cache window here meaningfully cuts call volume during high-traffic Saturday windows.
+export const getWeekPlays = (year: number, week: number) => cachedCfbdGet<CfbdPlay[]>("/plays", { year, week, seasonType: "regular" }, 45_000);
+export const getWeekPlayStats = (year: number, week: number) => cachedCfbdGet<CfbdPlayStat[]>("/plays/stats", { year, week, seasonType: "regular" }, 45_000);
 export const getRoster = (team: string, year: number) => cachedCfbdGet<CfbdRosterAthlete[]>("/roster", { team, year }, 60 * 60_000);
