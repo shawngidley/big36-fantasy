@@ -8,9 +8,9 @@ const statusLabel = (status: string, period: number | null, clock: string | null
   return "Scheduled";
 };
 
-export default function RealScoresStrip({ compact = false }: { compact?: boolean }) {
-  const scores = trpc.league.liveScores.useQuery(undefined, { refetchInterval: 20000 });
-  if (!scores.data?.length) return null;
+export default function RealScoresStrip({ compact = false, scope = "league" }: { compact?: boolean; scope?: "league" | "all" }) {
+  const scores = trpc.league.liveScores.useQuery({ scope }, { refetchInterval: 20000 });
+  if (!scores.data?.length) return <div className="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">{scope === "all" ? "No FBS games are scheduled or in progress right now." : "No games involving drafted schools are scheduled or in progress right now."}</div>;
   const games = compact ? scores.data.slice(0, 6) : scores.data;
 
   return <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">

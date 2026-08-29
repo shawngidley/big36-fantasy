@@ -48,7 +48,7 @@ type RegistrationRow = { id: string; display_name: string; team_name: string; ni
 
 export const leagueRouter = router({
   snapshot: publicProcedure.query(() => getLeagueSnapshot()),
-  liveScores: publicProcedure.query(async () => {
+  liveScores: publicProcedure.input(z.object({ scope: z.enum(["league", "all"]).default("league") }).optional()).query(async ({ input }) => {
     const [scoreboard, league] = await Promise.all([getLiveScoreboard(), getLeagueSnapshot()]);
     const ownersBySchool = new Map<string, Array<{ teamName: string; position: string }>>();
     for (const owner of league.owners) for (const pick of owner.picks) {
@@ -56,7 +56,8 @@ export const leagueRouter = router({
       if (!ownersBySchool.has(key)) ownersBySchool.set(key, []);
       ownersBySchool.get(key)!.push({ teamName: owner.teamName, position: pick.position === "K_ST" ? "K/ST" : pick.position });
     }
-    return scoreboard.filter(game => (game.homeTeam && ownersBySchool.has(game.homeTeam.toLowerCase())) || (game.awayTeam && ownersBySchool.has(game.awayTeam.toLowerCase())))
+    const scoped = input?.scope === "all" ? scoreboard : scoreboard.filter(game => (game.homeTeam && ownersBySchool.has(game.homeTeam.toLowerCase())) || (game.awayTeam && ownersBySchool.has(game.awayTeam.toLowerCase())));
+    return scoped
       .map(game => ({
         id: game.id, status: game.status ?? "scheduled", period: game.period ?? null, clock: game.clock ?? null,
         homeTeam: game.homeTeam ?? "TBD", awayTeam: game.awayTeam ?? "TBD", homePoints: game.homePoints ?? 0, awayPoints: game.awayPoints ?? 0,
