@@ -48,7 +48,7 @@ type RegistrationRow = { id: string; display_name: string; team_name: string; ni
 
 export const leagueRouter = router({
   snapshot: publicProcedure.query(() => getLeagueSnapshot()),
-  liveScores: publicProcedure.input(z.object({ scope: z.enum(["league", "all"]).default("league"), week: z.number().int().min(0).max(20).optional() }).optional()).query(async ({ input }) => {
+  liveScores: publicProcedure.input(z.object({ scope: z.enum(["league", "all"]).default("league"), week: z.number().int().min(0).max(20).optional(), ownerId: uuid.optional() }).optional()).query(async ({ input }) => {
     const asText = (value: unknown): string | null => typeof value === "string" && value.length > 0 ? value : null;
     const asNumber = (value: unknown): number | null => {
       if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -88,7 +88,11 @@ export const leagueRouter = router({
         awayPoints: asNumber(live?.awayTeam?.points) ?? sumLineScores(live?.awayTeam?.lineScores) ?? asNumber(game.awayPoints) ?? 0,
       };
     });
-    const scoped = input?.scope === "all" ? resolved : resolved.filter(game => ownersBySchool.has(game.homeTeam.toLowerCase()) || ownersBySchool.has(game.awayTeam.toLowerCase()));
+    const myOwner = input?.ownerId ? league.owners.find(owner => owner.id === input.ownerId) : undefined;
+    const mySchools = new Set((myOwner?.picks ?? []).map(pick => pick.schoolName.toLowerCase()));
+    const scoped = myOwner
+      ? resolved.filter(game => mySchools.has(game.homeTeam.toLowerCase()) || mySchools.has(game.awayTeam.toLowerCase()))
+      : input?.scope === "all" ? resolved : resolved.filter(game => ownersBySchool.has(game.homeTeam.toLowerCase()) || ownersBySchool.has(game.awayTeam.toLowerCase()));
     const games = scoped
       .map(game => ({ ...game, homeOwners: ownersBySchool.get(game.homeTeam.toLowerCase()) ?? [], awayOwners: ownersBySchool.get(game.awayTeam.toLowerCase()) ?? [] }))
       .sort((a, b) => (a.status === "in_progress" ? 0 : 1) - (b.status === "in_progress" ? 0 : 1) || new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
