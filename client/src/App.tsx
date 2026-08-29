@@ -8,6 +8,7 @@ import Commissioner from "./pages/Commissioner";
 import CommissionerRegistrations from "./pages/CommissionerRegistrations";
 import DraftBoard from "./pages/DraftBoard";
 import LiveScoring from "./pages/LiveScoring";
+import RealScores from "./pages/RealScores";
 import FutureIdeas from "./pages/FutureIdeas";
 import DraftGuide from "./pages/DraftGuide";
 import DraftLottery from "./pages/DraftLottery";
@@ -37,6 +38,7 @@ function Router() {
     <Route path="/standings" component={Standings} />
     <Route path="/draft" component={DraftBoard} />
     <Route path="/live" component={LiveScoring} />
+    <Route path="/scores" component={RealScores} />
     <Route path="/future-ideas" component={FutureIdeas} />
     <Route path="/draft-lottery" component={DraftLottery} />
     <Route path="/draft-guide" component={DraftGuide} />

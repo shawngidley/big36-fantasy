@@ -16,6 +16,7 @@ import { decodeRegistrationLogo, hashRegistrationPin, normalizeRegistrationEmail
 import { storagePut } from "../storage";
 import { notifyOwnerWhenUpcomingPickSafely, sendDraftSms } from "../draft-alerts";
 import { activateNextPendingTurn } from "../draft-clock";
+import { getLiveScoreboard } from "../cfbd";
 import { lotteryCommitment, LOTTERY_REVEAL_INTERVAL_SECONDS, secureShuffle } from "../draft-lottery";
 
 const positionSchema = z.enum(positions);
@@ -47,6 +48,22 @@ type RegistrationRow = { id: string; display_name: string; team_name: string; ni
 
 export const leagueRouter = router({
   snapshot: publicProcedure.query(() => getLeagueSnapshot()),
+  liveScores: publicProcedure.query(async () => {
+    const [scoreboard, league] = await Promise.all([getLiveScoreboard(), getLeagueSnapshot()]);
+    const ownersBySchool = new Map<string, Array<{ teamName: string; position: string }>>();
+    for (const owner of league.owners) for (const pick of owner.picks) {
+      const key = pick.schoolName.toLowerCase();
+      if (!ownersBySchool.has(key)) ownersBySchool.set(key, []);
+      ownersBySchool.get(key)!.push({ teamName: owner.teamName, position: pick.position === "K_ST" ? "K/ST" : pick.position });
+    }
+    return scoreboard.filter(game => (game.homeTeam && ownersBySchool.has(game.homeTeam.toLowerCase())) || (game.awayTeam && ownersBySchool.has(game.awayTeam.toLowerCase())))
+      .map(game => ({
+        id: game.id, status: game.status ?? "scheduled", period: game.period ?? null, clock: game.clock ?? null,
+        homeTeam: game.homeTeam ?? "TBD", awayTeam: game.awayTeam ?? "TBD", homePoints: game.homePoints ?? 0, awayPoints: game.awayPoints ?? 0,
+        homeOwners: ownersBySchool.get((game.homeTeam ?? "").toLowerCase()) ?? [], awayOwners: ownersBySchool.get((game.awayTeam ?? "").toLowerCase()) ?? [],
+      }))
+      .sort((a, b) => (a.status === "in_progress" ? 0 : 1) - (b.status === "in_progress" ? 0 : 1));
+  }),
   draftLottery: publicProcedure.query(() => getPublicDraftLottery()),
   draftLotterySchedule: publicProcedure.query(() => getDraftLotterySchedule()),
   registrationLanding: publicProcedure.query(() => supabaseRpc<{ approvedCount: number; capacity: number; registrationOpen: boolean }>("b36_registration_landing_status", {})),

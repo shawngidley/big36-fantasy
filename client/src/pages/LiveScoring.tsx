@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Activity, ArrowDown, ArrowUp, Radio } from "lucide-react";
 import { Link } from "wouter";
 import LeagueShell from "@/components/LeagueShell";
+import RealScoresStrip from "@/components/RealScoresStrip";
 import TeamLogo from "@/components/TeamLogo";
 import { LeagueError, LeagueLoading } from "@/components/LeagueState";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +33,8 @@ export default function LiveScoring() {
   return <LeagueShell eyebrow="Watching your program"><section className="container pt-8 sm:pt-12">
     <div className="flex flex-wrap items-center justify-between gap-4"><div><p className="section-kicker flex items-center gap-2"><Radio className="h-3.5 w-3.5 animate-pulse text-primary" /> Live scoring</p><h1 className="display-title mt-3">{currentWeek ? `Week ${currentWeek.weekNumber}` : "Season overview"}</h1><p className="mt-2 text-sm text-muted-foreground">Updates automatically as scoring events are recorded. No lineups, no waivers — just watch your program move.</p></div>
     {isAuthenticated && myTeam ? <div className="flex rounded-xl border border-border bg-card p-1 shadow-sm"><button onClick={() => setView("mine")} className={`rounded-lg px-4 py-2 text-sm font-bold transition-colors ${view === "mine" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>My program</button><button onClick={() => setView("league")} className={`rounded-lg px-4 py-2 text-sm font-bold transition-colors ${view === "league" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>League-wide</button></div> : null}</div>
+
+    <div className="mt-6"><RealScoresStrip compact /></div>
 
     {showMine && myTeam ? <>
       <div className="mt-8 flex flex-col gap-5 rounded-2xl border border-primary/20 bg-primary/5 p-6 sm:flex-row sm:items-center sm:justify-between"><div className="flex items-center gap-4"><TeamLogo logoUrl={myTeam.logoUrl} teamName={myTeam.teamName} size="lg" /><div><Link href={`/team/${myTeam.id}`} className="font-display text-2xl font-extrabold hover:text-primary">{myTeam.teamName}</Link><p className="mt-1 text-sm text-muted-foreground">Overall rank #{myRank} of {league.data.owners.length}</p></div></div><div className="flex gap-6"><div className="text-right"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Season total</p><p className="mt-1 font-display text-3xl font-extrabold tabular-nums text-primary">{myTeam.totalPoints.toFixed(2)}</p></div>{weekSummary ? <div className="text-right"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">This week</p><p className="mt-1 font-display text-3xl font-extrabold tabular-nums">{(weekSummary.teams.find(t => t.ownerId === myTeam.id)?.points ?? 0).toFixed(2)}</p></div> : null}</div></div>
