@@ -42,7 +42,7 @@ export default function LiveScoring() {
   const weekSummary = currentWeek ? league.data.weeklySummaries.find(w => w.id === currentWeek.id) : undefined;
   const myRank = myTeam ? league.data.overallStandings.findIndex(owner => owner.id === myTeam.id) + 1 : null;
   const recentEvents = [...league.data.events].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  const myEvents = myTeam ? recentEvents.filter(event => event.teamName === myTeam.teamName) : [];
+  const myEvents = myTeam ? recentEvents.filter(event => event.teamName === myTeam.teamName && event.auditAction !== "REVERSAL") : [];
 
   return <LeagueShell eyebrow="Watching your program"><section className="container pt-8 sm:pt-12">
     <div className="flex flex-wrap items-center justify-between gap-4"><div><p className="section-kicker flex items-center gap-2"><Radio className="h-3.5 w-3.5 animate-pulse text-primary" /> Live scoring</p><h1 className="display-title mt-3">{currentWeek ? `Week ${currentWeek.weekNumber}` : "Season overview"}</h1><p className="mt-2 text-sm text-muted-foreground">Updates automatically as scoring events are recorded. No lineups, no waivers — just watch your program move.</p></div>
