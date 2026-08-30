@@ -178,7 +178,13 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
           if (!eligibleGameIdsForSchool(schedule.games, school).includes(game.id)) continue;
         }
         if (game.completed) {
-          const originalEvents = eventRows.filter(row => row.source_game_id === game.id && row.source_event_key && row.audit_action === "ENTRY");
+          // Only ever auto-reverse PROVISIONAL (live-detected) entries that the official data doesn't
+          // confirm. An entry that's already been confirmed official (is_provisional: false) must never
+          // be blanket-reversed just because a later fetch produced a different result — CFBD's data can
+          // be momentarily inconsistent between back-to-back calls, and reversing an already-correct
+          // entry is far worse than leaving a stale one a little longer. Official entries can still be
+          // adjusted via the CORRECTION path above if the point value genuinely needs fixing.
+          const originalEvents = eventRows.filter(row => row.source_game_id === game.id && row.source_event_key && row.audit_action === "ENTRY" && row.is_provisional);
           for (const original of originalEvents.filter(event => !currentCandidateKeys.has(event.source_event_key!))) {
             const reversalKey = `${original.source_event_key}:reversal`;
             if (reversedKeys.has(reversalKey)) continue;
