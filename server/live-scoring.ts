@@ -88,8 +88,14 @@ export function isSpecialTeamsPlayType(playType: string | null | undefined) {
 export function hasMadePat(playType: string | null | undefined, playText: string | null | undefined) {
   const type = String(playType ?? "").toLowerCase();
   const text = String(playText ?? "").toLowerCase();
-  if (type.includes("extra point good") || type.includes("pat good")) return true;
-  return /(touchdown|\btd\b)/.test(type) && /\([^)]*\bkick\b[^)]*\)/.test(text) && !/(no good|missed|failed)/.test(text);
+  const failed = /(no good|missed|failed|blocked)/.test(`${type} ${text}`);
+  if (failed) return false;
+  if (type.includes("extra point") || type.includes("pat")) return true;
+  // A made PAT is very commonly appended to the same play text as the touchdown itself. This can
+  // show up as "...kick attempt good..." / "...kick is good..." outside any parentheses, or as a
+  // bare "(PlayerName KICK)" inside parentheses - support both, guarded by the failure check above.
+  if (text.includes("kick attempt good") || text.includes("kick is good")) return true;
+  return /\([^)]*\bkick\b[^)]*\)/.test(text);
 }
 
 export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlayStat[]; roster: CfbdRosterAthlete[]; selectedSchoolPositions: Array<{ schoolName: string; position: LivePosition }>; provisional?: boolean }): ScoringCandidate[] {

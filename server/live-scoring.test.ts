@@ -92,4 +92,8 @@ describe("36 Football automatic scoring map", () => {
     const candidates = mapLivePlayToCandidates({ play: { id: 76, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: true, playType: "Rushing Touchdown", playText: "Run for a TD (Kicker KICK)" }, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Ohio State", position: "K_ST" }] });
     expect(candidates.map(candidate => candidate.eventType)).toEqual(["EXTRA_POINT"]);
   });
+  it("counts a made PAT phrased as 'kick attempt good' outside parentheses - the actual live CFBD format that was previously missed", () => {
+    expect(hasMadePat("Rushing Touchdown", "(08:55) #14 J.Maiava rush for 1 yard TOUCHDOWN, clock 08:55 #45 C.Chittenden kick attempt good (H: #35 L.Carrigan, LS: #53 L.Brown)")).toBe(true);
+    expect(hasMadePat("Rushing Touchdown", "(08:55) #14 J.Maiava rush for 1 yard TOUCHDOWN, clock 08:55 #45 C.Chittenden kick attempt no good (H: #35 L.Carrigan, LS: #53 L.Brown)")).toBe(false);
+  });
 });
