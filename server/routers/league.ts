@@ -52,6 +52,20 @@ type RegistrationRow = { id: string; display_name: string; team_name: string; ni
 export const leagueRouter = router({
   snapshot: publicProcedure.query(() => getLeagueSnapshot()),
   pressBoxArticles: publicProcedure.query(() => supabaseRest<Array<{ id: string; title: string; column_type: string; author_name: string; content: string; created_at: string }>>("b36_press_box_articles", { query: { select: "id,title,column_type,author_name,content,created_at", published: q.eq(true), order: "created_at.desc" } })),
+  verifyPressBoxWriter: publicProcedure.input(z.object({ passphrase: z.string().trim().min(1).max(200) })).query(async ({ input }) => {
+    const rows = await supabaseRest<Array<{ writer_name: string; column_type: string }>>("b36_press_box_writers", { query: { select: "writer_name,column_type", passphrase: q.eq(input.passphrase), active: q.eq(true), limit: "1" } });
+    const writer = rows[0];
+    if (!writer) return null;
+    return { writerName: writer.writer_name, columnType: writer.column_type };
+  }),
+  submitPressBoxArticle: publicProcedure.input(z.object({ passphrase: z.string().trim().min(1).max(200), title: z.string().trim().min(1).max(200), content: z.string().trim().min(1).max(50000) })).mutation(async ({ input }) => {
+    const rows = await supabaseRest<Array<{ writer_name: string; column_type: string }>>("b36_press_box_writers", { query: { select: "writer_name,column_type", passphrase: q.eq(input.passphrase), active: q.eq(true), limit: "1" } });
+    const writer = rows[0];
+    if (!writer) throw new Error("Invalid or expired access code.");
+    const now = new Date().toISOString();
+    await supabaseRest("b36_press_box_articles", { method: "POST", body: { title: input.title, column_type: writer.column_type, author_name: writer.writer_name, content: input.content, published: true, created_at: now, updated_at: now } });
+    return { success: true as const };
+  }),
   liveScores: publicProcedure.input(z.object({ scope: z.enum(["league", "all"]).default("league"), week: z.number().int().min(0).max(20).optional(), ownerId: uuid.optional() }).optional()).query(async ({ input }) => {
     const asText = (value: unknown): string | null => typeof value === "string" && value.length > 0 ? value : null;
     const asNumber = (value: unknown): number | null => {
