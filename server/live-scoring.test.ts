@@ -34,6 +34,15 @@ describe("36 Football automatic scoring map", () => {
     const candidates = mapLivePlayToCandidates({ play: { id: 554, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Sack", playText: "A. Manning sacked for a loss of 7 yards" }, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Opponent", position: "DEF" }] });
     expect(candidates).toEqual([expect.objectContaining({ schoolName: "Opponent", position: "DEF", eventType: "SACK", sourceEventKey: "554:SACK:unit" })]);
   });
+  it("credits a fumble recovery to the defense's DEF unit from playType alone, even with no matching player-stat row (the exact real play that was missed for UNLV)", () => {
+    const candidates = mapLivePlayToCandidates({ play: { id: 401862693353, gameId: 401862693, offense: "Memphis", defense: "UNLV", scoring: false, playType: "Fumble Recovery (Opponent)", playText: "pass complete short right ... fumbled by #1 T.Chapman ... recovered by UNLV #2 D.Harris ..." }, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "UNLV", position: "DEF" }] });
+    expect(candidates).toEqual([expect.objectContaining({ schoolName: "UNLV", position: "DEF", eventType: "DEFENSIVE_TURNOVER", sourceEventKey: "401862693353:DEFENSIVE_TURNOVER:playtype" })]);
+  });
+  it("does not double-credit a fumble recovery when a matching player-stat row already exists", () => {
+    const candidates = mapLivePlayToCandidates({ play: { id: 556, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Fumble Recovery (Opponent)", playText: "fumbled, recovered by #4 Defender" }, stats: [{ playId: 556, athleteId: 4, team: "Opponent", statType: "Fumble Recovery", stat: 1 }], roster: [{ id: 4, position: "DEF" }], selectedSchoolPositions: [{ schoolName: "Opponent", position: "DEF" }] });
+    expect(candidates.filter(candidate => candidate.eventType === "DEFENSIVE_TURNOVER")).toHaveLength(1);
+    expect(candidates.find(candidate => candidate.eventType === "DEFENSIVE_TURNOVER")?.sourceEventKey).toBe("556:DEFENSIVE_TURNOVER:4");
+  });
   it("does not double-credit a defensive turnover from text when official player-stat rows are already present", () => {
     const candidates = mapLivePlayToCandidates({ play: { id: 555, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Pass Interception Return", playText: "A. Manning pass intercepted by #4 Defender" }, stats: [{ playId: 555, athleteId: 9, team: "Opponent", statType: "Interception", stat: 1 }], roster: [{ id: 9, position: "DEF" }], selectedSchoolPositions: [{ schoolName: "Opponent", position: "DEF" }] });
     expect(candidates.filter(candidate => candidate.eventType === "DEFENSIVE_TURNOVER")).toHaveLength(1);

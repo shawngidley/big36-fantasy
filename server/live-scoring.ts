@@ -183,6 +183,13 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
     if (eligibleSelection(defensiveSchool, "DEF") && (type.includes("interception") || type.includes("fumble recovery"))) candidates.push(defensiveCandidate("DEFENSIVE_TURNOVER", stat, "DEF"));
     if (play.scoring && !specialTeamsPlay && eligibleSelection(defensiveSchool, "DEF") && type.includes("touchdown")) candidates.push(defensiveCandidate("DEFENSIVE_TOUCHDOWN", stat, "DEF", play.yardsGained ?? null));
   }
+  // A fumble recovery is reliably flagged on the play's own playType (e.g. "Fumble Recovery
+  // (Opponent)") independent of whether a matching player-level stat row exists for it - CFBD's
+  // stat attribution for fumbles isn't always reliable, so this catches recoveries the loop above
+  // would otherwise miss entirely, without needing to wait for or depend on player-level stats.
+  if (eligibleSelection(defensiveSchool, "DEF") && playType.includes("fumble recovery") && !isInvalidated && !candidates.some(candidate => candidate.eventType === "DEFENSIVE_TURNOVER" && candidate.schoolName === defensiveSchool)) {
+    candidates.push({ sourceEventKey: `${play.id}:DEFENSIVE_TURNOVER:playtype`, sourceGameId: play.gameId, schoolName: defensiveSchool, position: "DEF", eventType: "DEFENSIVE_TURNOVER", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · fumble recovery (playType match)` });
+  }
   // Live play data has no player-level stats to drive the loop above (only the final, post-game feed
   // does) — so defensive credit needs a text-based fallback here too, the same way offensive
   // touchdowns already do. Only fires when no structured stat already matched, to avoid double-crediting
