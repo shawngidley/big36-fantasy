@@ -51,6 +51,7 @@ type RegistrationRow = { id: string; display_name: string; team_name: string; ni
 
 export const leagueRouter = router({
   snapshot: publicProcedure.query(() => getLeagueSnapshot()),
+  pressBoxArticles: publicProcedure.query(() => supabaseRest<Array<{ id: string; title: string; column_type: string; author_name: string; content: string; created_at: string }>>("b36_press_box_articles", { query: { select: "id,title,column_type,author_name,content,created_at", published: q.eq(true), order: "created_at.desc" } })),
   liveScores: publicProcedure.input(z.object({ scope: z.enum(["league", "all"]).default("league"), week: z.number().int().min(0).max(20).optional(), ownerId: uuid.optional() }).optional()).query(async ({ input }) => {
     const asText = (value: unknown): string | null => typeof value === "string" && value.length > 0 ? value : null;
     const asNumber = (value: unknown): number | null => {
@@ -295,6 +296,20 @@ export const leagueRouter = router({
     } catch (error) { asError(error); }
   }),
   admin: router({
+    allPressBoxArticles: adminProcedure.query(() => supabaseRest<Array<{ id: string; title: string; column_type: string; author_name: string; content: string; published: boolean; created_at: string; updated_at: string }>>("b36_press_box_articles", { query: { select: "*", order: "created_at.desc" } })),
+    createPressBoxArticle: adminProcedure.input(z.object({ title: z.string().trim().min(1).max(200), columnType: z.enum(["monday_recap", "wednesday_mike_drop", "friday_preview"]), authorName: z.string().trim().min(1).max(100), content: z.string().trim().min(1).max(50000) })).mutation(async ({ ctx, input }) => {
+      const now = new Date().toISOString();
+      await supabaseRest("b36_press_box_articles", { method: "POST", body: { title: input.title, column_type: input.columnType, author_name: input.authorName, content: input.content, published: true, created_by_open_id: ctx.user.openId, created_at: now, updated_at: now } });
+      return { success: true as const };
+    }),
+    updatePressBoxArticle: adminProcedure.input(z.object({ id: uuid, title: z.string().trim().min(1).max(200), columnType: z.enum(["monday_recap", "wednesday_mike_drop", "friday_preview"]), authorName: z.string().trim().min(1).max(100), content: z.string().trim().min(1).max(50000), published: z.boolean() })).mutation(async ({ input }) => {
+      await supabaseRest("b36_press_box_articles", { method: "PATCH", query: { id: q.eq(input.id) }, body: { title: input.title, column_type: input.columnType, author_name: input.authorName, content: input.content, published: input.published, updated_at: new Date().toISOString() } });
+      return { success: true as const };
+    }),
+    deletePressBoxArticle: adminProcedure.input(z.object({ id: uuid })).mutation(async ({ input }) => {
+      await supabaseRest("b36_press_box_articles", { method: "DELETE", query: { id: q.eq(input.id) } });
+      return { success: true as const };
+    }),
     debugRawScoreboard: adminProcedure.query(async () => {
       const scoreboard = await getLiveScoreboard();
       return scoreboard.filter(game => game.status === "in_progress");
