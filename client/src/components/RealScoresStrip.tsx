@@ -43,7 +43,7 @@ export default function RealScoresStrip({ compact = false, scope = "league", own
 
 function GameCard({ game }: { game: { id: number; week: number; startDate: string; status: string; period: number | null; clock: string | null; homeTeam: string; awayTeam: string; homePoints: number; awayPoints: number; homeOwners: Array<{ teamName: string; position: string }>; awayOwners: Array<{ teamName: string; position: string }> } }) {
   return <Link href={`/scores/${game.week}/${game.id}`} className="block bg-card p-4 transition-colors hover:bg-accent/30">
-    <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground"><span className={game.status === "in_progress" ? "text-primary" : ""}>{statusLabel(game.status, game.period, game.clock)}</span><span>{formatKickoff(game.startDate)}</span></div>
+    <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground"><span className={game.status === "in_progress" ? "text-primary" : ""}>{statusLabel(game.status, game.period, game.clock)}</span>{game.status === "scheduled" ? <span>{formatKickoff(game.startDate)}</span> : null}</div>
     <div className="mt-2 space-y-1.5">
       <div className="flex items-center justify-between"><span className="truncate text-sm font-bold">{game.awayTeam}</span><span className="font-display text-lg font-extrabold tabular-nums">{game.awayPoints}</span></div>
       <div className="flex items-center justify-between"><span className="truncate text-sm font-bold">{game.homeTeam}</span><span className="font-display text-lg font-extrabold tabular-nums">{game.homePoints}</span></div>
