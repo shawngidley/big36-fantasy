@@ -331,6 +331,36 @@ export const leagueRouter = router({
       const storedEvents = await supabaseRest<Array<Record<string, unknown>>>("b36_scoring_events", { query: { select: "*", source_game_id: `eq.${input.gameId}`, order: "created_at.asc" } });
       return { totalGamePlays: gamePlays.length, schoolPlays: schoolPlays.length, defensivePlays: gamePlays.filter(play => play.defense === input.school).length, statsForGame: stats.filter(stat => gamePlays.some(play => play.id === stat.playId)).length, candidates, storedEvents };
     }),
+    debugBulkDefKstCheck: adminProcedure.input(z.object({ week: z.number(), gameIds: z.array(z.number()) })).query(async ({ input }) => {
+      const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
+      const season = automationRows[0]?.season;
+      if (!season) throw new Error("No season configured.");
+      const [plays, stats, league] = await Promise.all([getWeekPlays(season, input.week), getWeekPlayStats(season, input.week), getLeagueSnapshot()]);
+      const selectedSchoolPositions = league.owners.flatMap(owner => owner.picks.map(pick => ({ schoolName: pick.schoolName, position: pick.position as never, draftSlotId: pick.id, teamName: owner.teamName })));
+      const results: Array<Record<string, unknown>> = [];
+      for (const gameId of input.gameIds) {
+        const gamePlays = plays.filter(play => play.gameId === gameId);
+        if (!gamePlays.length) { results.push({ gameId, error: "No plays found for this game in the official feed yet." }); continue; }
+        const schoolsInGame = Array.from(new Set(gamePlays.flatMap(play => [play.offense, play.defense])));
+        for (const school of schoolsInGame) {
+          const roster = await getRoster(school, season);
+          const schoolPlays = gamePlays.filter((play, index) => play.offense === school && !isSupersededInterceptionPlay(play, gamePlays[index + 1]));
+          const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: stats.filter(stat => stat.playId === play.id), roster, selectedSchoolPositions, provisional: false }));
+          for (const position of ["DEF", "K_ST"] as const) {
+            const slot = selectedSchoolPositions.find(s => s.schoolName === school && s.position === position);
+            if (!slot) continue;
+            const relevant = candidates.filter(candidate => candidate.schoolName === school && candidate.position === position);
+            const stored = await supabaseRest<Array<{ computed_points: number; event_type: string; audit_action: string; source_event_key: string | null; note: string | null }>>("b36_scoring_events", { query: { select: "computed_points,event_type,audit_action,source_event_key,note", draft_slot_id: `eq.${slot.draftSlotId}`, source_game_id: `eq.${gameId}` } });
+            const storedNet = stored.reduce((sum, row) => sum + row.computed_points, 0);
+            const officialKeys = new Set(relevant.map(c => c.sourceEventKey));
+            const storedEntryKeys = new Set(stored.filter(row => row.audit_action === "ENTRY").map(row => row.source_event_key));
+            const missing = relevant.filter(c => !storedEntryKeys.has(c.sourceEventKey));
+            results.push({ gameId, school, position, owner: slot.teamName, officialCandidates: relevant.map(c => ({ eventType: c.eventType, key: c.sourceEventKey, note: c.note })), storedRowCount: stored.length, storedNetPoints: storedNet, missingFromDatabase: missing.map(c => ({ eventType: c.eventType, key: c.sourceEventKey })) });
+          }
+        }
+      }
+      return results;
+    }),
     paymentStatus: adminProcedure.query(async () => {
       const rows = await supabaseRest<Array<{ id: string; team_name: string; display_name: string; is_paid: boolean; paid_at: string | null }>>("b36_owners", { query: { select: "id,team_name,display_name,is_paid,paid_at", order: "display_name.asc" } });
       return rows.map(row => ({ ownerId: row.id, teamName: row.team_name, displayName: row.display_name, isPaid: row.is_paid, paidAt: row.paid_at }));
