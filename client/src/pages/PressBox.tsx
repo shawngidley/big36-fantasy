@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Newspaper } from "lucide-react";
+import { Newspaper, PenLine } from "lucide-react";
+import { Link } from "wouter";
 import LeagueShell from "@/components/LeagueShell";
 import { EmptyLedger, LeagueError, LeagueLoading } from "@/components/LeagueState";
 import { Badge } from "@/components/ui/badge";
@@ -18,9 +19,7 @@ export default function PressBox() {
   const filtered = filter === "all" ? articles.data ?? [] : (articles.data ?? []).filter(article => article.column_type === filter);
 
   return <LeagueShell eyebrow="36 Football media"><section className="container pt-10 sm:pt-14">
-    <p className="section-kicker flex items-center gap-2"><Newspaper className="h-3.5 w-3.5" /> The Press Box</p>
-    <h1 className="display-title mt-3">Weekly columns from around the league</h1>
-    <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">Fresh writing every Monday, Wednesday, and Friday — recaps, rankings, and previews from the 36 Football universe.</p>
+    <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="section-kicker flex items-center gap-2"><Newspaper className="h-3.5 w-3.5" /> The Press Box</p><h1 className="display-title mt-3">Weekly columns from around the league</h1><p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">Fresh writing every Monday, Wednesday, and Friday — recaps, rankings, and previews from the 36 Football universe.</p></div><Link href="/press-box/write" className="flex shrink-0 items-center gap-1.5 text-xs font-bold text-muted-foreground hover:text-primary"><PenLine className="h-3.5 w-3.5" /> Writer sign-in</Link></div>
 
     <div className="mt-6 flex flex-wrap gap-2">{columns.map(item => <button key={item.value} onClick={() => setFilter(item.value)} className={`rounded-full px-4 py-2 text-sm font-bold transition-colors ${filter === item.value ? "bg-primary text-primary-foreground" : "bg-accent text-accent-foreground hover:bg-primary/10"}`}>{item.label}</button>)}</div>
 
