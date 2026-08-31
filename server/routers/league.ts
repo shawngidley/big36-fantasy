@@ -66,6 +66,24 @@ export const leagueRouter = router({
     await supabaseRest("b36_press_box_articles", { method: "POST", body: { title: input.title, column_type: writer.column_type, author_name: writer.writer_name, content: input.content, published: true, created_at: now, updated_at: now } });
     return { success: true as const };
   }),
+  updateOwnPressBoxArticle: publicProcedure.input(z.object({ passphrase: z.string().trim().min(1).max(200), id: uuid, title: z.string().trim().min(1).max(200), content: z.string().trim().min(1).max(50000) })).mutation(async ({ input }) => {
+    const writerRows = await supabaseRest<Array<{ writer_name: string; column_type: string }>>("b36_press_box_writers", { query: { select: "writer_name,column_type", passphrase: q.eq(input.passphrase), active: q.eq(true), limit: "1" } });
+    const writer = writerRows[0];
+    if (!writer) throw new Error("Invalid or expired access code.");
+    const articleRows = await supabaseRest<Array<{ column_type: string }>>("b36_press_box_articles", { query: { select: "column_type", id: q.eq(input.id), limit: "1" } });
+    if (articleRows[0]?.column_type !== writer.column_type) throw new Error("You can only edit columns in your own section.");
+    await supabaseRest("b36_press_box_articles", { method: "PATCH", query: { id: q.eq(input.id) }, body: { title: input.title, content: input.content, updated_at: new Date().toISOString() } });
+    return { success: true as const };
+  }),
+  deleteOwnPressBoxArticle: publicProcedure.input(z.object({ passphrase: z.string().trim().min(1).max(200), id: uuid })).mutation(async ({ input }) => {
+    const writerRows = await supabaseRest<Array<{ writer_name: string; column_type: string }>>("b36_press_box_writers", { query: { select: "writer_name,column_type", passphrase: q.eq(input.passphrase), active: q.eq(true), limit: "1" } });
+    const writer = writerRows[0];
+    if (!writer) throw new Error("Invalid or expired access code.");
+    const articleRows = await supabaseRest<Array<{ column_type: string }>>("b36_press_box_articles", { query: { select: "column_type", id: q.eq(input.id), limit: "1" } });
+    if (articleRows[0]?.column_type !== writer.column_type) throw new Error("You can only delete columns in your own section.");
+    await supabaseRest("b36_press_box_articles", { method: "DELETE", query: { id: q.eq(input.id) } });
+    return { success: true as const };
+  }),
   liveScores: publicProcedure.input(z.object({ scope: z.enum(["league", "all"]).default("league"), week: z.number().int().min(0).max(20).optional(), ownerId: uuid.optional() }).optional()).query(async ({ input }) => {
     const asText = (value: unknown): string | null => typeof value === "string" && value.length > 0 ? value : null;
     const asNumber = (value: unknown): number | null => {

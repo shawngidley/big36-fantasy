@@ -10,7 +10,6 @@ import DraftBoard from "./pages/DraftBoard";
 import LiveScoring from "./pages/LiveScoring";
 import RealScores from "./pages/RealScores";
 import PressBox from "./pages/PressBox";
-import PressBoxWrite from "./pages/PressBoxWrite";
 import GameDetail from "./pages/GameDetail";
 import FutureIdeas from "./pages/FutureIdeas";
 import DraftGuide from "./pages/DraftGuide";
@@ -43,7 +42,6 @@ function Router() {
     <Route path="/live" component={LiveScoring} />
     <Route path="/scores" component={RealScores} />
     <Route path="/press-box" component={PressBox} />
-    <Route path="/press-box/write" component={PressBoxWrite} />
     <Route path="/scores/:week/:gameId" component={GameDetail} />
     <Route path="/future-ideas" component={FutureIdeas} />
     <Route path="/draft-lottery" component={DraftLottery} />
