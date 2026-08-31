@@ -328,6 +328,19 @@ export const leagueRouter = router({
     } catch (error) { asError(error); }
   }),
   admin: router({
+    allPressBoxWriters: adminProcedure.query(() => supabaseRest<Array<{ id: string; writer_name: string; column_type: string; passphrase: string; active: boolean; created_at: string }>>("b36_press_box_writers", { query: { select: "*", order: "created_at.desc" } })),
+    createPressBoxWriter: adminProcedure.input(z.object({ writerName: z.string().trim().min(1).max(100), columnType: z.enum(["monday_recap", "wednesday_mike_drop", "friday_preview"]), passphrase: z.string().trim().min(4).max(200) })).mutation(async ({ input }) => {
+      await supabaseRest("b36_press_box_writers", { method: "POST", body: { writer_name: input.writerName, column_type: input.columnType, passphrase: input.passphrase, active: true } });
+      return { success: true as const };
+    }),
+    updatePressBoxWriter: adminProcedure.input(z.object({ id: uuid, writerName: z.string().trim().min(1).max(100), columnType: z.enum(["monday_recap", "wednesday_mike_drop", "friday_preview"]), passphrase: z.string().trim().min(4).max(200), active: z.boolean() })).mutation(async ({ input }) => {
+      await supabaseRest("b36_press_box_writers", { method: "PATCH", query: { id: q.eq(input.id) }, body: { writer_name: input.writerName, column_type: input.columnType, passphrase: input.passphrase, active: input.active } });
+      return { success: true as const };
+    }),
+    deletePressBoxWriter: adminProcedure.input(z.object({ id: uuid })).mutation(async ({ input }) => {
+      await supabaseRest("b36_press_box_writers", { method: "DELETE", query: { id: q.eq(input.id) } });
+      return { success: true as const };
+    }),
     allPressBoxArticles: adminProcedure.query(() => supabaseRest<Array<{ id: string; title: string; column_type: string; author_name: string; content: string; published: boolean; created_at: string; updated_at: string }>>("b36_press_box_articles", { query: { select: "*", order: "created_at.desc" } })),
     createPressBoxArticle: adminProcedure.input(z.object({ title: z.string().trim().min(1).max(200), columnType: z.enum(["monday_recap", "wednesday_mike_drop", "friday_preview"]), authorName: z.string().trim().min(1).max(100), content: z.string().trim().min(1).max(50000) })).mutation(async ({ ctx, input }) => {
       const now = new Date().toISOString();
