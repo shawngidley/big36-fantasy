@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 
 const columnLabel: Record<string, string> = { monday_recap: "Monday Recap", wednesday_mike_drop: "Mike Drop", friday_preview: "Friday Preview" };
+const columnSubtitle: Record<string, string> = { monday_recap: "The weekend recap, every Monday.", wednesday_mike_drop: "Weekly rankings, in a different famous Mike's voice each time.", friday_preview: "The week-ahead preview, every Friday." };
 const columns = [{ value: "all", label: "All Columns" }, { value: "monday_recap", label: "Monday Recap" }, { value: "wednesday_mike_drop", label: "Mike Drop" }, { value: "friday_preview", label: "Friday Preview" }];
 
 export default function PressBox() {
@@ -36,8 +37,8 @@ export default function PressBox() {
 
   return <LeagueShell eyebrow="36 Football media"><section className="container pt-10 sm:pt-14">
     <p className="section-kicker flex items-center gap-2"><Newspaper className="h-3.5 w-3.5" /> The Press Box</p>
-    <h1 className="display-title mt-3">Weekly columns from around the league</h1>
-    <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">Fresh writing every Monday, Wednesday, and Friday — recaps, rankings, and previews from the 36 Football universe.</p>
+    <h1 className="display-title mt-3">{filter === "all" ? "Weekly columns from around the league" : columnLabel[filter]}</h1>
+    <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">{filter === "all" ? "Fresh writing every Monday, Wednesday, and Friday — recaps, rankings, and previews from the 36 Football universe." : columnSubtitle[filter]}</p>
 
     <div className="mt-6 flex flex-wrap gap-2">{columns.map(item => <button key={item.value} onClick={() => setFilter(item.value)} className={`rounded-full px-4 py-2 text-sm font-bold transition-colors ${filter === item.value ? "bg-primary text-primary-foreground" : "bg-accent text-accent-foreground hover:bg-primary/10"}`}>{item.label}</button>)}</div>
 
@@ -57,7 +58,7 @@ export default function PressBox() {
         <Textarea value={form.content} onChange={event => setForm({ ...form, content: event.target.value })} rows={10} required maxLength={50000} />
         <div className="flex gap-2"><Button type="submit" size="sm" disabled={update.isPending}>{update.isPending ? "Saving…" : "Save"}</Button><Button type="button" size="sm" variant="outline" onClick={() => setEditingId(null)}>Cancel</Button></div>
       </form> : <>
-        <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-wrap items-center gap-2"><Badge variant="secondary">{columnLabel[article.column_type] ?? article.column_type}</Badge><span className="text-xs text-muted-foreground">{article.author_name} · {new Date(article.created_at).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}</span></div>
+        <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex flex-wrap items-center gap-2"><Badge variant="secondary">{columnLabel[article.column_type] ?? article.column_type}</Badge><span className="text-xs font-semibold text-muted-foreground">By {article.author_name}</span><span className="text-xs text-muted-foreground">·</span><span className="text-xs font-bold text-primary">{new Date(article.created_at).toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" })}</span></div>
           {isOwn(article.column_type) ? <div className="flex gap-1.5"><Button size="sm" variant="outline" onClick={() => { setEditingId(article.id); setComposing(false); setForm({ title: article.title, content: article.content }); }}><Pencil className="h-3.5 w-3.5" /></Button><Button size="sm" variant="outline" className="border-destructive/40 text-destructive hover:bg-destructive/10" onClick={() => { if (window.confirm(`Delete "${article.title}"? This cannot be undone.`)) remove.mutate({ passphrase: checkedPassphrase, id: article.id }); }}><Trash2 className="h-3.5 w-3.5" /></Button></div> : null}
         </div>
         <button onClick={() => setOpenId(openId === article.id ? null : article.id)} className="mt-3 text-left"><h2 className="font-display text-2xl font-extrabold tracking-tight hover:text-primary">{article.title}</h2></button>
