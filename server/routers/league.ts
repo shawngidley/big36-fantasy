@@ -410,7 +410,10 @@ export const leagueRouter = router({
         const gamePlays = plays.filter(play => play.gameId === game.id);
         if (!gamePlays.length) continue;
         for (const school of [game.homeTeam, game.awayTeam]) {
-          if (!draftedSchools.has(school)) continue;
+          // Process every school's plays, even ones nobody drafted - a drafted team's DEFENSIVE
+          // credit comes from the OPPONENT's offensive plays, so skipping an undrafted opponent
+          // here would silently miss all defensive credit against them (the bug that caused this
+          // audit to under-report USC's DEF total against non-drafted San José State).
           let roster = roundedCache.get(school);
           if (!roster) { roster = await getRoster(school, season); roundedCache.set(school, roster); }
           const schoolPlays = gamePlays.filter((play, index) => play.offense === school && !isSupersededInterceptionPlay(play, gamePlays[index + 1]));
