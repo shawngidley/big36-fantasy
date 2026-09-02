@@ -464,9 +464,13 @@ export const leagueRouter = router({
       const manualEntries = await supabaseRest<Array<{ id: string; draft_slot_id: string; event_type: string; computed_points: number; source_event_key: string | null; created_at: string; source_game_id: number | null }>>("b36_scoring_events", { query: { select: "id,draft_slot_id,event_type,computed_points,source_event_key,created_at,source_game_id", recorded_by_open_id: q.eq("manual-bugfix-restoration"), audit_action: q.eq("ENTRY") } });
       const results: Array<Record<string, unknown>> = [];
       for (const manual of manualEntries) {
-        const others = await supabaseRest<Array<{ id: string; source_event_key: string | null; computed_points: number; recorded_by_open_id: string; created_at: string }>>("b36_scoring_events", { query: { select: "id,source_event_key,computed_points,recorded_by_open_id,created_at", draft_slot_id: q.eq(manual.draft_slot_id), event_type: q.eq(manual.event_type), audit_action: q.eq("ENTRY"), recorded_by_open_id: `neq.manual-bugfix-restoration` } });
-        const likelyDuplicates = others.filter(other => other.source_event_key !== manual.source_event_key);
-        if (likelyDuplicates.length) results.push({ manualEntry: manual, possibleDuplicates: likelyDuplicates });
+        const allForSlot = await supabaseRest<Array<{ id: string; source_event_key: string | null; computed_points: number; recorded_by_open_id: string; created_at: string; audit_action: string; correction_of_event_id: string | null }>>("b36_scoring_events", { query: { select: "id,source_event_key,computed_points,recorded_by_open_id,created_at,audit_action,correction_of_event_id", draft_slot_id: q.eq(manual.draft_slot_id), event_type: q.eq(manual.event_type) } });
+        // An entry only counts as a real duplicate if it's still net-active (its points weren't
+        // later cancelled by a reversal) - a manual restoration of something that was wrongly
+        // reversed is legitimate, not a duplicate, even though another "ENTRY" row exists for it.
+        const reversedIds = new Set(allForSlot.filter(row => row.audit_action === "REVERSAL" && row.correction_of_event_id).map(row => row.correction_of_event_id));
+        const others = allForSlot.filter(row => row.audit_action === "ENTRY" && row.recorded_by_open_id !== "manual-bugfix-restoration" && row.source_event_key !== manual.source_event_key && !reversedIds.has(row.id));
+        if (others.length) results.push({ manualEntry: manual, possibleDuplicates: others });
       }
       return results;
     }),
