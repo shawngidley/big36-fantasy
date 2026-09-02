@@ -455,6 +455,21 @@ export const leagueRouter = router({
       }
       return { checkedSlots: selectedSchoolPositions.filter(slot => relevantGames.some(game => game.homeTeam === slot.schoolName || game.awayTeam === slot.schoolName)).length, gamesChecked: relevantGames.length, mismatches: results, gameTeamNames: relevantGames.map(game => ({ gameId: game.id, homeTeam: game.homeTeam, awayTeam: game.awayTeam, playCount: plays.filter(play => play.gameId === game.id).length })) };
     }),
+    findLikelyDuplicateScoring: adminProcedure.query(async () => {
+      // Targets the exact failure mode found tonight: a manual restoration entry for something
+      // automation had missed, followed later by automation correctly detecting that same real
+      // play on its own once the underlying bug was fixed - leaving both entries active and
+      // double-counting. Flags any active (non-reversed) manual entry that shares a draft slot +
+      // event type with another active, non-manual entry created afterward.
+      const manualEntries = await supabaseRest<Array<{ id: string; draft_slot_id: string; event_type: string; computed_points: number; source_event_key: string | null; created_at: string; source_game_id: number | null }>>("b36_scoring_events", { query: { select: "id,draft_slot_id,event_type,computed_points,source_event_key,created_at,source_game_id", recorded_by_open_id: q.eq("manual-bugfix-restoration"), audit_action: q.eq("ENTRY") } });
+      const results: Array<Record<string, unknown>> = [];
+      for (const manual of manualEntries) {
+        const others = await supabaseRest<Array<{ id: string; source_event_key: string | null; computed_points: number; recorded_by_open_id: string; created_at: string }>>("b36_scoring_events", { query: { select: "id,source_event_key,computed_points,recorded_by_open_id,created_at", draft_slot_id: q.eq(manual.draft_slot_id), event_type: q.eq(manual.event_type), audit_action: q.eq("ENTRY"), recorded_by_open_id: `neq.manual-bugfix-restoration` } });
+        const likelyDuplicates = others.filter(other => other.source_event_key !== manual.source_event_key);
+        if (likelyDuplicates.length) results.push({ manualEntry: manual, possibleDuplicates: likelyDuplicates });
+      }
+      return results;
+    }),
     debugBulkDefKstCheck: adminProcedure.input(z.object({ week: z.number(), gameIds: z.array(z.number()) })).query(async ({ input }) => {
       const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
       const season = automationRows[0]?.season;
