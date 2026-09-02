@@ -76,6 +76,22 @@ describe("36 Football automatic scoring map", () => {
     const candidates = mapLivePlayToCandidates({ play: { id: 60, gameId: 9, offense: "Hawai'i", defense: "Opponent", scoring: false, playType: "Rush", playText: "rush for no gain, TWO-POINT CONVERSION ATTEMPT FAILS" }, stats: [], roster: [{ id: 5, position: "WR" }], selectedSchoolPositions: [{ schoolName: "Hawai'i", position: "WR" }] });
     expect(candidates.filter(candidate => candidate.eventType === "TWO_POINT_CONVERSION")).toHaveLength(0);
   });
+  it("penalizes the fumbling offensive position from playType alone when no player-stat row is available yet ('(Opponent)' unambiguously means the offense lost it)", () => {
+    const candidates = mapLivePlayToCandidates({ play: { id: 61, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Fumble Recovery (Opponent)", playText: "T.Smith rush for 3 yards, fumbled, recovered by Opponent" }, stats: [], roster: [{ id: 5, firstName: "T", lastName: "Smith", position: "RB" }], selectedSchoolPositions: [{ schoolName: "Ohio State", position: "RB" }] });
+    expect(candidates).toEqual([expect.objectContaining({ schoolName: "Ohio State", position: "RB", eventType: "FUMBLE_LOST" })]);
+  });
+  it("does not double-credit a fumble loss when a player-stat row already provided it", () => {
+    const candidates = mapLivePlayToCandidates({ play: { id: 62, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Fumble Recovery (Opponent)", playText: "fumbled by #5, recovered by Opponent" }, stats: [{ playId: 62, athleteId: 5, team: "Ohio State", statType: "Fumbles Lost", stat: 1 }], roster: [{ id: 5, position: "RB" }], selectedSchoolPositions: [{ schoolName: "Ohio State", position: "RB" }] });
+    expect(candidates.filter(candidate => candidate.eventType === "FUMBLE_LOST")).toHaveLength(1);
+  });
+  it("credits a pick-six (interception return touchdown) to the DEF unit from playType alone, live, with no player stats yet", () => {
+    const candidates = mapLivePlayToCandidates({ play: { id: 63, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: true, playType: "Interception Return Touchdown", playText: "pass intercepted by #4, returned 55 yards for a TOUCHDOWN" }, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Opponent", position: "DEF" }] });
+    expect(candidates.some(candidate => candidate.eventType === "DEFENSIVE_TOUCHDOWN" && candidate.schoolName === "Opponent")).toBe(true);
+  });
+  it("credits a fumble-return touchdown to the DEF unit from playType alone, live", () => {
+    const candidates = mapLivePlayToCandidates({ play: { id: 64, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: true, playType: "Fumble Recovery (Opponent)", playText: "fumbled, recovered by #7, returned 40 yards for a TOUCHDOWN" }, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Opponent", position: "DEF" }] });
+    expect(candidates.some(candidate => candidate.eventType === "DEFENSIVE_TOUCHDOWN" && candidate.schoolName === "Opponent")).toBe(true);
+  });
   it("credits special-teams blocks and safeties to K/ST while preserving defensive safeties for DEF", () => {
     const blockedPunt = mapLivePlayToCandidates({ play: { id: 71, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Blocked Punt", playText: "Punt blocked by Opponent" }, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Opponent", position: "K_ST" }] });
     const defensiveSafety = mapLivePlayToCandidates({ play: { id: 72, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: true, playText: "Quarterback tackled in end zone for safety" }, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Opponent", position: "DEF" }] });
