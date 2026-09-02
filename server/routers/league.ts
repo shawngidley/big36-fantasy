@@ -440,7 +440,7 @@ export const leagueRouter = router({
         const official = officialTotals.get(`${slot.schoolName}:${slot.position}`) ?? 0;
         if (Math.abs(official - storedNet) > 0.01) results.push({ owner: slot.teamName, school: slot.schoolName, position: slot.position, officialPoints: official, storedPoints: storedNet, difference: Math.round((official - storedNet) * 100) / 100 });
       }
-      return { checkedSlots: selectedSchoolPositions.filter(slot => relevantGames.some(game => game.homeTeam === slot.schoolName || game.awayTeam === slot.schoolName)).length, gamesChecked: relevantGames.length, mismatches: results };
+      return { checkedSlots: selectedSchoolPositions.filter(slot => relevantGames.some(game => game.homeTeam === slot.schoolName || game.awayTeam === slot.schoolName)).length, gamesChecked: relevantGames.length, mismatches: results, gameTeamNames: relevantGames.map(game => ({ gameId: game.id, homeTeam: game.homeTeam, awayTeam: game.awayTeam, playCount: plays.filter(play => play.gameId === game.id).length })) };
     }),
     debugBulkDefKstCheck: adminProcedure.input(z.object({ week: z.number(), gameIds: z.array(z.number()) })).query(async ({ input }) => {
       const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
