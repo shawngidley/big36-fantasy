@@ -68,6 +68,14 @@ describe("36 Football automatic scoring map", () => {
     expect(passing.filter(candidate => candidate.eventType === "TWO_POINT_CONVERSION").map(candidate => candidate.position).sort()).toEqual(["QB", "WR"]);
     expect(rushing.filter(candidate => candidate.eventType === "TWO_POINT_CONVERSION").map(candidate => candidate.position)).toEqual(["RB"]);
   });
+  it("credits a two-point conversion run in by a WR even when CFBD gives the play a generic playType (just 'Rush') and only mentions the conversion in the play text - the real bug reported tonight", () => {
+    const candidates = mapLivePlayToCandidates({ play: { id: 59, gameId: 9, offense: "Hawai'i", defense: "Opponent", scoring: false, playType: "Rush", playText: "#17 K.Dixon-Wyatt rush for 2 yards, TWO-POINT CONVERSION ATTEMPT SUCCEEDS" }, stats: [], roster: [{ id: 5, firstName: "K", lastName: "Dixon-Wyatt", position: "WR" }], selectedSchoolPositions: [{ schoolName: "Hawai'i", position: "WR" }] });
+    expect(candidates).toEqual([expect.objectContaining({ position: "WR", eventType: "TWO_POINT_CONVERSION" })]);
+  });
+  it("does not credit a failed two-point conversion attempt", () => {
+    const candidates = mapLivePlayToCandidates({ play: { id: 60, gameId: 9, offense: "Hawai'i", defense: "Opponent", scoring: false, playType: "Rush", playText: "rush for no gain, TWO-POINT CONVERSION ATTEMPT FAILS" }, stats: [], roster: [{ id: 5, position: "WR" }], selectedSchoolPositions: [{ schoolName: "Hawai'i", position: "WR" }] });
+    expect(candidates.filter(candidate => candidate.eventType === "TWO_POINT_CONVERSION")).toHaveLength(0);
+  });
   it("credits special-teams blocks and safeties to K/ST while preserving defensive safeties for DEF", () => {
     const blockedPunt = mapLivePlayToCandidates({ play: { id: 71, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Blocked Punt", playText: "Punt blocked by Opponent" }, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Opponent", position: "K_ST" }] });
     const defensiveSafety = mapLivePlayToCandidates({ play: { id: 72, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: true, playText: "Quarterback tackled in end zone for safety" }, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Opponent", position: "DEF" }] });

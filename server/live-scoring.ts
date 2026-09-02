@@ -141,9 +141,15 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
     const positionsToCredit = scorer.length > 0 ? scorer : legacyScorer.length > 0 ? legacyScorer : offensivePositions.filter(position => mentionedPositions.has(position));
     positionsToCredit.forEach(position => offensiveCandidate(position, "TOUCHDOWN"));
   }
-  const successfulTwoPoint = /two point (pass|rush)/.test(playType) && !/(failed|fail|no good|incomplete)/.test(normalizeText(play.playText));
+  // Like PATs, CFBD frequently gives a two-point conversion attempt a generic playType (just "Rush"
+  // or "Pass Reception") and only mentions "two-point conversion" in the play text itself - checking
+  // playType alone (the original bug here) misses these entirely.
+  const twoPointMentioned = /two.point conversion/.test(playType) || /two.point conversion/.test(playTextNormalized) || /two point (pass|rush)/.test(playType);
+  const twoPointFailed = /(failed|fail|no good|incomplete|unsuccessful)/.test(playTextNormalized);
+  const successfulTwoPoint = twoPointMentioned && !twoPointFailed && !isInvalidated;
   if (successfulTwoPoint) {
-    if (playType.includes("pass")) {
+    const isPassPlay = playType.includes("pass") || playTextNormalized.includes("pass");
+    if (isPassPlay) {
       const qbSource = athletePositionsFor(type => type.includes("completion") || type.includes("pass")).has("QB") || mentionedPositions.has("QB");
       if (qbSource) offensiveCandidate("QB", "TWO_POINT_CONVERSION");
       const scorer = offensivePositions.filter(position => position !== "QB" && (athletePositionsFor(type => type.includes("reception")).has(position) || mentionedPositions.has(position)));
