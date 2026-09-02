@@ -160,6 +160,7 @@ export const leagueRouter = router({
       if (/touchdown/.test(`${type} ${text}`)) return true;
       if (!failed && (text.includes("field goal") || type.includes("field goal")) && (text.includes("good") || type.includes("good"))) return true;
       if (!failed && (text.includes("kick attempt good") || text.includes("kick is good") || type.includes("extra point") || type.includes("pat"))) return true;
+      if (!failed && (/two.point conversion/.test(type) || /two.point conversion/.test(text) || /two point (pass|rush)/.test(type))) return true;
       if (text.includes("safety")) return true;
       return false;
     };
