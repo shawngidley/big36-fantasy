@@ -148,15 +148,27 @@ export const leagueRouter = router({
     // defense for each play as "whichever of the two teams isn't currently on offense" — the live
     // feed only labels the team running the play, not who's defending.
     const teamNames = (live?.teams ?? []).map(team => team.team);
-    let previousHome = 0, previousAway = 0;
+    // A raw score-delta comparison (does the running score change on this play?) sounds reasonable
+    // but isn't - it catches drive-ending turnovers, penalty-adjustment plays, and the play right
+    // after a real score, none of which are themselves a score. This checks the play's own text
+    // directly for exactly the four scoring types requested: touchdowns, made extra points, made
+    // field goals, and safeties - with negative guards so a missed/blocked attempt doesn't count.
+    const isActualScoringPlay = (playType: string, playText: string) => {
+      const type = (playType ?? "").toLowerCase();
+      const text = (playText ?? "").toLowerCase();
+      const failed = /(no good|missed|blocked|incomplete|fail)/.test(`${type} ${text}`);
+      if (/touchdown/.test(`${type} ${text}`)) return true;
+      if (!failed && (text.includes("field goal") || type.includes("field goal")) && (text.includes("good") || type.includes("good"))) return true;
+      if (!failed && (text.includes("kick attempt good") || text.includes("kick is good") || type.includes("extra point") || type.includes("pat"))) return true;
+      if (text.includes("safety")) return true;
+      return false;
+    };
     const plays = (live?.drives ?? []).flatMap(drive => drive.plays).map(play => {
-      const scoring = play.homeScore !== previousHome || play.awayScore !== previousAway;
-      previousHome = play.homeScore; previousAway = play.awayScore;
       const defense = teamNames.find(name => name !== play.team) ?? "";
       return {
         id: play.id, period: play.period ?? null, clock: play.clock || null,
         offense: play.team, defense,
-        playType: play.playType ?? "Play", playText: play.playText ?? "", scoring,
+        playType: play.playType ?? "Play", playText: play.playText ?? "", scoring: isActualScoringPlay(play.playType ?? "", play.playText ?? ""),
         offenseOwners: ownersBySchool.get(play.team.toLowerCase()) ?? [],
         defenseOwners: ownersBySchool.get(defense.toLowerCase()) ?? [],
       };
