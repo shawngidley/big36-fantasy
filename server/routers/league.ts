@@ -391,6 +391,54 @@ export const leagueRouter = router({
       const storedEvents = await supabaseRest<Array<Record<string, unknown>>>("b36_scoring_events", { query: { select: "*", source_game_id: `eq.${input.gameId}`, order: "created_at.asc" } });
       return { totalGamePlays: gamePlays.length, schoolPlays: schoolPlays.length, defensivePlays: gamePlays.filter(play => play.defense === input.school).length, statsForGame: stats.filter(stat => gamePlays.some(play => play.id === stat.playId)).length, candidates, storedEvents };
     }),
+    fullScoringAudit: adminProcedure.input(z.object({ week: z.number() })).query(async ({ input }) => {
+      const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
+      const season = automationRows[0]?.season;
+      if (!season) throw new Error("No season configured.");
+      const [schedule, plays, stats, league] = await Promise.all([getRegularSeasonGames(season), getWeekPlays(season, input.week), getWeekPlayStats(season, input.week), getLeagueSnapshot()]);
+      const selectedSchoolPositions = league.owners.flatMap(owner => owner.picks.map(pick => ({ schoolName: pick.schoolName, position: pick.position as never, draftSlotId: pick.id, teamName: owner.teamName })));
+      const draftedSchools = new Set(selectedSchoolPositions.map(s => s.schoolName));
+      const relevantGames = schedule.filter(game => game.week === input.week && game.completed && (draftedSchools.has(game.homeTeam) || draftedSchools.has(game.awayTeam)));
+
+      // Compute the official point total per drafted (school, position) by checking BOTH sides of
+      // every relevant game - offense credit from the school's own plays, defense credit from the
+      // opponent's plays where this school was on defense. Checking only one side (a bug in an
+      // earlier audit tool tonight) silently misses all defensive credit.
+      const officialTotals = new Map<string, number>();
+      const roundedCache = new Map<string, Awaited<ReturnType<typeof getRoster>>>();
+      for (const game of relevantGames) {
+        const gamePlays = plays.filter(play => play.gameId === game.id);
+        if (!gamePlays.length) continue;
+        for (const school of [game.homeTeam, game.awayTeam]) {
+          if (!draftedSchools.has(school)) continue;
+          let roster = roundedCache.get(school);
+          if (!roster) { roster = await getRoster(school, season); roundedCache.set(school, roster); }
+          const schoolPlays = gamePlays.filter((play, index) => play.offense === school && !isSupersededInterceptionPlay(play, gamePlays[index + 1]));
+          const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: stats.filter(stat => stat.playId === play.id), roster: roster!, selectedSchoolPositions, provisional: false }));
+          for (const candidate of candidates) {
+            const rules = await getScoringRulesForEvent(candidate.eventType as never);
+            const score = calculateEventScore(rules, { eventType: candidate.eventType as never, position: candidate.position, statValue: candidate.statValue, yardDistance: candidate.yardDistance });
+            const key = `${candidate.schoolName}:${candidate.position}`;
+            officialTotals.set(key, (officialTotals.get(key) ?? 0) + score.points);
+          }
+        }
+      }
+
+      // Compare against what's actually stored for every drafted slot with a game this week.
+      const results: Array<Record<string, unknown>> = [];
+      for (const slot of selectedSchoolPositions) {
+        const inRelevantGame = relevantGames.some(game => game.homeTeam === slot.schoolName || game.awayTeam === slot.schoolName);
+        if (!inRelevantGame) continue;
+        const stored = await supabaseRest<Array<{ computed_points: number; week_id: string }>>("b36_scoring_events", { query: { select: "computed_points,week_id", draft_slot_id: q.eq(slot.draftSlotId) } });
+        const weekRows = await supabaseRest<Array<{ id: string }>>("b36_scoring_weeks", { query: { select: "id", week_number: `eq.${input.week}` } });
+        const weekId = weekRows[0]?.id;
+        const storedThisWeek = weekId ? stored.filter(row => row.week_id === weekId) : stored;
+        const storedNet = storedThisWeek.reduce((sum, row) => sum + row.computed_points, 0);
+        const official = officialTotals.get(`${slot.schoolName}:${slot.position}`) ?? 0;
+        if (Math.abs(official - storedNet) > 0.01) results.push({ owner: slot.teamName, school: slot.schoolName, position: slot.position, officialPoints: official, storedPoints: storedNet, difference: Math.round((official - storedNet) * 100) / 100 });
+      }
+      return { checkedSlots: selectedSchoolPositions.filter(slot => relevantGames.some(game => game.homeTeam === slot.schoolName || game.awayTeam === slot.schoolName)).length, gamesChecked: relevantGames.length, mismatches: results };
+    }),
     debugBulkDefKstCheck: adminProcedure.input(z.object({ week: z.number(), gameIds: z.array(z.number()) })).query(async ({ input }) => {
       const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
       const season = automationRows[0]?.season;
