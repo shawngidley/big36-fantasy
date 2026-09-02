@@ -23,6 +23,14 @@ export default function GameDetail() {
       {(game.homeOwners.length || game.awayOwners.length) ? <div className="mt-4 space-y-0.5"><p className="text-[10px] font-bold uppercase tracking-[.14em] text-muted-foreground">Affects</p>{game.awayOwners.map((o, i) => <p key={`away-${i}`} className="text-xs text-muted-foreground">{game.awayTeam} ({o.position}) - {o.teamName}</p>)}{game.homeOwners.map((o, i) => <p key={`home-${i}`} className="text-xs text-muted-foreground">{game.homeTeam} ({o.position}) - {o.teamName}</p>)}</div> : null}
     </div> : null}
 
+    {plays.data?.some(play => play.scoring) ? <section className="mt-8 overflow-hidden rounded-2xl border border-primary/30 bg-primary/5 shadow-sm">
+      <div className="border-b border-primary/20 bg-primary/10 px-5 py-4"><p className="section-kicker flex items-center gap-2 text-primary"><Flame className="h-3.5 w-3.5" /> Scoring plays</p><h2 className="mt-1 font-display text-xl font-extrabold">Every score in this game</h2></div>
+      <div className="divide-y divide-primary/10">{[...plays.data].filter(play => play.scoring).reverse().map(play => <div key={play.id} className="px-5 py-3.5">
+        <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[.12em] text-muted-foreground"><Flame className="h-3 w-3 text-primary" /><span>{play.period ? `Q${play.period}` : ""} {play.clock ?? ""}</span><span>·</span><span>{play.offense} ball</span></div>
+        <p className="mt-1 text-sm font-bold text-primary">{play.playText}</p>
+      </div>)}</div>
+    </section> : null}
+
     <section className="mt-8 overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
       <div className="border-b border-border bg-accent/40 px-5 py-4"><p className="section-kicker">Play-by-play</p><h2 className="mt-1 font-display text-xl font-extrabold">Every play in this game</h2></div>
       {plays.data?.length ? <div className="max-h-[650px] divide-y divide-border/70 overflow-y-auto">{[...plays.data].reverse().map(play => <div key={play.id} className={`px-5 py-3.5 ${play.scoring ? "bg-primary/5" : ""}`}>
