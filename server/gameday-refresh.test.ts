@@ -25,4 +25,10 @@ describe("College Football gameday polling window", () => {
     expect(isCollegeFootballGamedayWindow(new Date("2026-09-05T15:00:00.000Z"))).toBe(true);
     expect(isCollegeFootballGamedayWindow(new Date("2026-09-01T16:00:00.000Z"))).toBe(false);
   });
+  it("keeps running well past 3am Sunday and into Monday morning, so late Saturday-night games actually get time to finalize (the bug that left multiple games permanently stuck unreconciled)", () => {
+    expect(isCollegeFootballGamedayWindow(new Date("2026-09-06T14:00:00.000Z"))).toBe(true); // Sunday ~10am ET
+    expect(isCollegeFootballGamedayWindow(new Date("2026-09-06T23:00:00.000Z"))).toBe(true); // Sunday ~7pm ET
+    expect(isCollegeFootballGamedayWindow(new Date("2026-09-07T14:00:00.000Z"))).toBe(true); // Monday ~10am ET
+    expect(isCollegeFootballGamedayWindow(new Date("2026-09-07T20:00:00.000Z"))).toBe(false); // Monday ~4pm ET, back to quiet
+  });
 });
