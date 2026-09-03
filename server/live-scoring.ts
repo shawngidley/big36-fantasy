@@ -120,6 +120,12 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   const isTwoPoint = /two[ -]?point/.test(`${playType} ${playTextNormalized}`);
   const isInvalidated = /(no play|nullified by penalty|reversed|overturned)/.test(`${playType} ${playTextNormalized}`);
   const isInterceptionReturn = playType.includes("interception");
+  // CFBD uses a different playType when the fumble is returned for a touchdown ("Fumble Return
+  // Touchdown") versus when it isn't ("Fumble Recovery (Opponent)") - both mean the offense lost
+  // the fumble to the defense, but checking only one phrase (the original gap here) meant a
+  // fumble-six correctly credited the defense's touchdown while never penalizing the offense for
+  // losing the ball in the first place.
+  const isFumbleLostToOpponent = playType.includes("fumble recovery (opponent)") || playType.includes("fumble return touchdown");
   const hasOffensiveTouchdownText = /(touchdown|\btd\b)/.test(`${playType} ${playTextNormalized}`);
   const passingTouchdown = !isTwoPoint && !isInvalidated && !isInterceptionReturn && (passingTouchdownPositions.has("QB") || (explicitTouchdownPositions.has("QB") && athletePositionsFor(type => type.includes("reception")).size > 0) || (hasOffensiveTouchdownText && /\bpass\b/.test(`${playType} ${playTextNormalized}`)));
   const rushingTouchdown = !isTwoPoint && !isInvalidated && !passingTouchdown && (rushingTouchdownPositions.size > 0 || (hasOffensiveTouchdownText && /\b(rush\w*|run)\b/.test(`${playType} ${playTextNormalized}`)));
@@ -170,7 +176,7 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   // the OFFENSE lost this fumble - independent of whether player-level stats reliably attribute it.
   // Only fires if the loop above (which has the real player, if the stat data was available) didn't
   // already credit someone, to avoid crediting a generic "mentioned" position twice.
-  if (playType.includes("fumble recovery (opponent)") && !isInvalidated && !candidates.some(candidate => candidate.eventType === "FUMBLE_LOST" && candidate.schoolName === schoolName)) {
+  if (isFumbleLostToOpponent && !isInvalidated && !candidates.some(candidate => candidate.eventType === "FUMBLE_LOST" && candidate.schoolName === schoolName)) {
     const fumblingPosition = offensivePositions.find(position => mentionedPositions.has(position));
     if (fumblingPosition && eligibleSelection(schoolName, fumblingPosition)) candidates.push({ sourceEventKey: `${play.id}:FUMBLE_LOST:${fumblingPosition}`, sourceGameId: play.gameId, schoolName, position: fumblingPosition, eventType: "FUMBLE_LOST", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · fumble lost (playType match)` });
   }
@@ -200,14 +206,16 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   // A pick-six or fumble-return touchdown is reliably flagged by the play mentioning both a
   // turnover (interception, or "(Opponent)" fumble recovery) AND "touchdown" - independent of
   // whether player-level stats exist yet, the same weakness already fixed for sacks/turnovers.
-  if (!specialTeamsPlay && eligibleSelection(defensiveSchool, "DEF") && !isInvalidated && (isInterceptionReturn || playType.includes("fumble recovery (opponent)")) && (playType.includes("touchdown") || playTextNormalized.includes("touchdown")) && !candidates.some(candidate => candidate.eventType === "DEFENSIVE_TOUCHDOWN" && candidate.schoolName === defensiveSchool)) {
+  if (!specialTeamsPlay && eligibleSelection(defensiveSchool, "DEF") && !isInvalidated && (isInterceptionReturn || isFumbleLostToOpponent) && (playType.includes("touchdown") || playTextNormalized.includes("touchdown")) && !candidates.some(candidate => candidate.eventType === "DEFENSIVE_TOUCHDOWN" && candidate.schoolName === defensiveSchool)) {
     candidates.push({ sourceEventKey: `${play.id}:DEFENSIVE_TOUCHDOWN:playtype`, sourceGameId: play.gameId, schoolName: defensiveSchool, position: "DEF", eventType: "DEFENSIVE_TOUCHDOWN", statValue: 1, yardDistance: play.yardsGained ?? null, provisional, note: `CFBD play ${play.id} · defensive touchdown (playType match)` });
   }
   // A fumble recovery is reliably flagged on the play's own playType (e.g. "Fumble Recovery
-  // (Opponent)") independent of whether a matching player-level stat row exists for it - CFBD's
-  // stat attribution for fumbles isn't always reliable, so this catches recoveries the loop above
-  // would otherwise miss entirely, without needing to wait for or depend on player-level stats.
-  if (eligibleSelection(defensiveSchool, "DEF") && playType.includes("fumble recovery") && !isInvalidated && !candidates.some(candidate => candidate.eventType === "DEFENSIVE_TURNOVER" && candidate.schoolName === defensiveSchool)) {
+  // (Opponent)" or "Fumble Return Touchdown") independent of whether a matching player-level stat
+  // row exists for it - CFBD's stat attribution for fumbles isn't always reliable, so this catches
+  // recoveries the loop above would otherwise miss entirely. Must check specifically for the
+  // opponent recovering it - a generic "fumble recovery" match would also fire on "Fumble Recovery
+  // (Own)", wrongly crediting the defense for a fumble the offense recovered themselves.
+  if (eligibleSelection(defensiveSchool, "DEF") && isFumbleLostToOpponent && !isInvalidated && !candidates.some(candidate => candidate.eventType === "DEFENSIVE_TURNOVER" && candidate.schoolName === defensiveSchool) && !candidates.some(candidate => candidate.eventType === "DEFENSIVE_TOUCHDOWN" && candidate.schoolName === defensiveSchool)) {
     candidates.push({ sourceEventKey: `${play.id}:DEFENSIVE_TURNOVER:playtype`, sourceGameId: play.gameId, schoolName: defensiveSchool, position: "DEF", eventType: "DEFENSIVE_TURNOVER", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · fumble recovery (playType match)` });
   }
   // Live play data has no player-level stats to drive the loop above (only the final, post-game feed

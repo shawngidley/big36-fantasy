@@ -92,6 +92,15 @@ describe("36 Football automatic scoring map", () => {
     const candidates = mapLivePlayToCandidates({ play: { id: 64, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: true, playType: "Fumble Recovery (Opponent)", playText: "fumbled, recovered by #7, returned 40 yards for a TOUCHDOWN" }, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Opponent", position: "DEF" }] });
     expect(candidates.some(candidate => candidate.eventType === "DEFENSIVE_TOUCHDOWN" && candidate.schoolName === "Opponent")).toBe(true);
   });
+  it("penalizes the offense for a fumble lost even when CFBD's playType is 'Fumble Return Touchdown' rather than 'Fumble Recovery (Opponent)' - the real Hawai'i play that was missed", () => {
+    const candidates = mapLivePlayToCandidates({ play: { id: 65, gameId: 9, offense: "Hawai'i", defense: "Stanford", scoring: true, playType: "Fumble Return Touchdown", playText: "Tevarua Tafiti 31 Yd Fumble Return (Emmet Kenney Kick)" }, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Hawai'i", position: "QB" }, { schoolName: "Stanford", position: "DEF" }] });
+    expect(candidates.some(candidate => candidate.eventType === "DEFENSIVE_TOUCHDOWN" && candidate.schoolName === "Stanford")).toBe(true);
+  });
+  it("does NOT credit the defense with a turnover when a team recovers its OWN fumble ('Fumble Recovery (Own)') - a critical bug found tonight where the generic 'fumble recovery' text match would have wrongly credited a turnover that never happened", () => {
+    const candidates = mapLivePlayToCandidates({ play: { id: 66, gameId: 9, offense: "Hawai'i", defense: "Stanford", scoring: false, playType: "Fumble Recovery (Own)", playText: "pass complete for 10 yards, fumbled, recovered by Hawai'i's own player, 1ST DOWN" }, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Stanford", position: "DEF" }] });
+    expect(candidates.filter(candidate => candidate.eventType === "DEFENSIVE_TURNOVER")).toHaveLength(0);
+    expect(candidates.filter(candidate => candidate.eventType === "FUMBLE_LOST")).toHaveLength(0);
+  });
   it("credits special-teams blocks and safeties to K/ST while preserving defensive safeties for DEF", () => {
     const blockedPunt = mapLivePlayToCandidates({ play: { id: 71, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Blocked Punt", playText: "Punt blocked by Opponent" }, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Opponent", position: "K_ST" }] });
     const defensiveSafety = mapLivePlayToCandidates({ play: { id: 72, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: true, playText: "Quarterback tackled in end zone for safety" }, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Opponent", position: "DEF" }] });
