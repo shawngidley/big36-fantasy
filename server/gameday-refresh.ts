@@ -94,7 +94,13 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
     const scoreboard = await getLiveScoreboard();
     const scoreboardStatusById = new Map(scoreboard.filter(game => game.id).map(game => [game.id, game.status ?? null]));
     const scoreboardGames = scoreboard.filter(game => game.id).map(game => schedule.games.find(source => source.id === game.id)).filter((game): game is CfbdGame => Boolean(game));
-    const relevantGames = scoreboardGames.filter(game => selectedSchoolPositions.some(selection => selection.schoolName === game.homeTeam || selection.schoolName === game.awayTeam));
+    // Once a week is marked FINAL by the commissioner, it's permanently locked - no further
+    // automatic changes, ever, regardless of later code changes. Without this, a fix to detection
+    // logic can retroactively re-evaluate and alter data that was already confirmed correct, which
+    // is exactly what caused a real, serious regression tonight when a fumble-detection fix changed
+    // which candidates got generated for plays across multiple already-settled games.
+    const lockedWeekNumbers = new Set(snapshot.weeks.filter(week => week.status === "FINAL").map(week => week.weekNumber));
+    const relevantGames = scoreboardGames.filter(game => selectedSchoolPositions.some(selection => selection.schoolName === game.homeTeam || selection.schoolName === game.awayTeam) && !lockedWeekNumbers.has(game.week));
     const trulyInProgress = relevantGames.filter(game => scoreboardStatusById.get(game.id) === "in_progress");
     let insertedEvents = 0;
 

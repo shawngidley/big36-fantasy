@@ -162,4 +162,23 @@ describe("36 Football gameday source reconciliation", () => {
     const eventWrite = writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST");
     expect(eventWrite?.options.body).toMatchObject({ week_id: "week-created-1" });
   });
+
+  it("completely skips a week marked FINAL, making no writes at all even when a scoring event would otherwise be detected - this is the actual fix for tonight's regression, where a detection code change retroactively altered already-settled data", async () => {
+    const liveGame = { ...game, id: 501, week: 1, completed: false, status: "in_progress" };
+    mocks.getRegularSeasonGames.mockResolvedValue([liveGame]);
+    mocks.getLiveScoreboard.mockResolvedValue([liveGame]);
+    mocks.getLeagueSnapshot.mockResolvedValue({ owners: [{ picks: [{ id: "slot-qb", schoolName: "Ohio State", position: "QB" }] }], weeks: [{ id: "week-1", weekNumber: 1, status: "FINAL" }] });
+    mocks.getLivePlays.mockResolvedValue({
+      teams: [{ team: "Ohio State", homeAway: "home", points: 7 }, { team: "Texas", homeAway: "away", points: 0 }],
+      drives: [{ id: "d1", offense: "Ohio State", defense: "Texas", plays: [{ id: "9001", homeScore: 7, awayScore: 0, period: 1, clock: "9:00", teamId: 1, team: "Ohio State", playType: "Rushing Touchdown", playText: "TOUCHDOWN", yardsGained: 5 }] }],
+    });
+    const writes = arrange([]);
+    mocks.mapLivePlayToCandidates.mockImplementation(({ play }: { play: { scoring: boolean } }) => play.scoring ? [{ ...candidate, sourceGameId: 501 }] : []);
+
+    const result = await runGamedayRefresh({ force: true });
+
+    expect(writes.filter(write => write.table === "b36_scoring_events")).toHaveLength(0);
+    expect(result.insertedEvents).toBe(0);
+    expect(result.relevantGames).toBe(0);
+  });
 });
