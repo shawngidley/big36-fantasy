@@ -400,6 +400,19 @@ export const leagueRouter = router({
       if (!season) throw new Error("No season configured.");
       return getGamePlayerStats(season, input.week, input.team);
     }),
+    debugSlotSummary: adminProcedure.input(z.object({ gameId: z.number(), school: z.string() })).query(async ({ input }) => {
+      const league = await getLeagueSnapshot();
+      const slots = league.owners.flatMap(owner => owner.picks.filter(pick => pick.schoolName === input.school).map(pick => ({ position: pick.position, draftSlotId: pick.id, teamName: owner.teamName })));
+      const results: Array<Record<string, unknown>> = [];
+      for (const slot of slots) {
+        const rows = await supabaseRest<Array<{ id: string; event_type: string; computed_points: number; audit_action: string; recorded_by_open_id: string; is_provisional: boolean; source_event_key: string | null; correction_of_event_id: string | null }>>("b36_scoring_events", { query: { select: "id,event_type,computed_points,audit_action,recorded_by_open_id,is_provisional,source_event_key,correction_of_event_id", draft_slot_id: q.eq(slot.draftSlotId), source_game_id: q.eq(input.gameId) } });
+        const reversedIds = new Set(rows.filter(row => row.audit_action === "REVERSAL" && row.correction_of_event_id).map(row => row.correction_of_event_id));
+        const active = rows.filter(row => row.audit_action !== "REVERSAL" && !reversedIds.has(row.id));
+        const netTotal = rows.reduce((sum, row) => sum + row.computed_points, 0);
+        results.push({ position: slot.position, teamName: slot.teamName, netTotal, activeEntryCount: active.length, activeEntries: active.map(row => ({ eventType: row.event_type, points: row.computed_points, key: row.source_event_key, official: !row.is_provisional })), totalRowCount: rows.length });
+      }
+      return results;
+    }),
     debugLivePlays: adminProcedure.input(z.object({ gameId: z.number() })).query(({ input }) => getLivePlays(input.gameId)),
     debugLiveCandidates: adminProcedure.input(z.object({ gameId: z.number(), school: z.string() })).query(async ({ input }) => {
       const [live, league] = await Promise.all([getLivePlays(input.gameId), getLeagueSnapshot()]);
