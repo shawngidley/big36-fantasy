@@ -170,7 +170,12 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   for (const stat of scoringStats) {
     const position = positions.get(stat.athleteId);
     const type = stat.statType.toLowerCase();
-    if (position && eligibleSelection(schoolName, position) && type.includes("fumble") && type.includes("lost")) candidates.push(statFor("FUMBLE_LOST", stat, position, schoolName));
+    // CFBD's actual stat category is just "Fumble" (the player who fumbled) - there is no separate
+    // "Fumble Lost" category, so the previous check here (requiring both "fumble" and "lost" in the
+    // stat type) could never match anything, ever. Cross-referencing with isFumbleLostToOpponent
+    // (the play's own playType) confirms it was actually recovered by the other team, not the
+    // fumbling player's own side, since a bare "Fumble" stat alone doesn't distinguish that.
+    if (position && eligibleSelection(schoolName, position) && type === "fumble" && isFumbleLostToOpponent) candidates.push(statFor("FUMBLE_LOST", stat, position, schoolName));
   }
   // Like the defensive turnover credit, "(Opponent)" in the playType is an unambiguous signal that
   // the OFFENSE lost this fumble - independent of whether player-level stats reliably attribute it.
@@ -200,7 +205,10 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   for (const stat of defensiveStats) {
     const type = stat.statType.toLowerCase();
     if (eligibleSelection(defensiveSchool, "DEF") && type.includes("sack")) candidates.push(defensiveCandidate("SACK", stat, "DEF"));
-    if (eligibleSelection(defensiveSchool, "DEF") && (type.includes("interception") || type.includes("fumble recovery"))) candidates.push(defensiveCandidate("DEFENSIVE_TURNOVER", stat, "DEF"));
+    // "Fumble Recovery" is not a real CFBD stat category for defensive players (confirmed: only
+    // "Fumble" and "Fumble Forced" exist) - checking for it here could never match. Fumble
+    // recoveries are correctly handled below via the playType-based fallback instead.
+    if (eligibleSelection(defensiveSchool, "DEF") && type.includes("interception")) candidates.push(defensiveCandidate("DEFENSIVE_TURNOVER", stat, "DEF"));
     if (play.scoring && !specialTeamsPlay && eligibleSelection(defensiveSchool, "DEF") && type.includes("touchdown")) candidates.push(defensiveCandidate("DEFENSIVE_TOUCHDOWN", stat, "DEF", play.yardsGained ?? null));
   }
   // A pick-six or fumble-return touchdown is reliably flagged by the play mentioning both a

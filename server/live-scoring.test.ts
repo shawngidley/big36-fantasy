@@ -38,10 +38,10 @@ describe("36 Football automatic scoring map", () => {
     const candidates = mapLivePlayToCandidates({ play: { id: 401862693353, gameId: 401862693, offense: "Memphis", defense: "UNLV", scoring: false, playType: "Fumble Recovery (Opponent)", playText: "pass complete short right ... fumbled by #1 T.Chapman ... recovered by UNLV #2 D.Harris ..." }, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "UNLV", position: "DEF" }] });
     expect(candidates).toEqual([expect.objectContaining({ schoolName: "UNLV", position: "DEF", eventType: "DEFENSIVE_TURNOVER", sourceEventKey: "401862693353:DEFENSIVE_TURNOVER:playtype" })]);
   });
-  it("does not double-credit a fumble recovery when a matching player-stat row already exists", () => {
-    const candidates = mapLivePlayToCandidates({ play: { id: 556, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Fumble Recovery (Opponent)", playText: "fumbled, recovered by #4 Defender" }, stats: [{ playId: 556, athleteId: 4, team: "Opponent", statType: "Fumble Recovery", stat: 1 }], roster: [{ id: 4, position: "DEF" }], selectedSchoolPositions: [{ schoolName: "Opponent", position: "DEF" }] });
+  it("credits exactly one defensive turnover for a fumble recovery, via the playType fallback (the only real path - 'Fumble Recovery' isn't an actual CFBD stat category for defensive players)", () => {
+    const candidates = mapLivePlayToCandidates({ play: { id: 556, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Fumble Recovery (Opponent)", playText: "fumbled, recovered by #4 Defender" }, stats: [], roster: [{ id: 4, position: "DEF" }], selectedSchoolPositions: [{ schoolName: "Opponent", position: "DEF" }] });
     expect(candidates.filter(candidate => candidate.eventType === "DEFENSIVE_TURNOVER")).toHaveLength(1);
-    expect(candidates.find(candidate => candidate.eventType === "DEFENSIVE_TURNOVER")?.sourceEventKey).toBe("556:DEFENSIVE_TURNOVER:4");
+    expect(candidates.find(candidate => candidate.eventType === "DEFENSIVE_TURNOVER")?.sourceEventKey).toBe("556:DEFENSIVE_TURNOVER:playtype");
   });
   it("does not double-credit a defensive turnover from text when official player-stat rows are already present", () => {
     const candidates = mapLivePlayToCandidates({ play: { id: 555, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Pass Interception Return", playText: "A. Manning pass intercepted by #4 Defender" }, stats: [{ playId: 555, athleteId: 9, team: "Opponent", statType: "Interception", stat: 1 }], roster: [{ id: 9, position: "DEF" }], selectedSchoolPositions: [{ schoolName: "Opponent", position: "DEF" }] });
@@ -80,8 +80,16 @@ describe("36 Football automatic scoring map", () => {
     const candidates = mapLivePlayToCandidates({ play: { id: 61, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Fumble Recovery (Opponent)", playText: "T.Smith rush for 3 yards, fumbled, recovered by Opponent" }, stats: [], roster: [{ id: 5, firstName: "T", lastName: "Smith", position: "RB" }], selectedSchoolPositions: [{ schoolName: "Ohio State", position: "RB" }] });
     expect(candidates).toEqual([expect.objectContaining({ schoolName: "Ohio State", position: "RB", eventType: "FUMBLE_LOST" })]);
   });
-  it("does not double-credit a fumble loss when a player-stat row already provided it", () => {
-    const candidates = mapLivePlayToCandidates({ play: { id: 62, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Fumble Recovery (Opponent)", playText: "fumbled by #5, recovered by Opponent" }, stats: [{ playId: 62, athleteId: 5, team: "Ohio State", statType: "Fumbles Lost", stat: 1 }], roster: [{ id: 5, position: "RB" }], selectedSchoolPositions: [{ schoolName: "Ohio State", position: "RB" }] });
+  it("credits a fumble loss using the real CFBD stat category 'Fumble' cross-referenced with the play's own playType to confirm it went to the opponent (the actual fix for the stats-based path being completely non-functional all season)", () => {
+    const candidates = mapLivePlayToCandidates({ play: { id: 401856766648, gameId: 9, offense: "TCU", defense: "North Carolina", scoring: false, playType: "Fumble Recovery (Opponent)", playText: "Jaden Craig sacked, fumbled, recovered by North Carolina" }, stats: [{ playId: 401856766648, athleteId: 5083569, athleteName: "Jaden Craig", team: "TCU", statType: "Fumble", stat: 1 }], roster: [{ id: 5083569, firstName: "Jaden", lastName: "Craig", position: "QB" }], selectedSchoolPositions: [{ schoolName: "TCU", position: "QB" }] });
+    expect(candidates).toEqual([expect.objectContaining({ schoolName: "TCU", position: "QB", eventType: "FUMBLE_LOST" })]);
+  });
+  it("does NOT credit a fumble loss from a bare 'Fumble' stat alone when the play itself shows it was recovered by the fumbling team's own side", () => {
+    const candidates = mapLivePlayToCandidates({ play: { id: 999, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Fumble Recovery (Own)", playText: "fumbled, recovered by Ohio State's own player" }, stats: [{ playId: 999, athleteId: 5, team: "Ohio State", statType: "Fumble", stat: 1 }], roster: [{ id: 5, position: "RB" }], selectedSchoolPositions: [{ schoolName: "Ohio State", position: "RB" }] });
+    expect(candidates.filter(candidate => candidate.eventType === "FUMBLE_LOST")).toHaveLength(0);
+  });
+  it("does not double-credit a fumble loss between the stats loop and the playType fallback", () => {
+    const candidates = mapLivePlayToCandidates({ play: { id: 62, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Fumble Recovery (Opponent)", playText: "fumbled by #5, recovered by Opponent" }, stats: [{ playId: 62, athleteId: 5, team: "Ohio State", statType: "Fumble", stat: 1 }], roster: [{ id: 5, position: "RB" }], selectedSchoolPositions: [{ schoolName: "Ohio State", position: "RB" }] });
     expect(candidates.filter(candidate => candidate.eventType === "FUMBLE_LOST")).toHaveLength(1);
   });
   it("credits a pick-six (interception return touchdown) to the DEF unit from playType alone, live, with no player stats yet", () => {
