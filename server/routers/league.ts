@@ -381,12 +381,18 @@ export const leagueRouter = router({
       if (input.team) return plays.filter(play => play.offense?.toLowerCase().includes(input.team!.toLowerCase()) || play.defense?.toLowerCase().includes(input.team!.toLowerCase()));
       return { totalPlays: plays.length, sample: plays.slice(0, 5), uniqueGameIds: Array.from(new Set(plays.map(play => play.gameId))).slice(0, 100) };
     }),
-    debugRawPlayStats: adminProcedure.input(z.object({ week: z.number(), playId: z.number() })).query(async ({ input }) => {
+    debugRawPlayStats: adminProcedure.input(z.object({ week: z.number(), playId: z.number().optional(), statTypeSearch: z.string().optional() })).query(async ({ input }) => {
       const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
       const season = automationRows[0]?.season;
       if (!season) throw new Error("No season configured.");
       const stats = await getWeekPlayStats(season, input.week);
-      return stats.filter(stat => stat.playId === input.playId);
+      if (input.playId) return stats.filter(stat => stat.playId === input.playId);
+      if (input.statTypeSearch) {
+        const term = input.statTypeSearch.toLowerCase();
+        const matches = stats.filter(stat => stat.statType.toLowerCase().includes(term));
+        return { totalStatsThisWeek: stats.length, matchCount: matches.length, sample: matches.slice(0, 20), uniqueStatTypesOverall: Array.from(new Set(stats.map(stat => stat.statType))) };
+      }
+      return { totalStatsThisWeek: stats.length, uniqueStatTypes: Array.from(new Set(stats.map(stat => stat.statType))) };
     }),
     debugLivePlays: adminProcedure.input(z.object({ gameId: z.number() })).query(({ input }) => getLivePlays(input.gameId)),
     debugLiveCandidates: adminProcedure.input(z.object({ gameId: z.number(), school: z.string() })).query(async ({ input }) => {
