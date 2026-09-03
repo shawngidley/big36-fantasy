@@ -18,7 +18,7 @@ import { decodeRegistrationLogo, hashRegistrationPin, normalizeRegistrationEmail
 import { storagePut } from "../storage";
 import { notifyOwnerWhenUpcomingPickSafely, sendDraftSms } from "../draft-alerts";
 import { activateNextPendingTurn } from "../draft-clock";
-import { getLivePlays, getLiveScoreboard, getRegularSeasonGames, getRoster, getWeekPlays, getWeekPlayStats } from "../cfbd";
+import { getGamePlayerStats, getLivePlays, getLiveScoreboard, getRegularSeasonGames, getRoster, getWeekPlays, getWeekPlayStats } from "../cfbd";
 import { lotteryCommitment, LOTTERY_REVEAL_INTERVAL_SECONDS, secureShuffle } from "../draft-lottery";
 
 const positionSchema = z.enum(positions);
@@ -393,6 +393,12 @@ export const leagueRouter = router({
         return { totalStatsThisWeek: stats.length, matchCount: matches.length, sample: matches.slice(0, 20), uniqueStatTypesOverall: Array.from(new Set(stats.map(stat => stat.statType))) };
       }
       return { totalStatsThisWeek: stats.length, uniqueStatTypes: Array.from(new Set(stats.map(stat => stat.statType))) };
+    }),
+    debugGamePlayerStats: adminProcedure.input(z.object({ week: z.number(), team: z.string() })).query(async ({ input }) => {
+      const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
+      const season = automationRows[0]?.season;
+      if (!season) throw new Error("No season configured.");
+      return getGamePlayerStats(season, input.week, input.team);
     }),
     debugLivePlays: adminProcedure.input(z.object({ gameId: z.number() })).query(({ input }) => getLivePlays(input.gameId)),
     debugLiveCandidates: adminProcedure.input(z.object({ gameId: z.number(), school: z.string() })).query(async ({ input }) => {
