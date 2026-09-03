@@ -381,6 +381,13 @@ export const leagueRouter = router({
       if (input.team) return plays.filter(play => play.offense?.toLowerCase().includes(input.team!.toLowerCase()) || play.defense?.toLowerCase().includes(input.team!.toLowerCase()));
       return { totalPlays: plays.length, sample: plays.slice(0, 5), uniqueGameIds: Array.from(new Set(plays.map(play => play.gameId))).slice(0, 100) };
     }),
+    debugRawPlayStats: adminProcedure.input(z.object({ week: z.number(), playId: z.number() })).query(async ({ input }) => {
+      const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
+      const season = automationRows[0]?.season;
+      if (!season) throw new Error("No season configured.");
+      const stats = await getWeekPlayStats(season, input.week);
+      return stats.filter(stat => stat.playId === input.playId);
+    }),
     debugLivePlays: adminProcedure.input(z.object({ gameId: z.number() })).query(({ input }) => getLivePlays(input.gameId)),
     debugLiveCandidates: adminProcedure.input(z.object({ gameId: z.number(), school: z.string() })).query(async ({ input }) => {
       const [live, league] = await Promise.all([getLivePlays(input.gameId), getLeagueSnapshot()]);
