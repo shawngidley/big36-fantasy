@@ -180,6 +180,26 @@ describe("36 Football gameday source reconciliation", () => {
     expect(result.relevantGames).toBe(1);
   });
 
+  it("credits a drafted DEF live on the UNDRAFTED opponent's offensive play - the live loop must evaluate both teams' plays, not only drafted schools'", async () => {
+    const liveGame = { ...game, id: 503, week: 2, completed: false, status: "in_progress" };
+    mocks.getRegularSeasonGames.mockResolvedValue([liveGame]);
+    mocks.getLiveScoreboard.mockResolvedValue([liveGame]);
+    mocks.getLeagueSnapshot.mockResolvedValue({ owners: [{ picks: [{ id: "slot-def", schoolName: "Ohio State", position: "DEF" }] }], weeks: [{ id: "week-2", weekNumber: 2, status: "OPEN" }] });
+    mocks.getLivePlays.mockResolvedValue({
+      teams: [{ team: "Ohio State", homeAway: "home", points: 0 }, { team: "Texas", homeAway: "away", points: 0 }],
+      drives: [{ id: "d1", offense: "Texas", defense: "Ohio State", plays: [{ id: "9101", homeScore: 0, awayScore: 0, period: 1, clock: "9:00", teamId: 2, team: "Texas", playType: "Sack", playText: "Arch Manning sacked for -8 yards", yardsGained: -8 }] }],
+    });
+    const writes = arrange([]);
+    const seen: string[] = [];
+    mocks.mapLivePlayToCandidates.mockImplementation(({ play }: { play: { offense: string; defense: string } }) => { seen.push(play.offense); return play.offense === "Texas" ? [{ ...candidate, sourceGameId: 503, schoolName: "Ohio State", position: "DEF", eventType: "SACK", sourceEventKey: "9101:SACK:unit" }] : []; });
+
+    const result = await runGamedayRefresh({ force: true });
+
+    expect(seen).toContain("Texas");
+    expect(result.insertedEvents).toBe(1);
+    expect(writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST")?.options.body).toMatchObject({ event_type: "SACK", draft_slot_id: "slot-def", is_provisional: true });
+  });
+
   it("freezes a COMPLETED game in a FINAL week that already has official entries - no writes, no re-evaluation, even if detection logic changed", async () => {
     const doneGame = { ...game, id: 502, week: 1, completed: true, status: "completed" };
     mocks.getRegularSeasonGames.mockResolvedValue([doneGame]);

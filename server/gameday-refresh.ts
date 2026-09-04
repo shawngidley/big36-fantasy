@@ -148,8 +148,13 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
         debugEntry.availableWeekNumbers = snapshot.weeks.map(item => item.weekNumber);
         let candidateCount = 0, insertedForGame = 0, skippedNoSlot = 0;
         for (const school of [game.homeTeam, game.awayTeam]) {
-          if (!selectedSchoolPositions.some(selection => selection.schoolName === school)) continue;
-          const roster = await getRoster(school, config.season);
+          // Evaluate BOTH teams' offensive plays, not just drafted schools'. A drafted DEF earns
+          // sacks/interceptions on the OPPONENT's offensive plays, so skipping an undrafted opponent
+          // here silently dropped every live defensive credit unless both teams happened to be
+          // drafted. The roster is only needed for offensive position attribution, so an undrafted
+          // school gets an empty roster (no offensive candidates possible, no extra API call).
+          const schoolIsDrafted = selectedSchoolPositions.some(selection => selection.schoolName === school);
+          const roster = schoolIsDrafted ? await getRoster(school, config.season) : [];
           const schoolPlays = legacyPlays.filter((play, index) => play.offense === school && !isSupersededInterceptionPlay(play, legacyPlays[index + 1]));
           const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: [], roster, selectedSchoolPositions: selectedSchoolPositions.map(selection => ({ schoolName: selection.schoolName, position: selection.position })), provisional: true }));
           candidateCount += candidates.length;
