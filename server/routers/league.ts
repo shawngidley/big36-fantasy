@@ -13,7 +13,7 @@ import { yearOneRules } from "../year-one-rules";
 import { runGamedayRefresh } from "../gameday-refresh";
 import { syncFbsPoolAndSchedule } from "../gameday-refresh";
 import { adaptLiveGameToLegacyPlays } from "../gameday-refresh";
-import { isSupersededInterceptionPlay, mapLivePlayToCandidates } from "../live-scoring";
+import { boxScoreFumbleCandidates, isSupersededInterceptionPlay, mapLivePlayToCandidates, type LivePosition } from "../live-scoring";
 import { decodeRegistrationLogo, hashRegistrationPin, normalizeRegistrationEmail, normalizeRegistrationPhone, verifyRegistrationPin } from "../registration";
 import { storagePut } from "../storage";
 import { notifyOwnerWhenUpcomingPickSafely, sendDraftSms } from "../draft-alerts";
@@ -450,6 +450,50 @@ export const leagueRouter = router({
         return { id: game.id, home, away, status: game.status ?? null, inSchedule: Boolean(source), scheduleWeek: source?.week ?? null, scheduleHome: source?.homeTeam ?? null, scheduleAway: source?.awayTeam ?? null, draftedMatch, lockedOut: source ? locked.includes(source.week) : null };
       });
       return { season, scoreboardCount: scoreboard.length, inSchedule: rows.filter(row => row.inSchedule).length, draftedByScoreboardName: rows.filter(row => row.draftedMatch.length).length, draftedBySchedule: rows.filter(row => row.inSchedule && drafted.some(school => school === row.scheduleHome || school === row.scheduleAway)).length, lockedWeeks: locked, draftedSchools: drafted, games: rows };
+    }),
+    // One-time backfill: apply the box-score fumbles-lost logic to games that completed before it
+    // shipped (Aug 29 / Sep 3 slates). Bypasses the settled-game lock on purpose; dryRun (default)
+    // only reports what would be written.
+    backfillBoxScoreFumbles: adminProcedure.input(z.object({ week: z.number().int().min(1), dryRun: z.boolean().default(true) })).mutation(async ({ input }) => {
+      const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
+      const season = automationRows[0]?.season;
+      if (!season) throw new Error("No season configured.");
+      const [schedule, snapshot] = await Promise.all([getRegularSeasonGames(season), getLeagueSnapshot()]);
+      const weekRow = snapshot.weeks.find(week => week.weekNumber === input.week);
+      if (!weekRow) throw new Error(`No scoring week row for week ${input.week}.`);
+      const selected = snapshot.owners.flatMap(owner => owner.picks.map(pick => ({ schoolName: pick.schoolName, position: pick.position as LivePosition, draftSlotId: pick.id, ownerName: owner.teamName })));
+      const games = schedule.filter(game => game.week === input.week && game.completed && [game.homeTeam, game.awayTeam].some(team => selected.some(pick => pick.schoolName === team)));
+      const gameIds = games.map(game => game.id);
+      const rows = gameIds.length ? await supabaseRest<Array<{ source_event_key: string | null; source_game_id: number | null; audit_action: string; draft_slot_id: string; event_type: string; stat_value: number }>>("b36_scoring_events", { query: { select: "source_event_key,source_game_id,audit_action,draft_slot_id,event_type,stat_value", source_game_id: `in.(${gameIds.join(",")})`, limit: "5000" } }) : [];
+      const reversed = new Set(rows.filter(row => row.audit_action === "REVERSAL" && row.source_event_key).map(row => row.source_event_key));
+      const known = new Set(rows.filter(row => row.source_event_key && row.audit_action !== "REVERSAL").map(row => row.source_event_key));
+      const planned: Array<{ gameId: number; game: string; owner: string; school: string; position: string; fumblesLost: number; points: number; note: string; key: string; status: string }> = [];
+      const unavailable: Array<{ gameId: number; school: string }> = [];
+      for (const game of games) {
+        for (const school of [game.homeTeam, game.awayTeam]) {
+          if (!selected.some(pick => pick.schoolName === school)) continue;
+          const box = (await getGamePlayerStats(season, input.week, school)).find(entry => entry.id === game.id);
+          const alreadyWrittenBySlot = new Map<LivePosition, number>();
+          for (const row of rows) {
+            if (row.source_game_id !== game.id || row.event_type !== "FUMBLE_LOST" || row.audit_action !== "ENTRY" || !row.source_event_key || row.source_event_key.endsWith(":box") || reversed.has(`${row.source_event_key}:reversal`)) continue;
+            const slot = selected.find(pick => pick.draftSlotId === row.draft_slot_id && pick.schoolName === school);
+            if (slot) alreadyWrittenBySlot.set(slot.position, (alreadyWrittenBySlot.get(slot.position) ?? 0) + row.stat_value);
+          }
+          const result = boxScoreFumbleCandidates({ gameId: game.id, school, box, roster: await getRoster(school, season), selectedSchoolPositions: selected, alreadyWrittenBySlot });
+          if (!result.available) { unavailable.push({ gameId: game.id, school }); continue; }
+          for (const candidate of result.candidates) {
+            const slot = selected.find(pick => pick.schoolName === candidate.schoolName && pick.position === candidate.position);
+            if (!slot) continue;
+            const rules = await getScoringRulesForEvent(candidate.eventType as never);
+            const score = calculateEventScore(rules, { eventType: candidate.eventType as never, position: candidate.position, statValue: candidate.statValue, yardDistance: candidate.yardDistance });
+            const status = known.has(candidate.sourceEventKey) ? "already-present" : input.dryRun ? "would-insert" : "inserted";
+            planned.push({ gameId: game.id, game: `${game.awayTeam} at ${game.homeTeam}`, owner: slot.ownerName, school, position: candidate.position, fumblesLost: candidate.statValue, points: score.points, note: candidate.note, key: candidate.sourceEventKey, status });
+            if (status !== "inserted") continue;
+            await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: weekRow.id, draft_slot_id: slot.draftSlotId, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points, note: `${candidate.note} (backfill)`, audit_action: "ENTRY", recorded_by_open_id: "cfbd-box-score-backfill", source_event_key: candidate.sourceEventKey, source_game_id: game.id, is_provisional: false } });
+          }
+        }
+      }
+      return { season, week: input.week, dryRun: input.dryRun, gamesChecked: games.length, planned, unavailable };
     }),
     fullScoringAudit: adminProcedure.input(z.object({ week: z.number() })).query(async ({ input }) => {
       const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
