@@ -3,7 +3,10 @@ import type { CfbdGame, CfbdPlay, CfbdPlayStat, CfbdRosterAthlete } from "./cfbd
 export type LivePosition = "QB" | "RB" | "WR" | "TE" | "K_ST" | "DEF";
 export type ScoringCandidate = { sourceEventKey: string; sourceGameId: number; schoolName: string; position: LivePosition; eventType: string; statValue: number; yardDistance: number | null; provisional: boolean; note: string };
 
-const positionForRosterValue = (position: string): LivePosition | null => {
+const positionForRosterValue = (position: string | null | undefined): LivePosition | null => {
+  // CFBD roster entries can carry a null position (walk-ons, incomplete records). Treat those as
+  // "no scoring position" rather than crashing the entire refresh/audit for that school's game.
+  if (!position) return null;
   const mapping: Record<string, LivePosition> = { QB: "QB", RB: "RB", FB: "RB", WR: "WR", TE: "TE", K: "K_ST", P: "K_ST" };
   return mapping[position.toUpperCase()] ?? null;
 };
