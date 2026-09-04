@@ -102,6 +102,17 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
     const lockedWeekNumbers = new Set(snapshot.weeks.filter(week => week.status === "FINAL").map(week => week.weekNumber));
     const relevantGames = scoreboardGames.filter(game => selectedSchoolPositions.some(selection => selection.schoolName === game.homeTeam || selection.schoolName === game.awayTeam) && !lockedWeekNumbers.has(game.week));
     const trulyInProgress = relevantGames.filter(game => scoreboardStatusById.get(game.id) === "in_progress");
+    // Stage-by-stage diagnostics so "0 relevant games" can be explained from the UI result alone.
+    const draftedSchools = Array.from(new Set(selectedSchoolPositions.map(selection => selection.schoolName)));
+    const matchDebug = {
+      scoreboardCount: scoreboard.length,
+      scoreboardMatchedToSchedule: scoreboardGames.length,
+      scheduleGameCount: schedule.games.length,
+      lockedWeeks: Array.from(lockedWeekNumbers),
+      draftedSchoolCount: draftedSchools.length,
+      scoreboardSample: scoreboard.slice(0, 40).map(game => ({ id: game.id, home: (game as { homeTeam?: { name?: string } }).homeTeam?.name ?? null, away: (game as { awayTeam?: { name?: string } }).awayTeam?.name ?? null, status: game.status ?? null, inSchedule: schedule.games.some(source => source.id === game.id) })),
+      scoreboardDraftedByName: scoreboard.filter(game => draftedSchools.includes((game as { homeTeam?: { name?: string } }).homeTeam?.name ?? "") || draftedSchools.includes((game as { awayTeam?: { name?: string } }).awayTeam?.name ?? "")).map(game => game.id),
+    };
     let insertedEvents = 0;
 
     // Live detection: for games actually happening right now, use the real live-play feed to catch
@@ -211,7 +222,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
       }
     }
     await writeRefreshStatus({ last_refresh_status: "ok", last_refresh_detail: { active_games: trulyInProgress.length, relevant_games: relevantGames.length, inserted_events: insertedEvents, team_count: schedule.teamCount, live_debug: liveDebug } });
-    return { activeGames: trulyInProgress.length, relevantGames: relevantGames.length, insertedEvents, teamCount: schedule.teamCount, liveDebug };
+    return { activeGames: trulyInProgress.length, relevantGames: relevantGames.length, insertedEvents, teamCount: schedule.teamCount, liveDebug, matchDebug };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown gameday refresh failure";
     await writeRefreshStatus({ last_refresh_status: "error", last_refresh_detail: { message } });
