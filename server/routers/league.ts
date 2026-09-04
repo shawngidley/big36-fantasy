@@ -469,6 +469,7 @@ export const leagueRouter = router({
       const known = new Set(rows.filter(row => row.source_event_key && row.audit_action !== "REVERSAL").map(row => row.source_event_key));
       const planned: Array<{ gameId: number; game: string; owner: string; school: string; position: string; fumblesLost: number; points: number; note: string; key: string; status: string }> = [];
       const unavailable: Array<{ gameId: number; school: string }> = [];
+      const diagnostics: Array<Record<string, unknown>> = [];
       for (const game of games) {
         for (const school of [game.homeTeam, game.awayTeam]) {
           if (!selected.some(pick => pick.schoolName === school)) continue;
@@ -479,7 +480,14 @@ export const leagueRouter = router({
             const slot = selected.find(pick => pick.draftSlotId === row.draft_slot_id && pick.schoolName === school);
             if (slot) alreadyWrittenBySlot.set(slot.position, (alreadyWrittenBySlot.get(slot.position) ?? 0) + row.stat_value);
           }
-          const result = boxScoreFumbleCandidates({ gameId: game.id, school, box, roster: await getRoster(school, season), selectedSchoolPositions: selected, alreadyWrittenBySlot });
+          const roster = await getRoster(school, season);
+          const boxGames = await getGamePlayerStats(season, input.week, school);
+          const lostType = box?.teams.find(team => team.team === school)?.categories.find(category => category.name === "fumbles")?.types.find(type => type.name === "LOST");
+          diagnostics.push({
+            gameId: game.id, school, boxGameFound: Boolean(box), boxGameIdsReturned: boxGames.map(entry => entry.id), boxTeamNames: box?.teams.map(team => team.team) ?? [], fumblesCategoryFound: Boolean(lostType), rosterSize: roster.length,
+            lostAthletes: (lostType?.athletes ?? []).filter(athlete => Number(athlete.stat) > 0).map(athlete => { const rosterEntry = roster.find(entry => entry.id === Number(athlete.id)); return { id: athlete.id, name: athlete.name.trim(), lost: Number(athlete.stat), rosterPosition: rosterEntry?.position ?? null, inRoster: Boolean(rosterEntry), draftedAtThatPosition: Boolean(rosterEntry?.position && selected.some(pick => pick.schoolName === school && pick.position === (({ QB: "QB", RB: "RB", FB: "RB", WR: "WR", TE: "TE" } as Record<string, string>)[String(rosterEntry.position).toUpperCase()] ?? ""))) }; }),
+          });
+          const result = boxScoreFumbleCandidates({ gameId: game.id, school, box, roster, selectedSchoolPositions: selected, alreadyWrittenBySlot });
           if (!result.available) { unavailable.push({ gameId: game.id, school }); continue; }
           for (const candidate of result.candidates) {
             const slot = selected.find(pick => pick.schoolName === candidate.schoolName && pick.position === candidate.position);
@@ -493,7 +501,7 @@ export const leagueRouter = router({
           }
         }
       }
-      return { season, week: input.week, dryRun: input.dryRun, gamesChecked: games.length, planned, unavailable };
+      return { season, week: input.week, dryRun: input.dryRun, gamesChecked: games.length, planned, unavailable, diagnostics: diagnostics.filter(entry => (entry.lostAthletes as unknown[]).length > 0 || !entry.boxGameFound || !entry.fumblesCategoryFound) };
     }),
     fullScoringAudit: adminProcedure.input(z.object({ week: z.number() })).query(async ({ input }) => {
       const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
