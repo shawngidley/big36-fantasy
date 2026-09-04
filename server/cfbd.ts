@@ -59,7 +59,7 @@ export type CfbdPlayStat = { playId: number; athleteId: number; athleteName?: st
 export type CfbdLiveGamePlay = { id: string; homeScore: number; awayScore: number; period: number; clock: string; wallClock?: string; teamId: number; team: string; down?: number | null; distance?: number | null; yardsToGoal?: number | null; yardsGained?: number | null; playType?: string | null; playText?: string | null };
 export type CfbdLiveDrive = { id: string; offense: string; defense: string; plays: CfbdLiveGamePlay[] };
 export type CfbdLiveGame = { id: number; status?: string | null; period?: number | null; clock?: string | null; teams: Array<{ team: string; homeAway: "home" | "away"; points: number }>; drives: CfbdLiveDrive[] };
-export type CfbdRosterAthlete = { id: number; firstName?: string | null; lastName?: string | null; position: string | null; team?: string | null };
+export type CfbdRosterAthlete = { id: number | string; firstName?: string | null; lastName?: string | null; position: string | null; team?: string | null };
 export type CfbdScoreboardGame = { id: number; status?: string | null; period?: number | null; clock?: string | null; homeTeam?: { name?: string | null; points?: number | string | null; lineScores?: Array<number | string> | null } | null; awayTeam?: { name?: string | null; points?: number | string | null; lineScores?: Array<number | string> | null } | null; week?: number | null; season?: number | null };
 
 export const getFbsTeams = (year: number) => cachedCfbdGet<CfbdTeam[]>("/teams/fbs", { year }, 6 * 60 * 60_000);

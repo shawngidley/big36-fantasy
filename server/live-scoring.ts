@@ -38,16 +38,19 @@ export function finalShutoutCandidates(input: { game: CfbdGame; selectedSchoolPo
 
 export function normalizeSchoolForComparison(value: string) { return value.trim().toLowerCase().replace(/\s+/g, " "); }
 
-function positionByAthlete(roster: CfbdRosterAthlete[]) { return new Map(roster.map(athlete => [athlete.id, positionForRosterValue(athlete.position)])); }
+// Keyed by STRING id. The roster feed returns athlete ids as strings while /plays/stats returns
+// numbers; a Map keyed on the raw roster value never matched a stat's athleteId, which silently
+// disabled every stat-based attribution path (only the play-text fallbacks were ever firing).
+function positionByAthlete(roster: CfbdRosterAthlete[]) { return new Map(roster.map(athlete => [String(athlete.id), positionForRosterValue(athlete.position)])); }
 
 const offensivePositions: LivePosition[] = ["QB", "RB", "WR", "TE"];
 const normalizeText = (value: string | null | undefined) => String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
-function positionsMentionedInText(playText: string | null | undefined, roster: CfbdRosterAthlete[], positions: Map<number, LivePosition | null>) {
+function positionsMentionedInText(playText: string | null | undefined, roster: CfbdRosterAthlete[], positions: Map<string, LivePosition | null>) {
   const text = ` ${normalizeText(playText)} `;
   const mentioned = new Set<LivePosition>();
   for (const athlete of roster) {
-    const position = positions.get(athlete.id);
+    const position = positions.get(String(athlete.id));
     const name = normalizeText(`${athlete.firstName ?? ""} ${athlete.lastName ?? ""}`);
     const shortName = normalizeText(`${String(athlete.firstName ?? "").slice(0, 1)} ${athlete.lastName ?? ""}`);
     if (position && ((name.length >= 5 && text.includes(` ${name} `)) || (shortName.length >= 3 && text.includes(` ${shortName} `)))) mentioned.add(position);
@@ -55,13 +58,13 @@ function positionsMentionedInText(playText: string | null | undefined, roster: C
   return mentioned;
 }
 
-function passerPositionsInText(playText: string | null | undefined, roster: CfbdRosterAthlete[], positions: Map<number, LivePosition | null>) {
+function passerPositionsInText(playText: string | null | undefined, roster: CfbdRosterAthlete[], positions: Map<string, LivePosition | null>) {
   const normalized = normalizeText(playText);
   const beforePass = ` ${normalized.split(" pass ")[0] ?? ""} `;
   const afterPassFrom = ` ${normalized.split(" pass from ")[1] ?? ""} `;
   const mentioned = new Set<LivePosition>();
   for (const athlete of roster) {
-    const position = positions.get(athlete.id);
+    const position = positions.get(String(athlete.id));
     const name = normalizeText(`${athlete.firstName ?? ""} ${athlete.lastName ?? ""}`);
     const shortName = normalizeText(`${String(athlete.firstName ?? "").slice(0, 1)} ${athlete.lastName ?? ""}`);
     if (position && ((name.length >= 5 && (beforePass.includes(` ${name} `) || afterPassFrom.includes(` ${name} `))) || (shortName.length >= 3 && (beforePass.includes(` ${shortName} `) || afterPassFrom.includes(` ${shortName} `))))) mentioned.add(position);
@@ -116,7 +119,7 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   const playTextNormalized = normalizeText(play.playText);
   const mentionedPositions = positionsMentionedInText(play.playText, roster, positions);
   const passerPositions = passerPositionsInText(play.playText, roster, positions);
-  const athletePositionsFor = (matcher: (type: string) => boolean) => new Set(Array.from(statsByAthlete.entries()).flatMap(([athleteId, stats]) => matcher(stats.map(stat => stat.statType.toLowerCase()).join(" ")) ? [positions.get(athleteId)] : []).filter((position): position is LivePosition => Boolean(position)));
+  const athletePositionsFor = (matcher: (type: string) => boolean) => new Set(Array.from(statsByAthlete.entries()).flatMap(([athleteId, stats]) => matcher(stats.map(stat => stat.statType.toLowerCase()).join(" ")) ? [positions.get(String(athleteId))] : []).filter((position): position is LivePosition => Boolean(position)));
   const explicitTouchdownPositions = athletePositionsFor(type => type.includes("touchdown"));
   const passingTouchdownPositions = athletePositionsFor(type => type.includes("passing touchdown"));
   const rushingTouchdownPositions = athletePositionsFor(type => type.includes("rushing touchdown"));
@@ -168,10 +171,10 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
       scorer.forEach(position => offensiveCandidate(position, "TWO_POINT_CONVERSION"));
     }
   }
-  const qbInterception = !isInvalidated && (scoringStats.some(stat => positions.get(stat.athleteId) === "QB" && stat.statType.toLowerCase().includes("interception")) || (/interception/.test(playType) && passerPositions.has("QB")));
+  const qbInterception = !isInvalidated && (scoringStats.some(stat => positions.get(String(stat.athleteId)) === "QB" && stat.statType.toLowerCase().includes("interception")) || (/interception/.test(playType) && passerPositions.has("QB")));
   if (qbInterception && eligibleSelection(schoolName, "QB")) candidates.push({ sourceEventKey: `${play.id}:INTERCEPTION_THROWN:QB`, sourceGameId: play.gameId, schoolName, position: "QB", eventType: "INTERCEPTION_THROWN", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · quarterback interception` });
   for (const stat of scoringStats) {
-    const position = positions.get(stat.athleteId);
+    const position = positions.get(String(stat.athleteId));
     const type = stat.statType.toLowerCase();
     // CFBD's actual stat category is just "Fumble" (the player who fumbled) - there is no separate
     // "Fumble Lost" category, so the previous check here (requiring both "fumble" and "lost" in the
