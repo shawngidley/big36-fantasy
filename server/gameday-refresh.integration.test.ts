@@ -181,35 +181,4 @@ describe("36 Football gameday source reconciliation", () => {
     expect(result.insertedEvents).toBe(0);
     expect(result.relevantGames).toBe(0);
   });
-
-  it("skips a run entirely if another run is already in progress (running_since set recently) - the actual fix for tonight's overlapping-runs regression, where continuous automation caused two runs to interfere with each other while a single isolated run did not", async () => {
-    const writes: Array<{ table: string; options: Record<string, unknown> }> = [];
-    mocks.supabaseRest.mockImplementation(async (table: string, options: Record<string, unknown> = {}) => {
-      if (table === "b36_automation_config" && options.method !== "PATCH") return [{ season: 2026, enabled: true, last_refresh_at: null, schedule_cron_task_uid: null, running_since: new Date(Date.now() - 30_000).toISOString() }];
-      if (options.method) writes.push({ table, options });
-      return [];
-    });
-
-    const result = await runGamedayRefresh({ force: true });
-
-    expect(result).toMatchObject({ skipped: "already-running", insertedEvents: 0, activeGames: 0 });
-    expect(writes).toHaveLength(0);
-  });
-
-  it("treats a stale lock (older than 5 minutes, implying a crashed prior run) as abandoned and proceeds normally, rather than permanently blocking all future runs", async () => {
-    const writes: Array<{ table: string; options: Record<string, unknown> }> = [];
-    mocks.supabaseRest.mockImplementation(async (table: string, options: Record<string, unknown> = {}) => {
-      if (table === "b36_automation_config" && options.method !== "PATCH") return [{ season: 2026, enabled: true, last_refresh_at: null, schedule_cron_task_uid: null, running_since: new Date(Date.now() - 10 * 60_000).toISOString() }];
-      if (table === "b36_scoring_events" && options.query) return [];
-      if (options.method) writes.push({ table, options });
-      return [];
-    });
-    mocks.getRegularSeasonGames.mockResolvedValue([]);
-    mocks.getLiveScoreboard.mockResolvedValue([]);
-
-    const result = await runGamedayRefresh({ force: true });
-
-    expect(result).not.toMatchObject({ skipped: "already-running" });
-    expect(writes.some(write => write.table === "b36_automation_config" && (write.options.body as Record<string, unknown>).running_since === null)).toBe(true);
-  });
 });

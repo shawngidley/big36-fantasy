@@ -4,7 +4,7 @@ import { calculateEventScore } from "./league-scoring";
 import { eligibleGameIdsForSchool, finalShutoutCandidates, isSupersededInterceptionPlay, mapLivePlayToCandidates, type LivePosition } from "./live-scoring";
 import { supabaseRest } from "./supabase";
 
-type AutomationConfig = { season: number; enabled: boolean; last_refresh_at: string | null; schedule_cron_task_uid: string | null; running_since: string | null };
+type AutomationConfig = { season: number; enabled: boolean; last_refresh_at: string | null; schedule_cron_task_uid: string | null };
 type SourceEvent = { id: string; source_event_key: string | null; source_game_id: number | null; audit_action: string; week_id: string; draft_slot_id: string; event_type: string; stat_value: number; yard_distance: number | null; computed_points: number; is_provisional: boolean };
 
 export function sourceEventNeedsCorrection(original: Pick<SourceEvent, "computed_points" | "yard_distance" | "stat_value">, next: { points: number; yardDistance: number | null; statValue: number }) {
@@ -87,18 +87,6 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
   if (!config) throw new Error("36 Football automation is not configured.");
   if (!config.enabled && !options.force) return { skipped: "automation-disabled", insertedEvents: 0, activeGames: 0 };
   if (!options.force && !isCollegeFootballGamedayWindow()) return { skipped: "outside-gameday-window", insertedEvents: 0, activeGames: 0 };
-  // Concurrency guard: the cron fires every 60 seconds, but a single run can legitimately take
-  // longer than that (many games, many API calls, many writes). Without this, overlapping runs
-  // could read and write the same scoring data at the same time, each unaware of the other's
-  // in-flight changes - this is the leading suspect for tonight's regressions, since a single
-  // isolated manual run did NOT reproduce the problem, but continuous automation did. A stale lock
-  // (older than 5 minutes - far longer than any real run should take) is treated as abandoned from
-  // a crashed run and safely overridden, rather than permanently blocking all future runs.
-  if (config.running_since) {
-    const staleMs = Date.now() - new Date(config.running_since).getTime();
-    if (staleMs < 5 * 60_000) return { skipped: "already-running", insertedEvents: 0, activeGames: 0 };
-  }
-  await supabaseRest("b36_automation_config", { method: "PATCH", query: { id: "eq.true" }, body: { running_since: new Date().toISOString() } });
   try {
     const schedule = await syncFbsPoolAndSchedule(config.season);
     const snapshot = await getLeagueSnapshot();
@@ -223,12 +211,10 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
       }
     }
     await writeRefreshStatus({ last_refresh_status: "ok", last_refresh_detail: { active_games: trulyInProgress.length, relevant_games: relevantGames.length, inserted_events: insertedEvents, team_count: schedule.teamCount, live_debug: liveDebug } });
-    await supabaseRest("b36_automation_config", { method: "PATCH", query: { id: "eq.true" }, body: { running_since: null } });
     return { activeGames: trulyInProgress.length, relevantGames: relevantGames.length, insertedEvents, teamCount: schedule.teamCount, liveDebug };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown gameday refresh failure";
     await writeRefreshStatus({ last_refresh_status: "error", last_refresh_detail: { message } });
-    await supabaseRest("b36_automation_config", { method: "PATCH", query: { id: "eq.true" }, body: { running_since: null } });
     throw error;
   }
 }
