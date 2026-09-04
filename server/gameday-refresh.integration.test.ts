@@ -163,7 +163,7 @@ describe("36 Football gameday source reconciliation", () => {
     expect(eventWrite?.options.body).toMatchObject({ week_id: "week-created-1" });
   });
 
-  it("completely skips a week marked FINAL, making no writes at all even when a scoring event would otherwise be detected - this is the actual fix for tonight's regression, where a detection code change retroactively altered already-settled data", async () => {
+  it("still scores an IN-PROGRESS game in a FINAL week - CFBD week 1 spans opening weekend through Labor Day, so a week-number lock would silently block the whole second weekend", async () => {
     const liveGame = { ...game, id: 501, week: 1, completed: false, status: "in_progress" };
     mocks.getRegularSeasonGames.mockResolvedValue([liveGame]);
     mocks.getLiveScoreboard.mockResolvedValue([liveGame]);
@@ -172,13 +172,31 @@ describe("36 Football gameday source reconciliation", () => {
       teams: [{ team: "Ohio State", homeAway: "home", points: 7 }, { team: "Texas", homeAway: "away", points: 0 }],
       drives: [{ id: "d1", offense: "Ohio State", defense: "Texas", plays: [{ id: "9001", homeScore: 7, awayScore: 0, period: 1, clock: "9:00", teamId: 1, team: "Ohio State", playType: "Rushing Touchdown", playText: "TOUCHDOWN", yardsGained: 5 }] }],
     });
-    const writes = arrange([]);
+    arrange([]);
     mocks.mapLivePlayToCandidates.mockImplementation(({ play }: { play: { scoring: boolean } }) => play.scoring ? [{ ...candidate, sourceGameId: 501 }] : []);
 
     const result = await runGamedayRefresh({ force: true });
 
-    expect(writes.filter(write => write.table === "b36_scoring_events")).toHaveLength(0);
-    expect(result.insertedEvents).toBe(0);
+    expect(result.relevantGames).toBe(1);
+  });
+
+  it("freezes a COMPLETED game in a FINAL week that already has official entries - no writes, no re-evaluation, even if detection logic changed", async () => {
+    const doneGame = { ...game, id: 502, week: 1, completed: true, status: "completed" };
+    mocks.getRegularSeasonGames.mockResolvedValue([doneGame]);
+    mocks.getLiveScoreboard.mockResolvedValue([doneGame]);
+    mocks.getLeagueSnapshot.mockResolvedValue({ owners: [{ picks: [{ id: "slot-qb", schoolName: "Ohio State", position: "QB" }] }], weeks: [{ id: "week-1", weekNumber: 1, status: "FINAL" }] });
+    const writes: Array<{ table: string; options: Record<string, unknown> }> = [];
+    mocks.supabaseRest.mockImplementation(async (table: string, options: Record<string, unknown> = {}) => {
+      if (table === "b36_automation_config") return [{ season: 2026, enabled: true, last_refresh_at: null, schedule_cron_task_uid: null }];
+      if (table === "b36_scoring_events" && !options.method) return [{ source_game_id: 502 }];
+      if (options.method) writes.push({ table, options });
+      return [];
+    });
+    mocks.mapLivePlayToCandidates.mockReturnValue([{ ...candidate, sourceGameId: 502 }]);
+
+    const result = await runGamedayRefresh({ force: true });
+
     expect(result.relevantGames).toBe(0);
+    expect(writes.filter(write => write.table === "b36_scoring_events")).toHaveLength(0);
   });
 });

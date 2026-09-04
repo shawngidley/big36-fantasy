@@ -100,7 +100,20 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
     // is exactly what caused a real, serious regression tonight when a fumble-detection fix changed
     // which candidates got generated for plays across multiple already-settled games.
     const lockedWeekNumbers = new Set(snapshot.weeks.filter(week => week.status === "FINAL").map(week => week.weekNumber));
-    const relevantGames = scoreboardGames.filter(game => selectedSchoolPositions.some(selection => selection.schoolName === game.homeTeam || selection.schoolName === game.awayTeam) && !lockedWeekNumbers.has(game.week));
+    const draftedGames = scoreboardGames.filter(game => selectedSchoolPositions.some(selection => selection.schoolName === game.homeTeam || selection.schoolName === game.awayTeam));
+    // The lock must be per GAME, not per CFBD week number: CFBD's "week 1" spans opening weekend
+    // through Labor Day, so locking the whole week number after the Aug 29 slate silently blocked
+    // every game the following weekend. A game is settled (and therefore frozen) only when its week
+    // is FINAL, it has completed, and it already carries official (non-provisional) entries. Games
+    // in a FINAL week that are still upcoming/in progress, or completed but never reconciled, still
+    // get scored normally.
+    const lockedWeekCompletedIds = draftedGames.filter(game => lockedWeekNumbers.has(game.week) && game.completed).map(game => game.id);
+    const settledGameIds = new Set<number>();
+    if (lockedWeekCompletedIds.length) {
+      const officialRows = await supabaseRest<Array<{ source_game_id: number | null }>>("b36_scoring_events", { query: { select: "source_game_id", source_game_id: `in.(${lockedWeekCompletedIds.join(",")})`, audit_action: "eq.ENTRY", is_provisional: "eq.false" } });
+      officialRows.forEach(row => { if (row.source_game_id) settledGameIds.add(row.source_game_id); });
+    }
+    const relevantGames = draftedGames.filter(game => !settledGameIds.has(game.id));
     const trulyInProgress = relevantGames.filter(game => scoreboardStatusById.get(game.id) === "in_progress");
     // Stage-by-stage diagnostics so "0 relevant games" can be explained from the UI result alone.
     const draftedSchools = Array.from(new Set(selectedSchoolPositions.map(selection => selection.schoolName)));
@@ -109,6 +122,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
       scoreboardMatchedToSchedule: scoreboardGames.length,
       scheduleGameCount: schedule.games.length,
       lockedWeeks: Array.from(lockedWeekNumbers),
+      settledGamesSkipped: Array.from(settledGameIds),
       draftedSchoolCount: draftedSchools.length,
       scoreboardSample: scoreboard.slice(0, 40).map(game => ({ id: game.id, home: (game as { homeTeam?: { name?: string } }).homeTeam?.name ?? null, away: (game as { awayTeam?: { name?: string } }).awayTeam?.name ?? null, status: game.status ?? null, inSchedule: schedule.games.some(source => source.id === game.id) })),
       scoreboardDraftedByName: scoreboard.filter(game => draftedSchools.includes((game as { homeTeam?: { name?: string } }).homeTeam?.name ?? "") || draftedSchools.includes((game as { awayTeam?: { name?: string } }).awayTeam?.name ?? "")).map(game => game.id),
