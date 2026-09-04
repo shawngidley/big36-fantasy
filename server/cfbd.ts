@@ -51,7 +51,7 @@ function cachedCfbdGet<T>(path: string, query: Record<string, string | number | 
 
 export type CfbdTeam = { id: number; school: string; conference?: string | null; classification?: string | null };
 export type CfbdGame = { id: number; season: number; week: number; seasonType: string; startDate: string; completed: boolean; homeTeam: string; awayTeam: string; homeClassification?: string | null; awayClassification?: string | null; homePoints?: number | null; awayPoints?: number | null };
-export type CfbdPlay = { id: number; gameId: number; driveId?: string | null; playNumber?: number | null; offense: string; defense: string; yardsToGoal?: number | null; yardsGained?: number | null; scoring: boolean; playType?: string | null; playText?: string | null; period?: number | null; clock?: { minutes?: number; seconds?: number } | null };
+export type CfbdPlay = { id: number; gameId: number; driveId?: string | null; playNumber?: number | null; offense: string; defense: string; offenseScore?: number | null; defenseScore?: number | null; scoringTeam?: string | null; yardsToGoal?: number | null; yardsGained?: number | null; scoring: boolean; playType?: string | null; playText?: string | null; period?: number | null; clock?: { minutes?: number; seconds?: number } | null };
 export type CfbdPlayStat = { playId: number; athleteId: number; athleteName?: string | null; team: string; statType: string; stat: number | string; yardsToGoal?: number | null };
 // The actual live /live/plays shape: one game object, with plays nested under each drive — not a flat
 // array like /plays. There's no explicit "scoring" flag on a play here; it must be inferred from the
@@ -67,7 +67,22 @@ export const getRegularSeasonGames = (year: number) => cachedCfbdGet<CfbdGame[]>
 export const getLiveScoreboard = () => cachedCfbdGet<CfbdScoreboardGame[]>("/scoreboard", { classification: "fbs" }, 15_000);
 // Plays are heavier for CFBD to serve and don't need to be as instantaneous as the live score —
 // a longer cache window here meaningfully cuts call volume during high-traffic Saturday windows.
-export const getWeekPlays = (year: number, week: number) => cachedCfbdGet<CfbdPlay[]>("/plays", { year, week, seasonType: "regular" }, 45_000);
+// Derive which team actually scored on each play from the running score, per game, in feed order.
+// "offense" on kickoffs/punts is the KICKING team, so any return touchdown credited to play.offense
+// goes to the wrong side; scoringTeam is convention-free and is what the K/ST + DEF paths prefer.
+export function annotateScoringTeams(plays: CfbdPlay[]): CfbdPlay[] {
+  const previousByGame = new Map<number, Map<string, number>>();
+  return plays.map(play => {
+    if (play.offenseScore == null || play.defenseScore == null) return play;
+    const previous = previousByGame.get(play.gameId) ?? new Map<string, number>();
+    const current = new Map<string, number>([[play.offense, Number(play.offenseScore)], [play.defense, Number(play.defenseScore)]]);
+    let scoringTeam: string | null = null;
+    for (const [team, score] of Array.from(current.entries())) if (score > (previous.get(team) ?? 0)) scoringTeam = team;
+    previousByGame.set(play.gameId, current);
+    return { ...play, scoringTeam };
+  });
+}
+export const getWeekPlays = async (year: number, week: number) => annotateScoringTeams(await cachedCfbdGet<CfbdPlay[]>("/plays", { year, week, seasonType: "regular" }, 45_000));
 // The actual live, in-progress play feed — /plays only populates after a game finishes, per CFBD support.
 // Returns one game object with plays nested under drives, not a flat array.
 export const getLivePlays = (gameId: number) => cachedCfbdGet<CfbdLiveGame>("/live/plays", { gameId }, 15_000);

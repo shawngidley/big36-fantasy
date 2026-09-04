@@ -62,15 +62,19 @@ async function ensureWeekRow(weekNumber: number, weeks: Array<{ id: string; week
 // already understands, so that function doesn't need to change at all.
 export function adaptLiveGameToLegacyPlays(gameId: number, live: CfbdLiveGame): CfbdPlay[] {
   const teamNames = (live.teams ?? []).map(team => team.team);
+  const homeName = (live.teams ?? []).find(team => team.homeAway === "home")?.team ?? null;
+  const awayName = (live.teams ?? []).find(team => team.homeAway === "away")?.team ?? null;
   let previousHome = 0, previousAway = 0;
   return (live.drives ?? []).flatMap(drive => drive.plays).map(play => {
     const scoring = play.homeScore !== previousHome || play.awayScore !== previousAway;
+    // Which side's score moved - the only reliable way to know who scored on returns/blocks.
+    const scoringTeam = play.homeScore > previousHome ? homeName : play.awayScore > previousAway ? awayName : null;
     previousHome = play.homeScore; previousAway = play.awayScore;
     const defense = teamNames.find(name => name !== play.team) ?? "";
     // Live play ids are strings (e.g. "4018567663"); keep them distinct from /plays' numeric ids so a
     // provisional live-detected event and its eventual final-confirmed counterpart never collide —
     // the existing reversal logic already cleanly replaces provisional entries once a game completes.
-    return { id: Number(`9${play.id}`.slice(0, 15)), gameId, offense: play.team, defense, yardsToGoal: play.yardsToGoal ?? null, yardsGained: play.yardsGained ?? null, scoring, playType: play.playType ?? null, playText: play.playText ?? null, period: play.period ?? null, clock: null };
+    return { id: Number(`9${play.id}`.slice(0, 15)), gameId, offense: play.team, defense, scoringTeam, yardsToGoal: play.yardsToGoal ?? null, yardsGained: play.yardsGained ?? null, scoring, playType: play.playType ?? null, playText: play.playText ?? null, period: play.period ?? null, clock: null };
   });
 }
 

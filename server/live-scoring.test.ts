@@ -127,10 +127,28 @@ describe("36 Football automatic scoring map", () => {
   it("recognizes only explicit special-teams touchdown play types and made kicks", () => {
     expect(specialTeamsTouchdownType("Kickoff Return Touchdown")).toBe("KICK_RETURN_TOUCHDOWN");
     expect(specialTeamsTouchdownType("Passing Touchdown")).toBeNull();
-    const kickoffReturn = mapLivePlayToCandidates({ play: { id: 74, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: true, playType: "Kickoff Return Touchdown", playText: "Kickoff returned for a touchdown" }, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Ohio State", position: "K_ST" }] });
+    // Ohio State is the KICKING team (offense on the play); the score change says Opponent returned it.
+    const kickoffReturn = mapLivePlayToCandidates({ play: { id: 74, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: true, scoringTeam: "Opponent", playType: "Kickoff Return Touchdown", playText: "Kickoff returned for a touchdown" }, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Opponent", position: "K_ST" }] });
     const fieldGoal = mapLivePlayToCandidates({ play: { id: 75, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: true, playType: "Field Goal Good", yardsToGoal: 36 }, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Ohio State", position: "K_ST" }] });
     expect(kickoffReturn.map(candidate => candidate.eventType)).toContain("KICK_RETURN_TOUCHDOWN");
+    expect(kickoffReturn.find(candidate => candidate.eventType === "KICK_RETURN_TOUCHDOWN")?.schoolName).toBe("Opponent");
     expect(fieldGoal.map(candidate => candidate.eventType)).toContain("FIELD_GOAL");
+  });
+  it("never credits a return touchdown to the kicking team, and falls back to the play's defense when no score signal exists", () => {
+    const base = { id: 76, gameId: 9, offense: "Kicking U", defense: "Returning U", scoring: true, playType: "Punt Return Touchdown", playText: "Punt returned 70 yards for a touchdown" };
+    const wrongSide = mapLivePlayToCandidates({ play: base, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Kicking U", position: "K_ST" }] });
+    expect(wrongSide.filter(candidate => candidate.eventType === "PUNT_RETURN_TOUCHDOWN")).toHaveLength(0);
+    const rightSide = mapLivePlayToCandidates({ play: base, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Returning U", position: "K_ST" }] });
+    expect(rightSide.find(candidate => candidate.eventType === "PUNT_RETURN_TOUCHDOWN")?.schoolName).toBe("Returning U");
+  });
+  it("derives scoringTeam from the running score for the post-game /plays feed", async () => {
+    const { annotateScoringTeams } = await import("./cfbd");
+    const plays = annotateScoringTeams([
+      { id: 1, gameId: 5, offense: "A", defense: "B", offenseScore: 0, defenseScore: 0, scoring: false },
+      { id: 2, gameId: 5, offense: "A", defense: "B", offenseScore: 0, defenseScore: 7, scoring: true, playType: "Punt Return Touchdown" },
+      { id: 3, gameId: 5, offense: "B", defense: "A", offenseScore: 7, defenseScore: 7, scoring: true, playType: "Rushing Touchdown" },
+    ]);
+    expect(plays.map(play => play.scoringTeam ?? null)).toEqual([null, "B", "A"]);
   });
   it("uses the canonical field-goal distance once even when a made-kick player stat is present", () => {
     const candidates = mapLivePlayToCandidates({ play: { id: 79, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: true, playType: "Field Goal Good", yardsToGoal: 19, yardsGained: 36 }, stats: [{ playId: 79, athleteId: 4, team: "Ohio State", statType: "Field Goal Made", stat: 36 }], roster: [{ id: 4, position: "K" }], selectedSchoolPositions: [{ schoolName: "Ohio State", position: "K_ST" }] });
