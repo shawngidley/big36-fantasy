@@ -1,4 +1,4 @@
-import type { CfbdGame, CfbdPlay, CfbdPlayStat, CfbdRosterAthlete } from "./cfbd";
+import type { CfbdGame, CfbdGamePlayerStatsGame, CfbdPlay, CfbdPlayStat, CfbdRosterAthlete } from "./cfbd";
 
 export type LivePosition = "QB" | "RB" | "WR" | "TE" | "K_ST" | "DEF";
 export type ScoringCandidate = { sourceEventKey: string; sourceGameId: number; schoolName: string; position: LivePosition; eventType: string; statValue: number; yardDistance: number | null; provisional: boolean; note: string };
@@ -248,4 +248,34 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
     candidates.push({ sourceEventKey: `${play.id}:${specialTeamType}`, sourceGameId: play.gameId, schoolName, position: "K_ST", eventType: specialTeamType, statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · special teams return` });
   }
   return uniqueCandidates(candidates);
+}
+
+// Fumbles lost from the per-game box score (/games/players -> "fumbles" -> "LOST"). This is the
+// actual "lost" stat straight from the box, whereas the play feed only has a bare "Fumble" credit
+// that frequently isn't attributed to any player at all. Used at end-of-game reconciliation as the
+// authoritative source; one candidate per drafted slot with statValue = fumbles lost by that
+// position group, minus anything the play feed already wrote for the same slot+game.
+export function boxScoreFumbleCandidates(input: { gameId: number; school: string; box: CfbdGamePlayerStatsGame | undefined; roster: CfbdRosterAthlete[]; selectedSchoolPositions: Array<{ schoolName: string; position: LivePosition }>; alreadyWrittenBySlot: Map<LivePosition, number> }): { available: boolean; candidates: ScoringCandidate[] } {
+  const team = input.box?.teams.find(entry => normalizeSchoolForComparison(entry.team) === normalizeSchoolForComparison(input.school));
+  const lost = team?.categories.find(category => category.name === "fumbles")?.types.find(type => type.name === "LOST");
+  if (!lost) return { available: false, candidates: [] };
+  const positions = positionByAthlete(input.roster);
+  const bySlot = new Map<LivePosition, { count: number; names: string[] }>();
+  for (const athlete of lost.athletes) {
+    const id = Number(athlete.id), count = Number(athlete.stat);
+    if (!Number.isFinite(id) || id <= 0 || !Number.isFinite(count) || count <= 0) continue; // negative ids are the " Team" bucket
+    const position = positions.get(id);
+    if (!position || !offensivePositions.includes(position)) continue;
+    const entry = bySlot.get(position) ?? { count: 0, names: [] };
+    entry.count += count; entry.names.push(`${athlete.name.trim()} x${count}`);
+    bySlot.set(position, entry);
+  }
+  const candidates: ScoringCandidate[] = [];
+  for (const [position, entry] of Array.from(bySlot.entries())) {
+    if (!input.selectedSchoolPositions.some(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(input.school) && selection.position === position)) continue;
+    const shortfall = entry.count - (input.alreadyWrittenBySlot.get(position) ?? 0);
+    if (shortfall <= 0) continue;
+    candidates.push({ sourceEventKey: `${input.gameId}:FUMBLE_LOST:${position}:box`, sourceGameId: input.gameId, schoolName: input.school, position, eventType: "FUMBLE_LOST", statValue: shortfall, yardDistance: null, provisional: false, note: `CFBD box score · fumbles lost (${entry.names.join(", ")})` });
+  }
+  return { available: true, candidates };
 }

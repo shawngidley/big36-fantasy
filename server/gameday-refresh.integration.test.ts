@@ -7,11 +7,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./cfbd", () => ({
   getFbsTeams: mocks.getFbsTeams, getLiveScoreboard: mocks.getLiveScoreboard, getRegularSeasonGames: mocks.getRegularSeasonGames,
-  getRoster: mocks.getRoster, getWeekPlays: mocks.getWeekPlays, getWeekPlayStats: mocks.getWeekPlayStats, getLivePlays: mocks.getLivePlays,
+  getRoster: mocks.getRoster, getWeekPlays: mocks.getWeekPlays, getWeekPlayStats: mocks.getWeekPlayStats, getLivePlays: mocks.getLivePlays, getGamePlayerStats: vi.fn().mockResolvedValue([]),
 }));
 vi.mock("./league-data", () => ({ getLeagueSnapshot: mocks.getLeagueSnapshot, getScoringRulesForEvent: mocks.getScoringRulesForEvent }));
 vi.mock("./league-scoring", () => ({ calculateEventScore: mocks.calculateEventScore }));
-vi.mock("./live-scoring", () => ({ eligibleGameIdsForSchool: mocks.eligibleGameIdsForSchool, finalShutoutCandidates: mocks.finalShutoutCandidates, isSupersededInterceptionPlay: mocks.isSupersededInterceptionPlay, mapLivePlayToCandidates: mocks.mapLivePlayToCandidates }));
+vi.mock("./live-scoring", () => ({ eligibleGameIdsForSchool: mocks.eligibleGameIdsForSchool, boxScoreFumbleCandidates: () => ({ available: false, candidates: [] }), finalShutoutCandidates: mocks.finalShutoutCandidates, isSupersededInterceptionPlay: mocks.isSupersededInterceptionPlay, mapLivePlayToCandidates: mocks.mapLivePlayToCandidates }));
 vi.mock("./supabase", () => ({ supabaseRest: mocks.supabaseRest }));
 
 import { runGamedayRefresh } from "./gameday-refresh";

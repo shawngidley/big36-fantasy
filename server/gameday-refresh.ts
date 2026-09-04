@@ -1,7 +1,7 @@
-import { getFbsTeams, getLivePlays, getLiveScoreboard, getRegularSeasonGames, getRoster, getWeekPlays, getWeekPlayStats, type CfbdGame, type CfbdLiveGame, type CfbdPlay, type CfbdRosterAthlete } from "./cfbd";
+import { getFbsTeams, getGamePlayerStats, getLivePlays, getLiveScoreboard, getRegularSeasonGames, getRoster, getWeekPlays, getWeekPlayStats, type CfbdGame, type CfbdLiveGame, type CfbdPlay, type CfbdRosterAthlete } from "./cfbd";
 import { getLeagueSnapshot, getScoringRulesForEvent } from "./league-data";
 import { calculateEventScore } from "./league-scoring";
-import { eligibleGameIdsForSchool, finalShutoutCandidates, isSupersededInterceptionPlay, mapLivePlayToCandidates, type LivePosition } from "./live-scoring";
+import { boxScoreFumbleCandidates, eligibleGameIdsForSchool, finalShutoutCandidates, isSupersededInterceptionPlay, mapLivePlayToCandidates, type LivePosition } from "./live-scoring";
 import { supabaseRest } from "./supabase";
 
 type AutomationConfig = { season: number; enabled: boolean; last_refresh_at: string | null; schedule_cron_task_uid: string | null };
@@ -198,6 +198,30 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
           }),
           ...finalShutoutCandidates({ game, selectedSchoolPositions: selectedSchoolPositions.map(selection => ({ schoolName: selection.schoolName, position: selection.position })), provisional: !game.completed }),
         ];
+        if (game.completed) {
+          // Fumbles lost: the box score is authoritative once the game is over (see
+          // boxScoreFumbleCandidates). When it's available for a school, drop that school's
+          // play-derived fumble candidates and let the box total (net of anything already written
+          // from the play feed) drive the FUMBLE_LOST entries instead.
+          for (const school of [game.homeTeam, game.awayTeam]) {
+            if (!selectedSchoolPositions.some(selection => selection.schoolName === school)) continue;
+            let box: Awaited<ReturnType<typeof getGamePlayerStats>>[number] | undefined;
+            try { box = (await getGamePlayerStats(config.season, week, school)).find(entry => entry.id === game.id); } catch (error) { console.warn(`box score unavailable for ${school} game ${game.id}:`, error); }
+            const alreadyWrittenBySlot = new Map<LivePosition, number>();
+            for (const row of eventRows) {
+              if (row.source_game_id !== game.id || row.event_type !== "FUMBLE_LOST" || row.audit_action !== "ENTRY" || !row.source_event_key || row.source_event_key.endsWith(":box") || reversedKeys.has(`${row.source_event_key}:reversal`)) continue;
+              const slot = selectedSchoolPositions.find(selection => selection.draftSlotId === row.draft_slot_id && selection.schoolName === school);
+              if (slot) alreadyWrittenBySlot.set(slot.position, (alreadyWrittenBySlot.get(slot.position) ?? 0) + row.stat_value);
+            }
+            const fromBox = boxScoreFumbleCandidates({ gameId: game.id, school, box, roster: rosters.get(school) ?? [], selectedSchoolPositions, alreadyWrittenBySlot });
+            if (!fromBox.available) continue;
+            for (let index = gameCandidates.length - 1; index >= 0; index -= 1) {
+              const candidate = gameCandidates[index];
+              if (candidate.eventType === "FUMBLE_LOST" && candidate.schoolName === school && !knownKeys.has(candidate.sourceEventKey)) gameCandidates.splice(index, 1);
+            }
+            gameCandidates.push(...fromBox.candidates);
+          }
+        }
         gameCandidates.forEach(candidate => currentCandidateKeys.add(candidate.sourceEventKey));
         for (const candidate of gameCandidates) {
           const slot = selectedSchoolPositions.find(selection => selection.schoolName === candidate.schoolName && selection.position === candidate.position);

@@ -79,4 +79,5 @@ export const getRoster = (team: string, year: number) => cachedCfbdGet<CfbdRoste
 // Game-level aggregated player stats - a different endpoint from /plays/stats (which is per-play).
 // This might have a player's total fumbles for the whole game even when the play-level feed is
 // missing the attribution for a specific play.
-export const getGamePlayerStats = (year: number, week: number, team?: string) => cachedCfbdGet<Array<{ id: number; teams: Array<{ team: string; categories: Array<{ name: string; types: Array<{ name: string; athletes: Array<{ id: string; name: string; stat: string }> }> }> }> }>>("/games/players", { year, week, seasonType: "regular", team }, 60_000);
+export type CfbdGamePlayerStatsGame = { id: number; teams: Array<{ team: string; categories: Array<{ name: string; types: Array<{ name: string; athletes: Array<{ id: string; name: string; stat: string }> }> }> }> };
+export const getGamePlayerStats = (year: number, week: number, team?: string) => cachedCfbdGet<CfbdGamePlayerStatsGame[]>("/games/players", { year, week, seasonType: "regular", team }, 60_000);
