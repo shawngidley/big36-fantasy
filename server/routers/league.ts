@@ -436,6 +436,21 @@ export const leagueRouter = router({
       const storedEvents = await supabaseRest<Array<Record<string, unknown>>>("b36_scoring_events", { query: { select: "*", source_game_id: `eq.${input.gameId}`, order: "created_at.asc" } });
       return { totalGamePlays: gamePlays.length, schoolPlays: schoolPlays.length, defensivePlays: gamePlays.filter(play => play.defense === input.school).length, statsForGame: stats.filter(stat => gamePlays.some(play => play.id === stat.playId)).length, candidates, storedEvents };
     }),
+    debugScoreboardMatch: adminProcedure.query(async () => {
+      const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
+      const season = automationRows[0]?.season;
+      if (!season) throw new Error("No season configured.");
+      const [schedule, scoreboard, league] = await Promise.all([getRegularSeasonGames(season), getLiveScoreboard(), getLeagueSnapshot()]);
+      const drafted = Array.from(new Set(league.owners.flatMap(owner => owner.picks.map(pick => pick.schoolName))));
+      const locked = league.weeks.filter(week => week.status === "FINAL").map(week => week.weekNumber);
+      const rows = scoreboard.map(game => {
+        const source = schedule.find(item => item.id === game.id);
+        const home = game.homeTeam?.name ?? null, away = game.awayTeam?.name ?? null;
+        const draftedMatch = drafted.filter(school => school === home || school === away);
+        return { id: game.id, home, away, status: game.status ?? null, inSchedule: Boolean(source), scheduleWeek: source?.week ?? null, scheduleHome: source?.homeTeam ?? null, scheduleAway: source?.awayTeam ?? null, draftedMatch, lockedOut: source ? locked.includes(source.week) : null };
+      });
+      return { season, scoreboardCount: scoreboard.length, inSchedule: rows.filter(row => row.inSchedule).length, draftedByScoreboardName: rows.filter(row => row.draftedMatch.length).length, draftedBySchedule: rows.filter(row => row.inSchedule && drafted.some(school => school === row.scheduleHome || school === row.scheduleAway)).length, lockedWeeks: locked, draftedSchools: drafted, games: rows };
+    }),
     fullScoringAudit: adminProcedure.input(z.object({ week: z.number() })).query(async ({ input }) => {
       const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
       const season = automationRows[0]?.season;

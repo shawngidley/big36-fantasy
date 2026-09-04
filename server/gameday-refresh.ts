@@ -221,7 +221,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
         }
       }
     }
-    await writeRefreshStatus({ last_refresh_status: "ok", last_refresh_detail: { active_games: trulyInProgress.length, relevant_games: relevantGames.length, inserted_events: insertedEvents, team_count: schedule.teamCount, live_debug: liveDebug } });
+    await writeRefreshStatus({ last_refresh_status: "ok", last_refresh_detail: { active_games: trulyInProgress.length, relevant_games: relevantGames.length, inserted_events: insertedEvents, team_count: schedule.teamCount, live_debug: liveDebug, match_debug: matchDebug } });
     return { activeGames: trulyInProgress.length, relevantGames: relevantGames.length, insertedEvents, teamCount: schedule.teamCount, liveDebug, matchDebug };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown gameday refresh failure";
