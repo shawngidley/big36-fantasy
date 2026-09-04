@@ -386,7 +386,7 @@ export const leagueRouter = router({
       const season = automationRows[0]?.season;
       if (!season) throw new Error("No season configured.");
       const stats = await getWeekPlayStats(season, input.week);
-      if (input.playId) return stats.filter(stat => stat.playId === input.playId);
+      if (input.playId) return stats.filter(stat => String(stat.playId) === String(input.playId));
       if (input.statTypeSearch) {
         const term = input.statTypeSearch.toLowerCase();
         const matches = stats.filter(stat => stat.statType.toLowerCase().includes(term));
@@ -432,7 +432,7 @@ export const leagueRouter = router({
       const roster = await getRoster(input.school, season);
       const gamePlays = plays.filter(play => play.gameId === input.gameId);
       const schoolPlays = gamePlays.filter((play, index) => play.offense === input.school && !isSupersededInterceptionPlay(play, gamePlays[index + 1]));
-      const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: stats.filter(stat => stat.playId === play.id), roster, selectedSchoolPositions, provisional: false }));
+      const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: stats.filter(stat => String(stat.playId) === String(play.id)), roster, selectedSchoolPositions, provisional: false }));
       const storedEvents = await supabaseRest<Array<Record<string, unknown>>>("b36_scoring_events", { query: { select: "*", source_game_id: `eq.${input.gameId}`, order: "created_at.asc" } });
       return { totalGamePlays: gamePlays.length, schoolPlays: schoolPlays.length, defensivePlays: gamePlays.filter(play => play.defense === input.school).length, statsForGame: stats.filter(stat => gamePlays.some(play => play.id === stat.playId)).length, candidates, storedEvents };
     }),
@@ -529,7 +529,7 @@ export const leagueRouter = router({
           let roster = roundedCache.get(school);
           if (!roster) { roster = await getRoster(school, season); roundedCache.set(school, roster); }
           const schoolPlays = gamePlays.filter((play, index) => play.offense === school && !isSupersededInterceptionPlay(play, gamePlays[index + 1]));
-          const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: stats.filter(stat => stat.playId === play.id), roster: roster!, selectedSchoolPositions, provisional: false }));
+          const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: stats.filter(stat => String(stat.playId) === String(play.id)), roster: roster!, selectedSchoolPositions, provisional: false }));
           for (const candidate of candidates) {
             const rules = await getScoringRulesForEvent(candidate.eventType as never);
             const score = calculateEventScore(rules, { eventType: candidate.eventType as never, position: candidate.position, statValue: candidate.statValue, yardDistance: candidate.yardDistance });
@@ -587,7 +587,7 @@ export const leagueRouter = router({
         for (const school of schoolsInGame) {
           const roster = await getRoster(school, season);
           const schoolPlays = gamePlays.filter((play, index) => play.offense === school && !isSupersededInterceptionPlay(play, gamePlays[index + 1]));
-          const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: stats.filter(stat => stat.playId === play.id), roster, selectedSchoolPositions, provisional: false }));
+          const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: stats.filter(stat => String(stat.playId) === String(play.id)), roster, selectedSchoolPositions, provisional: false }));
           for (const position of ["DEF", "K_ST"] as const) {
             const slot = selectedSchoolPositions.find(s => s.schoolName === school && s.position === position);
             if (!slot) continue;

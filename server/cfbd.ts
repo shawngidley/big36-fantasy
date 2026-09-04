@@ -51,8 +51,8 @@ function cachedCfbdGet<T>(path: string, query: Record<string, string | number | 
 
 export type CfbdTeam = { id: number; school: string; conference?: string | null; classification?: string | null };
 export type CfbdGame = { id: number; season: number; week: number; seasonType: string; startDate: string; completed: boolean; homeTeam: string; awayTeam: string; homeClassification?: string | null; awayClassification?: string | null; homePoints?: number | null; awayPoints?: number | null };
-export type CfbdPlay = { id: number; gameId: number; driveId?: string | null; playNumber?: number | null; offense: string; defense: string; offenseScore?: number | null; defenseScore?: number | null; scoringTeam?: string | null; yardsToGoal?: number | null; yardsGained?: number | null; scoring: boolean; playType?: string | null; playText?: string | null; period?: number | null; clock?: { minutes?: number; seconds?: number } | null };
-export type CfbdPlayStat = { playId: number; athleteId: number; athleteName?: string | null; team: string; statType: string; stat: number | string; yardsToGoal?: number | null };
+export type CfbdPlay = { id: number | string; gameId: number; driveId?: string | null; playNumber?: number | null; offense: string; defense: string; offenseScore?: number | null; defenseScore?: number | null; scoringTeam?: string | null; yardsToGoal?: number | null; yardsGained?: number | null; scoring: boolean; playType?: string | null; playText?: string | null; period?: number | null; clock?: { minutes?: number; seconds?: number } | null };
+export type CfbdPlayStat = { playId: number | string; athleteId: number; athleteName?: string | null; team: string; statType: string; stat: number | string; yardsToGoal?: number | null };
 // The actual live /live/plays shape: one game object, with plays nested under each drive — not a flat
 // array like /plays. There's no explicit "scoring" flag on a play here; it must be inferred from the
 // score changing between plays.
