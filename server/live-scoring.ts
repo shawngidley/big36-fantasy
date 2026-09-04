@@ -255,16 +255,33 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
 // that frequently isn't attributed to any player at all. Used at end-of-game reconciliation as the
 // authoritative source; one candidate per drafted slot with statValue = fumbles lost by that
 // position group, minus anything the play feed already wrote for the same slot+game.
+const normalizePersonName = (value: string | null | undefined) => String(value ?? "").toLowerCase().replace(/\b(jr|sr|ii|iii|iv)\b\.?/g, "").replace(/[^a-z]+/g, " ").trim();
+
+// Resolve a box-score athlete to a roster entry. IDs are compared as strings (the roster feed and the
+// box score do not agree on numeric vs string ids), with a normalized first+last name fallback.
+export function matchBoxAthleteToRoster(athlete: { id: string; name: string }, roster: CfbdRosterAthlete[]): CfbdRosterAthlete | undefined {
+  const byId = roster.find(entry => String(entry.id) === String(athlete.id));
+  if (byId) return byId;
+  const wanted = normalizePersonName(athlete.name);
+  if (!wanted) return undefined;
+  return roster.find(entry => normalizePersonName(`${entry.firstName ?? ""} ${entry.lastName ?? ""}`) === wanted);
+}
+
+// Fumbles lost from the per-game box score (/games/players -> "fumbles" -> "LOST"). This is the
+// actual "lost" stat straight from the box, whereas the play feed only has a bare "Fumble" credit
+// that frequently isn't attributed to any player at all. Used at end-of-game reconciliation as the
+// authoritative source; one candidate per drafted slot with statValue = fumbles lost by that
+// position group, minus anything the play feed already wrote for the same slot+game.
 export function boxScoreFumbleCandidates(input: { gameId: number; school: string; box: CfbdGamePlayerStatsGame | undefined; roster: CfbdRosterAthlete[]; selectedSchoolPositions: Array<{ schoolName: string; position: LivePosition }>; alreadyWrittenBySlot: Map<LivePosition, number> }): { available: boolean; candidates: ScoringCandidate[] } {
   const team = input.box?.teams.find(entry => normalizeSchoolForComparison(entry.team) === normalizeSchoolForComparison(input.school));
-  const lost = team?.categories.find(category => category.name === "fumbles")?.types.find(type => type.name === "LOST");
-  if (!lost) return { available: false, candidates: [] };
-  const positions = positionByAthlete(input.roster);
+  if (!team) return { available: false, candidates: [] };
+  // A team with no fumbles has no "fumbles" category at all - that's a real zero, not missing data.
+  const lost = team.categories.find(category => category.name === "fumbles")?.types.find(type => type.name === "LOST");
   const bySlot = new Map<LivePosition, { count: number; names: string[] }>();
-  for (const athlete of lost.athletes) {
-    const id = Number(athlete.id), count = Number(athlete.stat);
-    if (!Number.isFinite(id) || id <= 0 || !Number.isFinite(count) || count <= 0) continue; // negative ids are the " Team" bucket
-    const position = positions.get(id);
+  for (const athlete of lost?.athletes ?? []) {
+    const count = Number(athlete.stat);
+    if (Number(athlete.id) <= 0 || !Number.isFinite(count) || count <= 0) continue; // negative ids are the " Team" bucket
+    const position = positionForRosterValue(matchBoxAthleteToRoster(athlete, input.roster)?.position);
     if (!position || !offensivePositions.includes(position)) continue;
     const entry = bySlot.get(position) ?? { count: 0, names: [] };
     entry.count += count; entry.names.push(`${athlete.name.trim()} x${count}`);

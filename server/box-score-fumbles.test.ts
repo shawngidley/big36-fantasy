@@ -40,8 +40,20 @@ describe("boxScoreFumbleCandidates", () => {
     expect(result.candidates).toHaveLength(0);
   });
 
-  it("reports unavailable (so play-derived fumbles stay in force) when the box has no fumbles category", () => {
+  it("reports unavailable (so play-derived fumbles stay in force) when there is no box score at all", () => {
     const result = boxScoreFumbleCandidates({ gameId: 1, school: "Memphis", box: undefined, roster: memphisRoster, selectedSchoolPositions: picks, alreadyWrittenBySlot: new Map() });
     expect(result.available).toBe(false);
+  });
+
+  it("treats a team with no fumbles category as available with zero fumbles (USC / FSU / Illinois in week 1)", () => {
+    const result = boxScoreFumbleCandidates({ gameId: 2, school: "USC", box: { id: 2, teams: [{ team: "USC", categories: [{ name: "passing", types: [] }] }] }, roster: [], selectedSchoolPositions: [{ schoolName: "USC", position: "QB" }], alreadyWrittenBySlot: new Map() });
+    expect(result).toEqual({ available: true, candidates: [] });
+  });
+
+  it("matches when the roster carries ids as strings (the actual feed), and falls back to name when the id is absent", () => {
+    const stringIdRoster = [{ id: "4685290" as unknown as number, firstName: "Tychaun", lastName: "Chapman", position: "RB" }];
+    expect(boxScoreFumbleCandidates({ gameId: 401862693, school: "Memphis", box, roster: stringIdRoster, selectedSchoolPositions: picks, alreadyWrittenBySlot: new Map() }).candidates).toHaveLength(1);
+    const noIdRoster = [{ id: 1, firstName: "Tychaun", lastName: "Chapman", position: "RB" }];
+    expect(boxScoreFumbleCandidates({ gameId: 401862693, school: "Memphis", box, roster: noIdRoster, selectedSchoolPositions: picks, alreadyWrittenBySlot: new Map() }).candidates).toHaveLength(1);
   });
 });

@@ -13,7 +13,7 @@ import { yearOneRules } from "../year-one-rules";
 import { runGamedayRefresh } from "../gameday-refresh";
 import { syncFbsPoolAndSchedule } from "../gameday-refresh";
 import { adaptLiveGameToLegacyPlays } from "../gameday-refresh";
-import { boxScoreFumbleCandidates, isSupersededInterceptionPlay, mapLivePlayToCandidates, type LivePosition } from "../live-scoring";
+import { boxScoreFumbleCandidates, isSupersededInterceptionPlay, mapLivePlayToCandidates, matchBoxAthleteToRoster, type LivePosition } from "../live-scoring";
 import { decodeRegistrationLogo, hashRegistrationPin, normalizeRegistrationEmail, normalizeRegistrationPhone, verifyRegistrationPin } from "../registration";
 import { storagePut } from "../storage";
 import { notifyOwnerWhenUpcomingPickSafely, sendDraftSms } from "../draft-alerts";
@@ -485,7 +485,7 @@ export const leagueRouter = router({
           const lostType = box?.teams.find(team => team.team === school)?.categories.find(category => category.name === "fumbles")?.types.find(type => type.name === "LOST");
           diagnostics.push({
             gameId: game.id, school, boxGameFound: Boolean(box), boxGameIdsReturned: boxGames.map(entry => entry.id), boxTeamNames: box?.teams.map(team => team.team) ?? [], fumblesCategoryFound: Boolean(lostType), rosterSize: roster.length,
-            lostAthletes: (lostType?.athletes ?? []).filter(athlete => Number(athlete.stat) > 0).map(athlete => { const rosterEntry = roster.find(entry => entry.id === Number(athlete.id)); return { id: athlete.id, name: athlete.name.trim(), lost: Number(athlete.stat), rosterPosition: rosterEntry?.position ?? null, inRoster: Boolean(rosterEntry), draftedAtThatPosition: Boolean(rosterEntry?.position && selected.some(pick => pick.schoolName === school && pick.position === (({ QB: "QB", RB: "RB", FB: "RB", WR: "WR", TE: "TE" } as Record<string, string>)[String(rosterEntry.position).toUpperCase()] ?? ""))) }; }),
+            lostAthletes: (lostType?.athletes ?? []).filter(athlete => Number(athlete.stat) > 0).map(athlete => { const rosterEntry = matchBoxAthleteToRoster(athlete, roster); return { id: athlete.id, name: athlete.name.trim(), lost: Number(athlete.stat), rosterPosition: rosterEntry?.position ?? null, inRoster: Boolean(rosterEntry), matchedRosterId: rosterEntry ? String(rosterEntry.id) : null, sampleRosterId: roster[0] ? `${String(roster[0].id)} (${typeof roster[0].id})` : null, draftedAtThatPosition: Boolean(rosterEntry?.position && selected.some(pick => pick.schoolName === school && pick.position === (({ QB: "QB", RB: "RB", FB: "RB", WR: "WR", TE: "TE" } as Record<string, string>)[String(rosterEntry.position).toUpperCase()] ?? ""))) }; }),
           });
           const result = boxScoreFumbleCandidates({ gameId: game.id, school, box, roster, selectedSchoolPositions: selected, alreadyWrittenBySlot });
           if (!result.available) { unavailable.push({ gameId: game.id, school }); continue; }
