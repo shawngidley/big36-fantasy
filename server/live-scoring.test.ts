@@ -124,6 +124,27 @@ describe("36 Football automatic scoring map", () => {
     const candidates = mapLivePlayToCandidates({ play: { id: 73, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: true, playType: "Passing Touchdown", playText: "Quarterback pass complete for a TD (Kicker KICK)" }, stats: [{ playId: 73, athleteId: 1, team: "Ohio State", statType: "Passing Touchdown", stat: 1 }, { playId: 73, athleteId: 2, team: "Ohio State", statType: "Reception", stat: 1 }], roster: [{ id: 1, position: "QB" }, { id: 2, position: "WR" }], selectedSchoolPositions: [{ schoolName: "Ohio State", position: "QB" }, { schoolName: "Ohio State", position: "WR" }, { schoolName: "Ohio State", position: "K_ST" }] });
     expect(candidates.some(candidate => candidate.position === "K_ST" && candidate.eventType.includes("TOUCHDOWN"))).toBe(false);
   });
+  it("K/ST rulebook: field-goal distance comes from the text, blocked kicks match CFBD's word order, safeties route by play context and score change, any special-teams TD goes to K/ST", () => {
+    const pick = (school: string, position: "K_ST" | "DEF") => [{ schoolName: school, position }];
+    // Real UNC-TCU play: typed "Safety" on a rush; North Carolina's score moved -> DEF safety for UNC.
+    const uncSafety = { id: 401856766331, gameId: 401856766, offense: "TCU", defense: "North Carolina", scoring: true, scoringTeam: "North Carolina", playType: "Safety", playText: "(01:54) No Huddle TCU rush middle for 31 yards loss to the TCU00, End Of Play. North Carolina SAFETY, clock 01:49" };
+    expect(mapLivePlayToCandidates({ play: uncSafety, stats: [], roster: [], selectedSchoolPositions: pick("North Carolina", "DEF") }).map(c => c.eventType)).toContain("DEFENSIVE_SAFETY");
+    expect(mapLivePlayToCandidates({ play: uncSafety, stats: [], roster: [], selectedSchoolPositions: pick("North Carolina", "K_ST") }).map(c => c.eventType)).not.toContain("SPECIAL_TEAMS_SAFETY");
+    // Same outcome type, but the text says it was a punt -> K/ST safety.
+    const puntSafety = { ...uncSafety, id: 2, playType: "Safety", playText: "#47 A.Bacchetta punt, snap out of the end zone for a SAFETY" };
+    expect(mapLivePlayToCandidates({ play: puntSafety, stats: [], roster: [], selectedSchoolPositions: pick("North Carolina", "K_ST") }).map(c => c.eventType)).toContain("SPECIAL_TEAMS_SAFETY");
+    // Field goal distance from the text, not yardsGained.
+    const fg = mapLivePlayToCandidates({ play: { id: 3, gameId: 1, offense: "Georgia Tech", defense: "Colorado", scoring: true, playType: "Field Goal Good", yardsGained: 0, playText: "#33 A.Birr field goal attempt from 47 yards GOOD" }, stats: [], roster: [], selectedSchoolPositions: pick("Georgia Tech", "K_ST") });
+    expect(fg.find(c => c.eventType === "FIELD_GOAL")?.yardDistance).toBe(47);
+    // Blocked FG in CFBD's phrasing.
+    const blocked = mapLivePlayToCandidates({ play: { id: 4, gameId: 1, offense: "Colorado", defense: "Georgia Tech", scoring: false, playType: "Field Goal Missed", playText: "#38 D.Gerlach field goal attempt from 45 yards BLOCKED by #9 K.Smith" }, stats: [], roster: [], selectedSchoolPositions: pick("Georgia Tech", "K_ST") });
+    expect(blocked.map(c => c.eventType)).toContain("BLOCKED_FIELD_GOAL");
+    expect(blocked.map(c => c.eventType)).not.toContain("FIELD_GOAL");
+    // Muffed punt recovered for a TD is typed as a fumble return; it is a special-teams TD for the scoring team's K/ST, not a DEF touchdown.
+    const muff = { id: 5, gameId: 1, offense: "Colorado", defense: "Georgia Tech", scoring: true, scoringTeam: "Georgia Tech", playType: "Fumble Return Touchdown", playText: "#35 D.Greaves punt 46 yards muffed by #4 J.Allen recovered by #22 T.Jones for a TOUCHDOWN" };
+    expect(mapLivePlayToCandidates({ play: muff, stats: [], roster: [], selectedSchoolPositions: pick("Georgia Tech", "K_ST") }).map(c => c.eventType)).toContain("OTHER_SPECIAL_TEAMS_TOUCHDOWN");
+    expect(mapLivePlayToCandidates({ play: muff, stats: [], roster: [], selectedSchoolPositions: pick("Georgia Tech", "DEF") }).map(c => c.eventType)).not.toContain("DEFENSIVE_TOUCHDOWN");
+  });
   it("recognizes only explicit special-teams touchdown play types and made kicks", () => {
     expect(specialTeamsTouchdownType("Kickoff Return Touchdown")).toBe("KICK_RETURN_TOUCHDOWN");
     expect(specialTeamsTouchdownType("Passing Touchdown")).toBeNull();

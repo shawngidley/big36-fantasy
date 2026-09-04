@@ -91,6 +91,23 @@ export function isSpecialTeamsPlayType(playType: string | null | undefined) {
   return type.includes("kickoff") || type.includes("punt") || type.includes("field goal") || type.includes("extra point") || type.includes("pat") || type.includes("blocked kick");
 }
 
+// CFBD frequently types a special-teams play by its OUTCOME ("Safety", "Fumble Return Touchdown")
+// rather than by the kick, so the text is the only clue it was a punt/kickoff/field goal.
+export function isSpecialTeamsPlay(playType: string | null | undefined, playText: string | null | undefined) {
+  if (isSpecialTeamsPlayType(playType)) return true;
+  const text = String(playText ?? "").toLowerCase();
+  return /\b(punt|punts|punted|kickoff|kicks? off|field goal|muff|muffed)\b/.test(text);
+}
+
+// Kick distance: the text ("from 22 yards") is authoritative; fall back to yards-to-goal + 17
+// (goal line to kicking spot), then to whatever CFBD put in yardsGained.
+export function fieldGoalDistance(play: { playText?: string | null; yardsToGoal?: number | null; yardsGained?: number | null }): number | null {
+  const fromText = /from (\d{1,2}) ?(?:yards?|yds?)/i.exec(String(play.playText ?? ""));
+  if (fromText) return Number(fromText[1]);
+  if (play.yardsToGoal != null && play.yardsToGoal > 0) return play.yardsToGoal + 17;
+  return play.yardsGained ?? null;
+}
+
 export function hasMadePat(playType: string | null | undefined, playText: string | null | undefined) {
   const type = String(playType ?? "").toLowerCase();
   const text = String(playText ?? "").toLowerCase();
@@ -193,20 +210,26 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   }
   const mentionsFieldGoal = playType.includes("field goal") || playTextNormalized.includes("field goal");
   const fieldGoalMissedOrBlocked = /(missed|no good|blocked)/.test(`${playType} ${playTextNormalized}`);
-  if (eligibleSelection(schoolName, "K_ST") && mentionsFieldGoal && !fieldGoalMissedOrBlocked) candidates.push({ sourceEventKey: `${play.id}:FIELD_GOAL:K_ST`, sourceGameId: play.gameId, schoolName, position: "K_ST", eventType: "FIELD_GOAL", statValue: 1, yardDistance: play.yardsGained ?? null, provisional, note: `CFBD play ${play.id} · made field goal` });
+  if (eligibleSelection(schoolName, "K_ST") && mentionsFieldGoal && !fieldGoalMissedOrBlocked) candidates.push({ sourceEventKey: `${play.id}:FIELD_GOAL:K_ST`, sourceGameId: play.gameId, schoolName, position: "K_ST", eventType: "FIELD_GOAL", statValue: 1, yardDistance: fieldGoalDistance(play), provisional, note: `CFBD play ${play.id} · made field goal` });
   if (eligibleSelection(schoolName, "K_ST") && hasMadePat(play.playType, play.playText)) candidates.push({ sourceEventKey: `${play.id}:EXTRA_POINT:K_ST`, sourceGameId: play.gameId, schoolName, position: "K_ST", eventType: "EXTRA_POINT", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · made PAT` });
   const defensiveSchool = play.defense;
   const defensiveStats = input.stats.filter(stat => normalizeSchoolForComparison(stat.team) === normalizeSchoolForComparison(defensiveSchool) && Number(stat.stat) !== 0);
   const playText = `${play.playType ?? ""} ${play.playText ?? ""}`.toLowerCase();
-  const specialTeamsPlay = isSpecialTeamsPlayType(play.playType);
+  const specialTeamsPlay = isSpecialTeamsPlay(play.playType, play.playText);
   const defensiveCandidate = (eventType: string, stat: CfbdPlayStat, position: LivePosition, distance: number | null = null) => ({ sourceEventKey: `${play.id}:${eventType}:${stat.athleteId}`, sourceGameId: play.gameId, schoolName: defensiveSchool, position, eventType, statValue: 1, yardDistance: distance, provisional, note: `CFBD play ${play.id} · ${stat.statType}` } satisfies ScoringCandidate);
   const unitCandidate = (eventType: string, position: "K_ST" | "DEF", note: string) => ({ sourceEventKey: `${play.id}:${eventType}`, sourceGameId: play.gameId, schoolName: defensiveSchool, position, eventType, statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · ${note}` } satisfies ScoringCandidate);
   const specialTeamsCandidate = (eventType: string) => unitCandidate(eventType, "K_ST", "special teams event");
-  if (eligibleSelection(defensiveSchool, "K_ST") && (playText.includes("blocked field goal") || playText.includes("field goal blocked"))) candidates.push(specialTeamsCandidate("BLOCKED_FIELD_GOAL"));
-  if (eligibleSelection(defensiveSchool, "K_ST") && (playText.includes("blocked punt") || playText.includes("punt blocked"))) candidates.push(specialTeamsCandidate("BLOCKED_PUNT"));
+  // "field goal attempt from 45 yards BLOCKED" / "punt ... BLOCKED by" - the words are rarely adjacent.
+  const blockedFieldGoal = /blocked[^.]*field goal|field goal[^.]*blocked/.test(playText);
+  const blockedPunt = !blockedFieldGoal && /blocked[^.]*punt|punt[^.]*blocked/.test(playText);
+  if (eligibleSelection(defensiveSchool, "K_ST") && blockedFieldGoal) candidates.push(specialTeamsCandidate("BLOCKED_FIELD_GOAL"));
+  if (eligibleSelection(defensiveSchool, "K_ST") && blockedPunt) candidates.push(specialTeamsCandidate("BLOCKED_PUNT"));
   if (playText.includes("safety")) {
-    if (specialTeamsPlay && eligibleSelection(defensiveSchool, "K_ST")) candidates.push(specialTeamsCandidate("SPECIAL_TEAMS_SAFETY"));
-    if (!specialTeamsPlay && eligibleSelection(defensiveSchool, "DEF")) candidates.push(unitCandidate("DEFENSIVE_SAFETY", "DEF", "defensive safety"));
+    // The team that scored the safety is whoever's score moved; the play's defense otherwise.
+    const safetySchool = play.scoringTeam && [schoolName, defensiveSchool].includes(play.scoringTeam) ? play.scoringTeam : defensiveSchool;
+    const safetyCandidate = (eventType: string, position: "K_ST" | "DEF", note: string) => ({ ...unitCandidate(eventType, position, note), schoolName: safetySchool });
+    if (specialTeamsPlay && eligibleSelection(safetySchool, "K_ST")) candidates.push(safetyCandidate("SPECIAL_TEAMS_SAFETY", "K_ST", "special teams safety"));
+    if (!specialTeamsPlay && eligibleSelection(safetySchool, "DEF")) candidates.push(safetyCandidate("DEFENSIVE_SAFETY", "DEF", "defensive safety"));
   }
   for (const stat of defensiveStats) {
     const type = stat.statType.toLowerCase();
@@ -246,7 +269,9 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
     if (isSackPlay) candidates.push({ sourceEventKey: `${play.id}:SACK:unit`, sourceGameId: play.gameId, schoolName: defensiveSchool, position: "DEF", eventType: "SACK", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · sack (text match)` });
     if (isTurnoverPlay) candidates.push({ sourceEventKey: `${play.id}:DEFENSIVE_TURNOVER:unit`, sourceGameId: play.gameId, schoolName: defensiveSchool, position: "DEF", eventType: "DEFENSIVE_TURNOVER", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · turnover (text match)` });
   }
-  const specialTeamType = specialTeamsTouchdownType(play.playType);
+  const typedSpecialTeamsTd = specialTeamsTouchdownType(play.playType);
+  const untypedSpecialTeamsTd = !typedSpecialTeamsTd && specialTeamsPlay && /touchdown|\btd\b/.test(playText) && !playText.includes("no play");
+  const specialTeamType = typedSpecialTeamsTd ?? (untypedSpecialTeamsTd ? "OTHER_SPECIAL_TEAMS_TOUCHDOWN" : null);
   if (specialTeamType) {
     // Credit the team whose score actually moved. Without that signal, the returning side is the
     // play's DEFENSE (the kicking/punting team is listed as offense), never the offense.
