@@ -21,6 +21,8 @@ import Home from "./pages/Home";
 import JoinLeague from "./pages/JoinLeague";
 import Landing from "./pages/Landing";
 import Leaderboards from "./pages/Leaderboards";
+import UnitDetail from "./pages/UnitDetail";
+import UnitWeekDetail from "./pages/UnitWeekDetail";
 import MyDraft from "./pages/MyDraft";
 import MyTeam from "./pages/MyTeam";
 import NotFound from "./pages/NotFound";
@@ -54,6 +56,8 @@ function Router() {
     <Route path="/terms" component={TermsOfUse} />
     <Route path="/privacy" component={PrivacyPolicy} />
     <Route path="/leaders" component={Leaderboards} />
+    <Route path="/leaders/:position/:school/:week" component={UnitWeekDetail} />
+    <Route path="/leaders/:position/:school" component={UnitDetail} />
     <Route path="/weekly" component={Weekly} />
     <Route path="/my-draft" component={MyDraft} />
     <Route path="/my-team" component={MyTeam} />
