@@ -341,7 +341,24 @@ export const leagueRouter = router({
       return { success: true as const, draftPosition: pick.draft_position };
     } catch (error) { asError(error); }
   }),
+  divisionMessages: publicProcedure.input(z.object({ divisionId: z.string() })).query(async ({ input }) => {
+    const league = await getLeagueSnapshot();
+    const ownersByIdInDivision = new Map(league.owners.filter(owner => owner.divisionId === input.divisionId).map(owner => [owner.id, owner]));
+    const rows = await supabaseRestAll<{ id: string; division_id: string; owner_id: string; body: string; created_at: string }>("b36_messages", { query: { select: "*", division_id: q.eq(input.divisionId), order: "created_at.desc" } });
+    return rows.map(row => { const owner = ownersByIdInDivision.get(row.owner_id) ?? league.owners.find(item => item.id === row.owner_id); return { id: row.id, body: row.body, createdAt: row.created_at, ownerId: row.owner_id, teamName: owner?.teamName ?? "Unknown team", logoUrl: owner?.logoUrl ?? null }; });
+  }),
+  postDivisionMessage: protectedProcedure.input(z.object({ divisionId: z.string(), body: z.string().min(1).max(500) })).mutation(async ({ ctx, input }) => {
+    const owner = await getOrClaimOwner(ctx.user.openId, ctx.user.email);
+    if (!owner) throw new TRPCError({ code: "FORBIDDEN", message: "Your approved 36 Football program is not linked yet." });
+    if (owner.divisionId !== input.divisionId) throw new TRPCError({ code: "FORBIDDEN", message: "You can only post in your own conference/division board." });
+    const [row] = await supabaseRest<Array<{ id: string; division_id: string; owner_id: string; body: string; created_at: string }>>("b36_messages", { method: "POST", body: { division_id: input.divisionId, owner_id: owner.id, body: input.body.trim() } });
+    return { id: row.id, body: row.body, createdAt: row.created_at, ownerId: owner.id, teamName: owner.teamName, logoUrl: owner.logoUrl ?? null };
+  }),
   admin: router({
+    deleteDivisionMessage: adminProcedure.input(z.object({ messageId: z.string() })).mutation(async ({ input }) => {
+      await supabaseRest("b36_messages", { method: "DELETE", query: { id: q.eq(input.messageId) } });
+      return { success: true as const };
+    }),
     allPressBoxWriters: adminProcedure.query(() => supabaseRest<Array<{ id: string; writer_name: string; column_type: string; passphrase: string; active: boolean; created_at: string }>>("b36_press_box_writers", { query: { select: "*", order: "created_at.desc" } })),
     createPressBoxWriter: adminProcedure.input(z.object({ writerName: z.string().trim().min(1).max(100), columnType: z.enum(["monday_recap", "wednesday_mike_drop", "friday_preview"]), passphrase: z.string().trim().min(4).max(200) })).mutation(async ({ input }) => {
       await supabaseRest("b36_press_box_writers", { method: "POST", body: { writer_name: input.writerName, column_type: input.columnType, passphrase: input.passphrase, active: true } });
