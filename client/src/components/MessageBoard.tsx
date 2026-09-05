@@ -4,7 +4,7 @@ import TeamLogo from "@/components/TeamLogo";
 import { Button } from "@/components/ui/button";
 import { trpc } from "@/lib/trpc";
 
-const formatTime = (iso: string) => new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+const formatTime = (iso: string) => `${new Date(iso).toLocaleString("en-US", { timeZone: "America/New_York", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} ET`;
 
 export default function MessageBoard({ divisionId, divisionName, canPost, isCommissioner }: { divisionId: string; divisionName: string; canPost: boolean; isCommissioner?: boolean }) {
   const [draft, setDraft] = useState("");
