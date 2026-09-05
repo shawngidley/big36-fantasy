@@ -58,6 +58,14 @@ describe("36 Football automatic scoring map", () => {
     expect(interceptionReturn.some(candidate => candidate.eventType === "TOUCHDOWN" && candidate.position === "QB")).toBe(false);
     expect(nullified.some(candidate => candidate.eventType === "TOUCHDOWN")).toBe(false);
   });
+  it("does not nullify a real touchdown just because a LATER, separate PAT retry in the same concatenated CFBD text blob was penalized - real Georgia/Tennessee State play that was missing a passing TD credit because of this", () => {
+    const roster = [{ id: 1, firstName: "Ryan", lastName: "Montgomery", position: "QB" }, { id: 2, firstName: "Josh", lastName: "Bell", position: "WR" }];
+    const selectedSchoolPositions = [{ schoolName: "Georgia", position: "QB" as const }];
+    const play = { id: 401856658576, gameId: 401856658, offense: "Georgia", defense: "Tennessee State", scoring: true, playType: "Passing Touchdown", playText: "(13:41) No Huddle-Shotgun #15 R.Montgomery pass complete deep middle to #11 J.Bell caught at TSU17, for 54 yards to the TSU00 TOUCHDOWN, clock 13:38, 1ST DOWN #99 H.Zureikat kick attempt good (H: #12 R.Puglisi, LS: #51 W.Snellings) PENALTY #99 H.Zureikat kick attempt good (H: #12 R.Puglisi, LS: #51 W.Snellings) PENALTY UGA Illegal Snap (#51 W.Snellings) 5 yards from TSU03 to TSU08. NO PLAY" };
+    const candidates = mapLivePlayToCandidates({ play, stats: [], roster, selectedSchoolPositions });
+    expect(candidates.some(candidate => candidate.eventType === "TOUCHDOWN" && candidate.position === "QB")).toBe(true);
+  });
+
   it("creates one touchdown per credited position when CFBD reports both reception and touchdown stats", () => {
     const candidates = mapLivePlayToCandidates({ play: { id: 56, gameId: 9, offense: "Ohio State", defense: "Opponent", yardsToGoal: 12, scoring: true, playType: "Passing Touchdown" }, stats: [{ playId: 56, athleteId: 1, team: "Ohio State", statType: "Completion", stat: 12 }, { playId: 56, athleteId: 1, team: "Ohio State", statType: "Touchdown", stat: 1 }, { playId: 56, athleteId: 2, team: "Ohio State", statType: "Reception", stat: 12 }, { playId: 56, athleteId: 2, team: "Ohio State", statType: "Touchdown", stat: 1 }], roster: [{ id: 1, position: "QB" }, { id: 2, position: "WR" }], selectedSchoolPositions: [{ schoolName: "Ohio State", position: "QB" }, { schoolName: "Ohio State", position: "WR" }] });
     expect(candidates.filter(candidate => candidate.eventType === "TOUCHDOWN").map(candidate => candidate.position).sort()).toEqual(["QB", "WR"]);

@@ -164,7 +164,18 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   const passingTouchdownPositions = athletePositionsFor(type => type.includes("passing touchdown"));
   const rushingTouchdownPositions = athletePositionsFor(type => type.includes("rushing touchdown"));
   const isTwoPoint = /two[ -]?point/.test(`${playType} ${playTextNormalized}`);
-  const isInvalidated = /(no play|nullified by penalty|reversed|overturned)/.test(`${playType} ${playTextNormalized}`);
+  // CFBD often concatenates a scoring play with LATER, unrelated sub-events into one text blob -
+  // e.g. a touchdown followed by a penalized PAT retry that itself ends in "NO PLAY". The touchdown
+  // itself is only actually nullified when the invalidation phrase directly follows it (same
+  // clause, e.g. "...for a touchdown nullified by penalty"); once a "kick attempt" marker appears
+  // after the touchdown, everything past that point describes the SEPARATE PAT/2pt attempt and its
+  // own penalty history, which must not retroactively void an already-completed score. For plays
+  // that never mention "touchdown" at all this is a no-op and every other check is unaffected.
+  const [beforeTouchdown, ...afterTouchdownParts] = playTextNormalized.split(/touchdown/);
+  const afterTouchdown = afterTouchdownParts.join("touchdown");
+  const relevantAfterTouchdown = afterTouchdown.split(/kick attempt|pat attempt|point attempt/)[0] ?? "";
+  const invalidationScopedText = playTextNormalized.includes("touchdown") ? `${beforeTouchdown} touchdown ${relevantAfterTouchdown}` : playTextNormalized;
+  const isInvalidated = /(no play|nullified by penalty|reversed|overturned)/.test(`${playType} ${invalidationScopedText}`);
   const isInterceptionReturn = playType.includes("interception");
   // CFBD uses a different playType when the fumble is returned for a touchdown ("Fumble Return
   // Touchdown") versus when it isn't ("Fumble Recovery (Opponent)") - both mean the offense lost
