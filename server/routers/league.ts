@@ -104,11 +104,11 @@ export const leagueRouter = router({
       ownersBySchool.get(key)!.push({ teamName: owner.teamName, position: pick.position });
     }
     Array.from(ownersBySchool.values()).forEach(list => list.sort((a, b) => positionOrder.indexOf(a.position) - positionOrder.indexOf(b.position)));
-    const availableWeeks = Array.from(new Set(scheduleGames.map(game => game.week))).sort((a, b) => a - b);
+    const availableWeeks = Array.from(new Set(scheduleGames.map(game => resolveB36WeekNumber(game)))).sort((a, b) => a - b);
     const now = Date.now();
-    const currentWeek = availableWeeks.reduce((best, week) => scheduleGames.some(game => game.week === week && new Date(game.startDate).getTime() <= now) ? week : best, availableWeeks[0] ?? 1);
+    const currentWeek = availableWeeks.reduce((best, week) => scheduleGames.some(game => resolveB36WeekNumber(game) === week && new Date(game.startDate).getTime() <= now) ? week : best, availableWeeks[0] ?? 1);
     const targetWeek = input?.week ?? currentWeek;
-    const weekGames = scheduleGames.filter(game => game.week === targetWeek);
+    const weekGames = scheduleGames.filter(game => resolveB36WeekNumber(game) === targetWeek);
     const resolved = weekGames.map(game => {
       const live = scoreboardById.get(game.id);
       // The live scoreboard nests team info under homeTeam/awayTeam objects with full mascot names
@@ -119,7 +119,7 @@ export const leagueRouter = router({
       const awayTeam = asText(game.awayTeam) ?? asText(live?.awayTeam?.name) ?? "TBD";
       const status = asText(live?.status) ?? (game.completed ? "completed" : "scheduled");
       return {
-        id: game.id, week: game.week, startDate: game.startDate, status,
+        id: game.id, week: resolveB36WeekNumber(game), startDate: game.startDate, status,
         period: asNumber(live?.period), clock: asText(live?.clock),
         homeTeam, awayTeam,
         homePoints: asNumber(live?.homeTeam?.points) ?? sumLineScores(live?.homeTeam?.lineScores) ?? asNumber(game.homePoints) ?? 0,
