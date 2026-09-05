@@ -1,13 +1,13 @@
 import type { CfbdGame, CfbdGamePlayerStatsGame, CfbdPlay, CfbdPlayStat, CfbdRosterAthlete } from "./cfbd";
 
-export type LivePosition = "QB" | "RB" | "WR" | "TE" | "K_ST" | "DEF";
+export type LivePosition = "QB" | "RB" | "WR" | "TE" | "K" | "DST";
 export type ScoringCandidate = { sourceEventKey: string; sourceGameId: number; schoolName: string; position: LivePosition; eventType: string; statValue: number; yardDistance: number | null; provisional: boolean; note: string };
 
 const positionForRosterValue = (position: string | null | undefined): LivePosition | null => {
   // CFBD roster entries can carry a null position (walk-ons, incomplete records). Treat those as
   // "no scoring position" rather than crashing the entire refresh/audit for that school's game.
   if (!position) return null;
-  const mapping: Record<string, LivePosition> = { QB: "QB", RB: "RB", FB: "RB", WR: "WR", TE: "TE", K: "K_ST", P: "K_ST" };
+  const mapping: Record<string, LivePosition> = { QB: "QB", RB: "RB", FB: "RB", WR: "WR", TE: "TE", K: "K", P: "K" };
   return mapping[position.toUpperCase()] ?? null;
 };
 
@@ -29,10 +29,10 @@ export function finalShutoutCandidates(input: { game: CfbdGame; selectedSchoolPo
   const { game } = input;
   if (!game.completed) return [];
   const provisional = input.provisional ?? false;
-  const selectedDef = (schoolName: string) => input.selectedSchoolPositions.some(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(schoolName) && selection.position === "DEF");
+  const selectedDef = (schoolName: string) => input.selectedSchoolPositions.some(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(schoolName) && selection.position === "DST");
   const candidates: ScoringCandidate[] = [];
-  if (game.awayPoints === 0 && selectedDef(game.homeTeam)) candidates.push({ sourceEventKey: `${game.id}:SHUTOUT:DEF:${normalizeSchoolForComparison(game.homeTeam)}`, sourceGameId: game.id, schoolName: game.homeTeam, position: "DEF", eventType: "SHUTOUT", statValue: 1, yardDistance: null, provisional, note: `CFBD final score · ${game.awayTeam} held scoreless` });
-  if (game.homePoints === 0 && selectedDef(game.awayTeam)) candidates.push({ sourceEventKey: `${game.id}:SHUTOUT:DEF:${normalizeSchoolForComparison(game.awayTeam)}`, sourceGameId: game.id, schoolName: game.awayTeam, position: "DEF", eventType: "SHUTOUT", statValue: 1, yardDistance: null, provisional, note: `CFBD final score · ${game.homeTeam} held scoreless` });
+  if (game.awayPoints === 0 && selectedDef(game.homeTeam)) candidates.push({ sourceEventKey: `${game.id}:SHUTOUT:DST:${normalizeSchoolForComparison(game.homeTeam)}`, sourceGameId: game.id, schoolName: game.homeTeam, position: "DST", eventType: "SHUTOUT", statValue: 1, yardDistance: null, provisional, note: `CFBD final score · ${game.awayTeam} held scoreless` });
+  if (game.homePoints === 0 && selectedDef(game.awayTeam)) candidates.push({ sourceEventKey: `${game.id}:SHUTOUT:DST:${normalizeSchoolForComparison(game.awayTeam)}`, sourceGameId: game.id, schoolName: game.awayTeam, position: "DST", eventType: "SHUTOUT", statValue: 1, yardDistance: null, provisional, note: `CFBD final score · ${game.homeTeam} held scoreless` });
   return candidates;
 }
 
@@ -233,41 +233,41 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   }
   const mentionsFieldGoal = playType.includes("field goal") || playTextNormalized.includes("field goal");
   const fieldGoalMissedOrBlocked = /(missed|no good|blocked)/.test(`${playType} ${playTextNormalized}`);
-  if (eligibleSelection(schoolName, "K_ST") && mentionsFieldGoal && !fieldGoalMissedOrBlocked) candidates.push({ sourceEventKey: `${play.id}:FIELD_GOAL:K_ST`, sourceGameId: play.gameId, schoolName, position: "K_ST", eventType: "FIELD_GOAL", statValue: 1, yardDistance: fieldGoalDistance(play), provisional, note: `CFBD play ${play.id} · made field goal` });
-  if (eligibleSelection(schoolName, "K_ST") && hasMadePat(play.playType, play.playText)) candidates.push({ sourceEventKey: `${play.id}:EXTRA_POINT:K_ST`, sourceGameId: play.gameId, schoolName, position: "K_ST", eventType: "EXTRA_POINT", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · made PAT` });
+  if (eligibleSelection(schoolName, "K") && mentionsFieldGoal && !fieldGoalMissedOrBlocked) candidates.push({ sourceEventKey: `${play.id}:FIELD_GOAL:K`, sourceGameId: play.gameId, schoolName, position: "K", eventType: "FIELD_GOAL", statValue: 1, yardDistance: fieldGoalDistance(play), provisional, note: `CFBD play ${play.id} · made field goal` });
+  if (eligibleSelection(schoolName, "K") && hasMadePat(play.playType, play.playText)) candidates.push({ sourceEventKey: `${play.id}:EXTRA_POINT:K`, sourceGameId: play.gameId, schoolName, position: "K", eventType: "EXTRA_POINT", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · made PAT` });
   const defensiveSchool = play.defense;
   const defensiveStats = input.stats.filter(stat => normalizeSchoolForComparison(stat.team) === normalizeSchoolForComparison(defensiveSchool) && Number(stat.stat) !== 0);
   const playText = `${play.playType ?? ""} ${play.playText ?? ""}`.toLowerCase();
   const specialTeamsPlay = isSpecialTeamsPlay(play.playType, play.playText);
   const defensiveCandidate = (eventType: string, stat: CfbdPlayStat, position: LivePosition, distance: number | null = null) => ({ sourceEventKey: `${play.id}:${eventType}:${stat.athleteId}`, sourceGameId: play.gameId, schoolName: defensiveSchool, position, eventType, statValue: 1, yardDistance: distance, provisional, note: `CFBD play ${play.id} · ${stat.statType}` } satisfies ScoringCandidate);
-  const unitCandidate = (eventType: string, position: "K_ST" | "DEF", note: string) => ({ sourceEventKey: `${play.id}:${eventType}`, sourceGameId: play.gameId, schoolName: defensiveSchool, position, eventType, statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · ${note}` } satisfies ScoringCandidate);
-  const specialTeamsCandidate = (eventType: string) => unitCandidate(eventType, "K_ST", "special teams event");
+  const unitCandidate = (eventType: string, position: "K" | "DST", note: string) => ({ sourceEventKey: `${play.id}:${eventType}`, sourceGameId: play.gameId, schoolName: defensiveSchool, position, eventType, statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · ${note}` } satisfies ScoringCandidate);
+  const specialTeamsCandidate = (eventType: string) => unitCandidate(eventType, "DST", "special teams event");
   // "field goal attempt from 45 yards BLOCKED" / "punt ... BLOCKED by" - the words are rarely adjacent.
   const blockedFieldGoal = /blocked[^.]*field goal|field goal[^.]*blocked/.test(playText);
   const blockedPunt = !blockedFieldGoal && /blocked[^.]*punt|punt[^.]*blocked/.test(playText);
-  if (eligibleSelection(defensiveSchool, "K_ST") && blockedFieldGoal) candidates.push(specialTeamsCandidate("BLOCKED_FIELD_GOAL"));
-  if (eligibleSelection(defensiveSchool, "K_ST") && blockedPunt) candidates.push(specialTeamsCandidate("BLOCKED_PUNT"));
+  if (eligibleSelection(defensiveSchool, "DST") && blockedFieldGoal) candidates.push(specialTeamsCandidate("BLOCKED_FIELD_GOAL"));
+  if (eligibleSelection(defensiveSchool, "DST") && blockedPunt) candidates.push(specialTeamsCandidate("BLOCKED_PUNT"));
   if (playText.includes("safety")) {
     // The team that scored the safety is whoever's score moved; the play's defense otherwise.
     const safetySchool = play.scoringTeam && [schoolName, defensiveSchool].includes(play.scoringTeam) ? play.scoringTeam : defensiveSchool;
-    const safetyCandidate = (eventType: string, position: "K_ST" | "DEF", note: string) => ({ ...unitCandidate(eventType, position, note), schoolName: safetySchool });
-    if (specialTeamsPlay && eligibleSelection(safetySchool, "K_ST")) candidates.push(safetyCandidate("SPECIAL_TEAMS_SAFETY", "K_ST", "special teams safety"));
-    if (!specialTeamsPlay && eligibleSelection(safetySchool, "DEF")) candidates.push(safetyCandidate("DEFENSIVE_SAFETY", "DEF", "defensive safety"));
+    const safetyCandidate = (eventType: string, position: "K" | "DST", note: string) => ({ ...unitCandidate(eventType, position, note), schoolName: safetySchool });
+    if (specialTeamsPlay && eligibleSelection(safetySchool, "DST")) candidates.push(safetyCandidate("SPECIAL_TEAMS_SAFETY", "DST", "special teams safety"));
+    if (!specialTeamsPlay && eligibleSelection(safetySchool, "DST")) candidates.push(safetyCandidate("DEFENSIVE_SAFETY", "DST", "defensive safety"));
   }
   for (const stat of defensiveStats) {
     const type = stat.statType.toLowerCase();
-    if (eligibleSelection(defensiveSchool, "DEF") && type.includes("sack")) candidates.push(defensiveCandidate("SACK", stat, "DEF"));
+    if (eligibleSelection(defensiveSchool, "DST") && type.includes("sack")) candidates.push(defensiveCandidate("SACK", stat, "DST"));
     // "Fumble Recovery" is not a real CFBD stat category for defensive players (confirmed: only
     // "Fumble" and "Fumble Forced" exist) - checking for it here could never match. Fumble
     // recoveries are correctly handled below via the playType-based fallback instead.
-    if (eligibleSelection(defensiveSchool, "DEF") && type.includes("interception")) candidates.push(defensiveCandidate("DEFENSIVE_TURNOVER", stat, "DEF"));
-    if (play.scoring && !specialTeamsPlay && eligibleSelection(defensiveSchool, "DEF") && type.includes("touchdown")) candidates.push(defensiveCandidate("DEFENSIVE_TOUCHDOWN", stat, "DEF", play.yardsGained ?? null));
+    if (eligibleSelection(defensiveSchool, "DST") && type.includes("interception")) candidates.push(defensiveCandidate("DEFENSIVE_TURNOVER", stat, "DST"));
+    if (play.scoring && !specialTeamsPlay && eligibleSelection(defensiveSchool, "DST") && type.includes("touchdown")) candidates.push(defensiveCandidate("DEFENSIVE_TOUCHDOWN", stat, "DST", play.yardsGained ?? null));
   }
   // A pick-six or fumble-return touchdown is reliably flagged by the play mentioning both a
   // turnover (interception, or "(Opponent)" fumble recovery) AND "touchdown" - independent of
   // whether player-level stats exist yet, the same weakness already fixed for sacks/turnovers.
-  if (!specialTeamsPlay && eligibleSelection(defensiveSchool, "DEF") && !isInvalidated && (isInterceptionReturn || isFumbleLostToOpponent) && (playType.includes("touchdown") || playTextNormalized.includes("touchdown")) && !candidates.some(candidate => candidate.eventType === "DEFENSIVE_TOUCHDOWN" && candidate.schoolName === defensiveSchool)) {
-    candidates.push({ sourceEventKey: `${play.id}:DEFENSIVE_TOUCHDOWN:playtype`, sourceGameId: play.gameId, schoolName: defensiveSchool, position: "DEF", eventType: "DEFENSIVE_TOUCHDOWN", statValue: 1, yardDistance: play.yardsGained ?? null, provisional, note: `CFBD play ${play.id} · defensive touchdown (playType match)` });
+  if (!specialTeamsPlay && eligibleSelection(defensiveSchool, "DST") && !isInvalidated && (isInterceptionReturn || isFumbleLostToOpponent) && (playType.includes("touchdown") || playTextNormalized.includes("touchdown")) && !candidates.some(candidate => candidate.eventType === "DEFENSIVE_TOUCHDOWN" && candidate.schoolName === defensiveSchool)) {
+    candidates.push({ sourceEventKey: `${play.id}:DEFENSIVE_TOUCHDOWN:playtype`, sourceGameId: play.gameId, schoolName: defensiveSchool, position: "DST", eventType: "DEFENSIVE_TOUCHDOWN", statValue: 1, yardDistance: play.yardsGained ?? null, provisional, note: `CFBD play ${play.id} · defensive touchdown (playType match)` });
   }
   // A fumble recovery is reliably flagged on the play's own playType (e.g. "Fumble Recovery
   // (Opponent)" or "Fumble Return Touchdown") independent of whether a matching player-level stat
@@ -275,22 +275,22 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   // recoveries the loop above would otherwise miss entirely. Must check specifically for the
   // opponent recovering it - a generic "fumble recovery" match would also fire on "Fumble Recovery
   // (Own)", wrongly crediting the defense for a fumble the offense recovered themselves.
-  if (eligibleSelection(defensiveSchool, "DEF") && isFumbleLostToOpponent && !isInvalidated && !candidates.some(candidate => candidate.eventType === "DEFENSIVE_TURNOVER" && candidate.schoolName === defensiveSchool) && !candidates.some(candidate => candidate.eventType === "DEFENSIVE_TOUCHDOWN" && candidate.schoolName === defensiveSchool)) {
-    candidates.push({ sourceEventKey: `${play.id}:DEFENSIVE_TURNOVER:playtype`, sourceGameId: play.gameId, schoolName: defensiveSchool, position: "DEF", eventType: "DEFENSIVE_TURNOVER", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · fumble recovery (playType match)` });
+  if (eligibleSelection(defensiveSchool, "DST") && isFumbleLostToOpponent && !isInvalidated && !candidates.some(candidate => candidate.eventType === "DEFENSIVE_TURNOVER" && candidate.schoolName === defensiveSchool) && !candidates.some(candidate => candidate.eventType === "DEFENSIVE_TOUCHDOWN" && candidate.schoolName === defensiveSchool)) {
+    candidates.push({ sourceEventKey: `${play.id}:DEFENSIVE_TURNOVER:playtype`, sourceGameId: play.gameId, schoolName: defensiveSchool, position: "DST", eventType: "DEFENSIVE_TURNOVER", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · fumble recovery (playType match)` });
   }
   // Live play data has no player-level stats to drive the loop above (only the final, post-game feed
   // does) — so defensive credit needs a text-based fallback here too, the same way offensive
   // touchdowns already do. Only fires when no structured stat already matched, to avoid double-crediting
   // once official stats do become available after the game.
-  if (defensiveStats.length === 0 && eligibleSelection(defensiveSchool, "DEF")) {
+  if (defensiveStats.length === 0 && eligibleSelection(defensiveSchool, "DST")) {
     const isSackPlay = /\bsack(ed)?\b/.test(playText) && !isInvalidated;
     // Interceptions are reliably flagged by playType alone. Fumbles are left to the final,
     // stats-based pass — play text alone can't reliably tell which team recovered a fumble, so a
     // text-only fumble check here would be too unreliable to trust; better a short delay than a
     // wrong credit.
     const isTurnoverPlay = isInterceptionReturn && !isInvalidated;
-    if (isSackPlay) candidates.push({ sourceEventKey: `${play.id}:SACK:unit`, sourceGameId: play.gameId, schoolName: defensiveSchool, position: "DEF", eventType: "SACK", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · sack (text match)` });
-    if (isTurnoverPlay) candidates.push({ sourceEventKey: `${play.id}:DEFENSIVE_TURNOVER:unit`, sourceGameId: play.gameId, schoolName: defensiveSchool, position: "DEF", eventType: "DEFENSIVE_TURNOVER", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · turnover (text match)` });
+    if (isSackPlay) candidates.push({ sourceEventKey: `${play.id}:SACK:unit`, sourceGameId: play.gameId, schoolName: defensiveSchool, position: "DST", eventType: "SACK", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · sack (text match)` });
+    if (isTurnoverPlay) candidates.push({ sourceEventKey: `${play.id}:DEFENSIVE_TURNOVER:unit`, sourceGameId: play.gameId, schoolName: defensiveSchool, position: "DST", eventType: "DEFENSIVE_TURNOVER", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · turnover (text match)` });
   }
   const typedSpecialTeamsTd = specialTeamsTouchdownType(play.playType);
   const untypedSpecialTeamsTd = !typedSpecialTeamsTd && specialTeamsPlay && /touchdown|\btd\b/.test(playText) && !playText.includes("no play");
@@ -299,7 +299,7 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
     // Credit the team whose score actually moved. Without that signal, the returning side is the
     // play's DEFENSE (the kicking/punting team is listed as offense), never the offense.
     const returningSchool = play.scoringTeam && [schoolName, defensiveSchool].includes(play.scoringTeam) ? play.scoringTeam : defensiveSchool;
-    if (eligibleSelection(returningSchool, "K_ST")) candidates.push({ sourceEventKey: `${play.id}:${specialTeamType}`, sourceGameId: play.gameId, schoolName: returningSchool, position: "K_ST", eventType: specialTeamType, statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · special teams return (${play.scoringTeam ? "by score change" : "defense of kicking team"})` });
+    if (eligibleSelection(returningSchool, "DST")) candidates.push({ sourceEventKey: `${play.id}:${specialTeamType}`, sourceGameId: play.gameId, schoolName: returningSchool, position: "DST", eventType: specialTeamType, statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · special teams return (${play.scoringTeam ? "by score change" : "defense of kicking team"})` });
   }
   return uniqueCandidates(candidates);
 }

@@ -14,18 +14,18 @@ describe("36 Football scoring engine", () => {
     expect(calculateEventScore(rules, { eventType: "TOUCHDOWN", position: "QB", statValue: 1, yardDistance: 70 })).toMatchObject({ points: 12 });
     expect(calculateEventScore(rules, { eventType: "TWO_POINT_CONVERSION", position: "WR", statValue: 1 })).toMatchObject({ points: 4 });
   });
-  it("scores turnovers, K/ST stacking components, and DEF events", () => {
+  it("scores turnovers, K stacking components, and DST events", () => {
     expect(calculateEventScore(rules, { eventType: "INTERCEPTION_THROWN", position: "QB", statValue: 1 })).toMatchObject({ points: -3 });
     expect(calculateEventScore(rules, { eventType: "FUMBLE_LOST", position: "RB", statValue: 1 })).toMatchObject({ points: -3 });
-    expect(calculateEventScore(rules, { eventType: "FIELD_GOAL", position: "K_ST", statValue: 1, yardDistance: 43 })).toMatchObject({ points: 9 });
-    expect(calculateEventScore(rules, { eventType: "BLOCKED_PUNT", position: "K_ST", statValue: 1 })).toMatchObject({ points: 3 });
-    expect(calculateEventScore(rules, { eventType: "PUNT_RETURN_TOUCHDOWN", position: "K_ST", statValue: 1 })).toMatchObject({ points: 12 });
-    expect(calculateEventScore(rules, { eventType: "SACK", position: "DEF", statValue: 1 })).toMatchObject({ points: 1 });
-    expect(calculateEventScore(rules, { eventType: "DEFENSIVE_TOUCHDOWN", position: "DEF", statValue: 1, yardDistance: 65 })).toMatchObject({ points: 15 });
-    expect(calculateEventScore(rules, { eventType: "SHUTOUT", position: "DEF", statValue: 1 })).toMatchObject({ points: 15 });
+    expect(calculateEventScore(rules, { eventType: "FIELD_GOAL", position: "K", statValue: 1, yardDistance: 43 })).toMatchObject({ points: 9 });
+    expect(calculateEventScore(rules, { eventType: "BLOCKED_PUNT", position: "DST", statValue: 1 })).toMatchObject({ points: 3 });
+    expect(calculateEventScore(rules, { eventType: "PUNT_RETURN_TOUCHDOWN", position: "DST", statValue: 1 })).toMatchObject({ points: 12 });
+    expect(calculateEventScore(rules, { eventType: "SACK", position: "DST", statValue: 1 })).toMatchObject({ points: 1 });
+    expect(calculateEventScore(rules, { eventType: "DEFENSIVE_TOUCHDOWN", position: "DST", statValue: 1, yardDistance: 65 })).toMatchObject({ points: 15 });
+    expect(calculateEventScore(rules, { eventType: "SHUTOUT", position: "DST", statValue: 1 })).toMatchObject({ points: 15 });
   });
   it("requires six distinct assignments totalling 111", () => {
-    expect(hasBalancedDraftAssignments([{ position: "QB", draftPosition: 1 }, { position: "RB", draftPosition: 12 }, { position: "WR", draftPosition: 18 }, { position: "TE", draftPosition: 20 }, { position: "K_ST", draftPosition: 24 }, { position: "DEF", draftPosition: 36 }])).toBe(true);
+    expect(hasBalancedDraftAssignments([{ position: "QB", draftPosition: 1 }, { position: "RB", draftPosition: 12 }, { position: "WR", draftPosition: 18 }, { position: "TE", draftPosition: 20 }, { position: "K", draftPosition: 24 }, { position: "DST", draftPosition: 36 }])).toBe(true);
   });
   it("normalizes schools and rejects a locked school-position group", () => {
     expect(normalizeSchoolName("  Ohio   State ")).toBe("Ohio State");
@@ -40,7 +40,7 @@ describe("36 Football scoring engine", () => {
     expect(rankBySeasonPoints([{ teamName: "Team 10", totalPoints: 0 }, { teamName: "Team 2", totalPoints: 0 }, { teamName: "Team 1", totalPoints: 0 }, { teamName: "Team 9", totalPoints: 0 }]).map(team => team.teamName)).toEqual(["Team 1", "Team 2", "Team 9", "Team 10"]);
   });
   it("declares the complete K/ST and DEF blueprint without yardage accumulation", () => {
-    expect(new Set(yearOneRules.map(rule => rule.positionScope))).toEqual(new Set(["QB", "RB", "WR", "TE", "K_ST", "DEF"]));
+    expect(new Set(yearOneRules.map(rule => rule.positionScope))).toEqual(new Set(["QB", "RB", "WR", "TE", "K", "DST"]));
     expect(yearOneRules.some(rule => rule.eventType === "FIELD_GOAL" && rule.flatPoints === 12)).toBe(true);
     expect(yearOneRules.some(rule => rule.eventType === "DEFENSIVE_TOUCHDOWN" && rule.flatPoints === 15)).toBe(true);
   });
@@ -48,6 +48,6 @@ describe("36 Football scoring engine", () => {
     const plans = generateBalancedDraftPlans();
     expect(plans).toHaveLength(36); expect(plans.every(hasBalancedDraftAssignments)).toBe(true);
     expect(plans.every(plan => plan.filter(slot => ["QB", "RB", "WR"].includes(slot.position) && slot.draftPosition <= 12).length <= 1)).toBe(true);
-    for (const position of ["QB", "RB", "WR", "TE", "K_ST", "DEF"] as const) expect(plans.map(plan => plan.find(slot => slot.position === position)?.draftPosition).sort((a, b) => a! - b!)).toEqual(Array.from({ length: 36 }, (_, index) => index + 1));
+    for (const position of ["QB", "RB", "WR", "TE", "K", "DST"] as const) expect(plans.map(plan => plan.find(slot => slot.position === position)?.draftPosition).sort((a, b) => a! - b!)).toEqual(Array.from({ length: 36 }, (_, index) => index + 1));
   });
 });

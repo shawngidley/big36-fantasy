@@ -9,8 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 
-const label = (position: string) => position === "K_ST" ? "K/ST" : position;
-const positions = ["QB", "RB", "WR", "TE", "K_ST", "DEF"] as const;
+const label = (position: string) => position;
+const positions = ["QB", "RB", "WR", "TE", "K", "DST"] as const;
 
 // Competition-style ranking: entries tied on points share the same rank number (shown as "T"),
 // and the next distinct value skips ahead by the number tied — never determined by school name.

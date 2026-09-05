@@ -82,7 +82,7 @@ export const getLiveScoreboard = () => cachedCfbdGet<CfbdScoreboardGame[]>("/sco
 // a longer cache window here meaningfully cuts call volume during high-traffic Saturday windows.
 // Derive which team actually scored on each play from the running score, per game, in feed order.
 // "offense" on kickoffs/punts is the KICKING team, so any return touchdown credited to play.offense
-// goes to the wrong side; scoringTeam is convention-free and is what the K/ST + DEF paths prefer.
+// goes to the wrong side; scoringTeam is convention-free and is what the K/DST paths prefer.
 export function annotateScoringTeams(plays: CfbdPlay[]): CfbdPlay[] {
   const previousByGame = new Map<number, Map<string, number>>();
   return plays.map(play => {

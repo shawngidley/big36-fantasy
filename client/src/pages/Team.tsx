@@ -6,7 +6,7 @@ import { EmptyLedger, LeagueError, LeagueLoading } from "@/components/LeagueStat
 import { Badge } from "@/components/ui/badge";
 import { trpc } from "@/lib/trpc";
 
-const label = (position: string) => position === "K_ST" ? "K/ST" : position;
+const label = (position: string) => position;
 
 export default function Team() {
   const [, params] = useRoute("/team/:ownerId");

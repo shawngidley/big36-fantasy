@@ -6,8 +6,8 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 
-const positions = ["QB", "RB", "WR", "TE", "K_ST", "DEF"] as const;
-const label = (position: string) => position === "K_ST" ? "K/ST" : position;
+const positions = ["QB", "RB", "WR", "TE", "K", "DST"] as const;
+const label = (position: string) => position;
 const statLabel = (key: string) => key.replaceAll("_", " ");
 
 export default function DraftResearch() {

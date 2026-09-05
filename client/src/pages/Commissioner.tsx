@@ -14,9 +14,9 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
-const positions = ["QB", "RB", "WR", "TE", "K_ST", "DEF"] as const;
+const positions = ["QB", "RB", "WR", "TE", "K", "DST"] as const;
 const eventTypes = ["TOUCHDOWN", "TWO_POINT_CONVERSION", "INTERCEPTION_THROWN", "FUMBLE_LOST", "EXTRA_POINT", "FIELD_GOAL", "BLOCKED_FIELD_GOAL", "BLOCKED_PUNT", "SPECIAL_TEAMS_SAFETY", "KICK_RETURN_TOUCHDOWN", "PUNT_RETURN_TOUCHDOWN", "BLOCKED_KICK_RETURN_TOUCHDOWN", "OTHER_SPECIAL_TEAMS_TOUCHDOWN", "SACK", "DEFENSIVE_TURNOVER", "DEFENSIVE_SAFETY", "DEFENSIVE_TOUCHDOWN", "SHUTOUT"] as const;
-const labelFor = (value: string) => value.replaceAll("_", " ").replace("K ST", "K/ST");
+const labelFor = (value: string) => value.replaceAll("_", " ");
 
 function Section({ title, detail, children }: { title: string; detail: string; children: React.ReactNode }) {
   return <section className="rounded-2xl border border-border bg-card p-5 shadow-sm sm:p-6"><h2 className="font-display text-xl font-extrabold tracking-tight">{title}</h2><p className="mt-1.5 max-w-3xl text-sm leading-6 text-muted-foreground">{detail}</p><div className="mt-6">{children}</div></section>;

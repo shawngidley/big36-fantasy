@@ -13,13 +13,13 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import { OwnerSignInForm } from "@/components/OwnerSignInForm";
 
-const positions = ["QB", "RB", "WR", "TE", "K_ST", "DEF"] as const;
+const positions = ["QB", "RB", "WR", "TE", "K", "DST"] as const;
 const catalogFilters = ["ALL", ...positions] as const;
 type Position = (typeof positions)[number];
 type CatalogFilter = (typeof catalogFilters)[number];
 type ResearchUnit = { normalizedPoints: number | null; eligibleGames: number; statSummary?: Record<string, unknown> };
 
-function labelFor(position: string) { return position === "K_ST" ? "K/ST" : position; }
+function labelFor(position: string) { return position; }
 
 function CountdownClock({ expiresAt, className }: { expiresAt: string; className?: string }) {
   const target = useMemo(() => new Date(expiresAt).getTime(), [expiresAt]);

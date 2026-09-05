@@ -2,7 +2,7 @@
 // real data has always lived in Supabase (see `server/supabase.ts`); this file
 // now only holds the shared type/enum shapes still imported across the server.
 
-export const positions = ["QB", "RB", "WR", "TE", "K_ST", "DEF"] as const;
+export const positions = ["QB", "RB", "WR", "TE", "K", "DST"] as const;
 export type Position = (typeof positions)[number];
 
 export const scoringEventTypes = [

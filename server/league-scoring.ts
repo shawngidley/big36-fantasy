@@ -106,8 +106,8 @@ export function generateBalancedDraftPlans(): Array<Array<{ position: Position; 
       { position: "RB" as const, draftPosition: rb },
       { position: "WR" as const, draftPosition: wr },
       { position: "TE" as const, draftPosition: te },
-      { position: "K_ST" as const, draftPosition: k },
-      { position: "DEF" as const, draftPosition: defSt },
+      { position: "K" as const, draftPosition: k },
+      { position: "DST" as const, draftPosition: defSt },
     ];
   });
 }

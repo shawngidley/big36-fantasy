@@ -35,14 +35,14 @@ const guides: Guide[] = [
     icon: Users,
   },
   {
-    title: "K/ST Guide",
-    description: "Kicker and special teams strategy — when to draft it and how much it should actually matter.",
+    title: "K Guide",
+    description: "Kicker strategy — when to draft it and how much it should actually matter.",
     href: "https://fjzlwifohkehwymisaoh.supabase.co/storage/v1/object/public/draft-guides/kst-guide.pdf",
     icon: Shield,
   },
   {
-    title: "DEF Guide",
-    description: "Team defense evaluation and matchup planning for 36 Football scoring.",
+    title: "DST Guide",
+    description: "Defense and special teams evaluation and matchup planning for 36 Football scoring.",
     href: "https://fjzlwifohkehwymisaoh.supabase.co/storage/v1/object/public/draft-guides/def-guide.pdf",
     icon: ShieldCheck,
   },

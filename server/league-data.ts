@@ -4,8 +4,8 @@ import { ownerCanDraft } from "./serpentine-draft";
 import { q, supabaseRest, supabaseRpc } from "./supabase";
 import { yearOneRules } from "./year-one-rules";
 
-export const b36Positions = ["QB", "RB", "WR", "TE", "K_ST", "DEF"] as const;
-const positionLabel: Record<Position, string> = { QB: "QB", RB: "RB", WR: "WR", TE: "TE", K_ST: "K/ST", DEF: "DEF" };
+export const b36Positions = ["QB", "RB", "WR", "TE", "K", "DST"] as const;
+const positionLabel: Record<Position, string> = { QB: "QB", RB: "RB", WR: "WR", TE: "TE", K: "K", DST: "DST" };
 
 type DivisionRow = { id: string; name: string; sort_order: number; identity?: string | null; logo_url?: string | null };
 type OwnerRow = { id: string; manus_open_id: string | null; display_name: string; team_name: string; nickname?: string | null; program_identity?: string | null; logo_url?: string | null; email: string | null; division_id: string | null; is_commissioner: boolean; draft_order?: number | null };

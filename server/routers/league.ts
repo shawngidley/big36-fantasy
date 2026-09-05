@@ -22,7 +22,7 @@ import { getGamePlayerStats, getLivePlays, getLiveScoreboard, getRegularSeasonGa
 import { lotteryCommitment, LOTTERY_REVEAL_INTERVAL_SECONDS, secureShuffle } from "../draft-lottery";
 
 const positionSchema = z.enum(positions);
-const positionOrder = ["QB", "RB", "WR", "TE", "K/ST", "DEF"];
+const positionOrder = ["QB", "RB", "WR", "TE", "K", "DST"];
 const eventTypeSchema = z.enum(scoringEventTypes);
 const uuid = z.string().uuid();
 const asError = (error: unknown): never => { throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "The requested Big 36 action could not be completed." }); };
@@ -100,7 +100,7 @@ export const leagueRouter = router({
     for (const owner of league.owners) for (const pick of owner.picks) {
       const key = pick.schoolName.toLowerCase();
       if (!ownersBySchool.has(key)) ownersBySchool.set(key, []);
-      ownersBySchool.get(key)!.push({ teamName: owner.teamName, position: pick.position === "K_ST" ? "K/ST" : pick.position });
+      ownersBySchool.get(key)!.push({ teamName: owner.teamName, position: pick.position });
     }
     Array.from(ownersBySchool.values()).forEach(list => list.sort((a, b) => positionOrder.indexOf(a.position) - positionOrder.indexOf(b.position)));
     const availableWeeks = Array.from(new Set(scheduleGames.map(game => game.week))).sort((a, b) => a - b);
@@ -141,7 +141,7 @@ export const leagueRouter = router({
     for (const owner of league.owners) for (const pick of owner.picks) {
       const key = pick.schoolName.toLowerCase();
       if (!ownersBySchool.has(key)) ownersBySchool.set(key, []);
-      ownersBySchool.get(key)!.push({ teamName: owner.teamName, position: pick.position === "K_ST" ? "K/ST" : pick.position });
+      ownersBySchool.get(key)!.push({ teamName: owner.teamName, position: pick.position });
     }
     Array.from(ownersBySchool.values()).forEach(list => list.sort((a, b) => positionOrder.indexOf(a.position) - positionOrder.indexOf(b.position)));
     // Plays are nested under each drive, in chronological order. Flatten them, and figure out the
@@ -276,7 +276,7 @@ export const leagueRouter = router({
       const normalizedSchool = input.schoolName.trim().toLowerCase();
       const unit = board.availableUnits.find(candidate => candidate.schoolName.trim().toLowerCase() === normalizedSchool && candidate.position === input.position);
       if (!unit) throw new Error("That school-position unit is no longer available.");
-      if (!unit.canQueue) throw new Error(`You have already drafted your ${input.position === "K_ST" ? "K/ST" : input.position} unit.`);
+      if (!unit.canQueue) throw new Error(`You have already drafted your ${input.position} unit.`);
       if (unit.isQueued) throw new Error("That unit is already in your draft queue.");
       const priority = Math.max(0, ...board.queue.map(entry => entry.priority)) + 1;
       const createdEntries = await supabaseRest<Array<{ id: string }>>("b36_draft_queue_entries", { method: "POST", body: { owner_id: owner.id, school_name: unit.schoolName, position: unit.position, priority } });
@@ -549,7 +549,7 @@ export const leagueRouter = router({
     // CFBD week number (CFBD's "week 1" spans Aug 29 through Labor Day, so a week-number filter
     // would both over- and under-select depending on the exact dates wanted). Recomputes every
     // drafted slot's points from scratch using all of today's fixes (string-id roster/stat/play-id
-    // matching, score-change special-teams attribution, hardened K/ST rules, box-score fumbles,
+    // matching, score-change special-teams attribution, hardened K/DST rules, box-score fumbles,
     // multi-letter name disambiguation) and classifies every difference from the stored ledger as
     // missing (safe to insert), extra (ledger has something current logic doesn't support), or
     // wrong-slot (same play, different credited slot/position). Only "missing" is ever written, and
@@ -762,7 +762,7 @@ export const leagueRouter = router({
           const roster = await getRoster(school, season);
           const schoolPlays = gamePlays.filter((play, index) => play.offense === school && !isSupersededInterceptionPlay(play, gamePlays[index + 1]));
           const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: stats.filter(stat => String(stat.playId) === String(play.id)), roster, selectedSchoolPositions, provisional: false }));
-          for (const position of ["DEF", "K_ST"] as const) {
+          for (const position of ["DST", "K"] as const) {
             const slot = selectedSchoolPositions.find(s => s.schoolName === school && s.position === position);
             if (!slot) continue;
             const relevant = candidates.filter(candidate => candidate.schoolName === school && candidate.position === position);

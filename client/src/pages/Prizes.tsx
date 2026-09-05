@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 const awards = [
   { icon: Crown, title: "National champion", detail: "The season-long overall standings leader.", amount: "$1,200" },
   { icon: Trophy, title: "Conference champions", detail: "One winner from each of the six conference races.", amount: "$200 each", total: "$1,200 total" },
-  { icon: Medal, title: "Position champions", detail: "One leader for each of QB, RB, WR, TE, K/ST, and DEF.", amount: "$200 each", total: "$1,200 total" },
+  { icon: Medal, title: "Position champions", detail: "One leader for each of QB, RB, WR, TE, K, and DST.", amount: "$200 each", total: "$1,200 total" },
 ];
 
 export default function Prizes() {

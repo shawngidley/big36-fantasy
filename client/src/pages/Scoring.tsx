@@ -14,9 +14,6 @@ const kickerRows = [
   ["Field goal · 30–39 yards", "+6"],
   ["Field goal · 40–49 yards", "+9"],
   ["Field goal · 50+ yards", "+12"],
-  ["Blocked field goal or punt", "+3"],
-  ["Special-teams safety", "+6"],
-  ["Any special-teams touchdown", "+12"],
 ];
 
 const defenseRows = [
@@ -27,6 +24,9 @@ const defenseRows = [
   ["Defensive touchdown return · 20–59 yards", "+12"],
   ["Defensive touchdown return · 60+ yards", "+15"],
   ["Shutout", "+15"],
+  ["Blocked field goal or punt", "+3"],
+  ["Special-teams safety", "+6"],
+  ["Any special-teams touchdown", "+12"],
 ];
 
 function ScoreTable({ rows }: { rows: string[][] }) {
@@ -47,10 +47,10 @@ export default function Scoring() {
     </section>
 
     <section className="mt-6 grid gap-6 lg:grid-cols-2"><article className="rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-8"><p className="section-kicker">Conversions & turnovers</p><h2 className="mt-2 font-display text-3xl font-extrabold tracking-tight">The finishing plays</h2><div className="mt-6 space-y-4"><div className="flex gap-3"><span className="mt-0.5 text-primary"><ArrowUp className="h-5 w-5" /></span><p className="text-sm leading-6"><strong>Passing two-point conversion:</strong> the QB gets +4 and the receiving RB, WR, or TE gets +4.</p></div><div className="flex gap-3"><span className="mt-0.5 text-primary"><ArrowUp className="h-5 w-5" /></span><p className="text-sm leading-6"><strong>Rushing two-point conversion:</strong> only the player who scores gets +4.</p></div><div className="flex gap-3"><span className="mt-0.5 text-destructive"><ArrowDown className="h-5 w-5" /></span><p className="text-sm leading-6"><strong>Interception thrown:</strong> QB −3.</p></div><div className="flex gap-3"><span className="mt-0.5 text-destructive"><ArrowDown className="h-5 w-5" /></span><p className="text-sm leading-6"><strong>Fumble lost:</strong> QB, RB, WR, or TE −3.</p></div></div></article>
-      <article className="rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-8"><div className="flex items-start gap-4"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><Trophy className="h-5 w-5" /></span><div><p className="section-kicker">K/ST</p><h2 className="mt-1 font-display text-3xl font-extrabold tracking-tight">Special teams</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">Kickers and special teams operate as one combined unit.</p></div></div><div className="mt-6"><ScoreTable rows={kickerRows} /></div></article>
+      <article className="rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-8"><div className="flex items-start gap-4"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><Trophy className="h-5 w-5" /></span><div><p className="section-kicker">K</p><h2 className="mt-1 font-display text-3xl font-extrabold tracking-tight">Kicker</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">The kicker is scored on made kicks only - blocked kicks, return touchdowns, and special-teams safeties are credited to DST.</p></div></div><div className="mt-6"><ScoreTable rows={kickerRows} /></div></article>
     </section>
 
-    <section className="mt-6 rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-8"><div className="grid gap-6 lg:grid-cols-[.85fr_1.15fr]"><div><div className="flex items-start gap-4"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><ShieldCheck className="h-5 w-5" /></span><div><p className="section-kicker">DEF</p><h2 className="mt-1 font-display text-3xl font-extrabold tracking-tight">Defense</h2></div></div><p className="mt-5 text-sm leading-6 text-muted-foreground">Defensive touchdowns are scored by return distance, while the complete unit is rewarded for pressure, takeaways, safeties, and shutouts.</p><div className="mt-5 rounded-xl border border-border bg-accent/30 p-4 text-sm leading-6"><strong>Shutout note:</strong> a shutout is worth +15 in addition to the defensive events recorded during the game.</div></div><ScoreTable rows={defenseRows} /></div>
+    <section className="mt-6 rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-8"><div className="grid gap-6 lg:grid-cols-[.85fr_1.15fr]"><div><div className="flex items-start gap-4"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary"><ShieldCheck className="h-5 w-5" /></span><div><p className="section-kicker">DST</p><h2 className="mt-1 font-display text-3xl font-extrabold tracking-tight">Defense &amp; Special Teams</h2></div></div><p className="mt-5 text-sm leading-6 text-muted-foreground">Defensive touchdowns are scored by return distance, while the complete unit is rewarded for pressure, takeaways, safeties, shutouts, and every special-teams event - blocked kicks, return touchdowns, and special-teams safeties.</p><div className="mt-5 rounded-xl border border-border bg-accent/30 p-4 text-sm leading-6"><strong>Shutout note:</strong> a shutout is worth +15 in addition to the defensive events recorded during the game.</div></div><ScoreTable rows={defenseRows} /></div>
     </section>
 
     <section className="mt-8 rounded-2xl border border-border bg-accent/25 p-6 sm:p-8"><p className="section-kicker">At a glance</p><h2 className="mt-2 font-display text-2xl font-extrabold tracking-tight">A few important scoring reminders</h2><div className="mt-5 grid gap-4 md:grid-cols-3"><p className="rounded-xl bg-background/70 p-4 text-sm leading-6"><strong>Both sides of a passing TD count.</strong> The QB and receiving position group each receive their applicable touchdown value.</p><p className="rounded-xl bg-background/70 p-4 text-sm leading-6"><strong>Only the scorer earns a rushing TD.</strong> There is no separate passing credit on a rushing touchdown.</p><p className="rounded-xl bg-background/70 p-4 text-sm leading-6"><strong>Research and live scoring use this same ruleset.</strong> The public ledger records the event-level calculation behind every result.</p></div></section>

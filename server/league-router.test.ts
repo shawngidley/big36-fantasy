@@ -335,24 +335,24 @@ describe("Big 36 owner draft procedures", () => {
   it("clears a selection directly by owner and position, bypassing turn lookup entirely", async () => {
     mocks.supabaseRest.mockReset();
     const ownerId = "11111111-1111-4111-8111-111111111111";
-    mocks.getAllDraftSlots.mockResolvedValue([{ id: "slot-def", owner_id: ownerId, position: "DEF", draft_position: 5, school_name: "South Carolina" }]);
+    mocks.getAllDraftSlots.mockResolvedValue([{ id: "slot-def", owner_id: ownerId, position: "DST", draft_position: 5, school_name: "South Carolina" }]);
     mocks.supabaseRest
       .mockResolvedValueOnce([]) // slot PATCH clearing school_name
       .mockResolvedValueOnce([]) // linked turns lookup (none found — orphaned slot)
       .mockResolvedValueOnce([]); // audit event POST
     const caller = appRouter.createCaller(createContext("admin"));
 
-    await expect(caller.league.admin.clearOwnerPositionSlot({ ownerId, position: "DEF" })).resolves.toEqual({ success: true, clearedSchool: "South Carolina" });
+    await expect(caller.league.admin.clearOwnerPositionSlot({ ownerId, position: "DST" })).resolves.toEqual({ success: true, clearedSchool: "South Carolina" });
     expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_draft_slots", expect.objectContaining({ method: "PATCH", query: { id: "eq.slot-def" }, body: { school_name: null, selected_at: null, selected_by_open_id: null } }));
   });
 
   it("refuses to clear a position that was never drafted", async () => {
     mocks.supabaseRest.mockReset();
     const ownerId = "11111111-1111-4111-8111-111111111111";
-    mocks.getAllDraftSlots.mockResolvedValue([{ id: "slot-def", owner_id: ownerId, position: "DEF", draft_position: 5, school_name: null }]);
+    mocks.getAllDraftSlots.mockResolvedValue([{ id: "slot-def", owner_id: ownerId, position: "DST", draft_position: 5, school_name: null }]);
     const caller = appRouter.createCaller(createContext("admin"));
 
-    await expect(caller.league.admin.clearOwnerPositionSlot({ ownerId, position: "DEF" })).rejects.toThrow("nothing to clear");
+    await expect(caller.league.admin.clearOwnerPositionSlot({ ownerId, position: "DST" })).rejects.toThrow("nothing to clear");
   });
 
   it("allows the commissioner to record an explicit draft override for an assigned slot", async () => {
@@ -369,7 +369,7 @@ describe("Big 36 owner draft procedures", () => {
   it("resolves the exact specified pick when the owner has multiple skipped turns, instead of an arbitrary one", async () => {
     mocks.supabaseRest.mockReset();
     const ownerId = "11111111-1111-4111-8111-111111111111";
-    mocks.getAllDraftSlots.mockResolvedValue([{ id: "slot-def", owner_id: ownerId, position: "DEF", draft_position: 5, school_name: null }]);
+    mocks.getAllDraftSlots.mockResolvedValue([{ id: "slot-def", owner_id: ownerId, position: "DST", draft_position: 5, school_name: null }]);
     mocks.supabaseRest
       .mockResolvedValueOnce([]) // slot PATCH
       .mockResolvedValueOnce([]) // queue entry DELETE
@@ -377,7 +377,7 @@ describe("Big 36 owner draft procedures", () => {
       .mockResolvedValueOnce([]); // turn PATCH to PICKED
     const caller = appRouter.createCaller(createContext("admin"));
 
-    await expect(caller.league.admin.recordDraftPick({ ownerId, position: "DEF", schoolName: "South Carolina", globalPick: 140 })).resolves.toEqual({ success: true, draftPosition: 5 });
+    await expect(caller.league.admin.recordDraftPick({ ownerId, position: "DST", schoolName: "South Carolina", globalPick: 140 })).resolves.toEqual({ success: true, draftPosition: 5 });
     expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_draft_turns", expect.objectContaining({ query: { select: "id,status,global_pick,owner_id", global_pick: "eq.140", limit: "1" } }));
     expect(mocks.supabaseRest).toHaveBeenCalledWith("b36_draft_turns", expect.objectContaining({ method: "PATCH", query: { id: "eq.turn-140" }, body: expect.objectContaining({ status: "PICKED", draft_slot_id: "slot-def" }) }));
   });
@@ -385,14 +385,14 @@ describe("Big 36 owner draft procedures", () => {
   it("refuses to resolve a specified pick that belongs to a different owner", async () => {
     mocks.supabaseRest.mockReset();
     const ownerId = "11111111-1111-4111-8111-111111111111";
-    mocks.getAllDraftSlots.mockResolvedValue([{ id: "slot-def", owner_id: ownerId, position: "DEF", draft_position: 5, school_name: null }]);
+    mocks.getAllDraftSlots.mockResolvedValue([{ id: "slot-def", owner_id: ownerId, position: "DST", draft_position: 5, school_name: null }]);
     mocks.supabaseRest
       .mockResolvedValueOnce([]) // slot PATCH
       .mockResolvedValueOnce([]) // queue entry DELETE
       .mockResolvedValueOnce([{ id: "turn-140", status: "SKIPPED", global_pick: 140, owner_id: "someone-else" }]);
     const caller = appRouter.createCaller(createContext("admin"));
 
-    await expect(caller.league.admin.recordDraftPick({ ownerId, position: "DEF", schoolName: "South Carolina", globalPick: 140 })).rejects.toThrow("does not belong to this owner");
+    await expect(caller.league.admin.recordDraftPick({ ownerId, position: "DST", schoolName: "South Carolina", globalPick: 140 })).rejects.toThrow("does not belong to this owner");
   });
 
   it("resolves a skipped turn as PICKED when the commissioner records an override for it, without advancing anyone's clock", async () => {
