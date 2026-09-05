@@ -478,6 +478,38 @@ export const leagueRouter = router({
         gamesRemainingInWeek1WithEvents: games.filter(game => game.resolvedB36Week === 1 && game.eventCount > 0),
       };
     }),
+    // One-time diagnostic for the "0 games played" leaderboard bug: for every drafted slot with
+    // points but gamesPlayed === 0, shows the EXACT raw school_name string (JSON-encoded so stray
+    // whitespace/case/punctuation is visible) next to what's actually in b36_source_games for that
+    // school, both via exact match and via the shared normalizer, to reveal precisely why the two
+    // don't line up. Not on any scoring path.
+    debugGamesPlayedMismatch: adminProcedure.query(async () => {
+      const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
+      const season = automationRows[0]?.season;
+      if (!season) throw new Error("No season configured.");
+      const [slots, sourceGames, eventRows] = await Promise.all([
+        supabaseRest<Array<{ id: string; owner_id: string; school_name: string | null; position: string }>>("b36_draft_slots", { query: { select: "id,owner_id,school_name,position", school_name: "not.is.null" } }),
+        supabaseRest<Array<{ season: number; season_type: string; completed: boolean; home_team: string; away_team: string }>>("b36_source_games", { query: { select: "season,season_type,completed,home_team,away_team" } }),
+        supabaseRest<Array<{ draft_slot_id: string; computed_points: number; audit_action: string }>>("b36_scoring_events", { query: { select: "draft_slot_id,computed_points,audit_action" } }),
+      ]);
+      const regularGames = sourceGames.filter(game => game.season === season && game.season_type.toLowerCase() === "regular");
+      const pointsBySlot = new Map<string, number>();
+      for (const row of eventRows) { if (row.audit_action === "REVERSAL") continue; pointsBySlot.set(row.draft_slot_id, (pointsBySlot.get(row.draft_slot_id) ?? 0) + row.computed_points); }
+      const normalize = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+      const results = slots.map(slot => {
+        const school = slot.school_name as string;
+        const exactGames = regularGames.filter(game => (game.home_team === school || game.away_team === school) && game.completed).length;
+        const normalizedGames = regularGames.filter(game => (normalize(game.home_team) === normalize(school) || normalize(game.away_team) === normalize(school)) && game.completed).length;
+        const matchingSourceTeamNames = Array.from(new Set(regularGames.filter(game => normalize(game.home_team) === normalize(school) || normalize(game.away_team) === normalize(school)).flatMap(game => [game.home_team, game.away_team]).filter(name => normalize(name) === normalize(school))));
+        return { slotId: slot.id, position: slot.position, rawSchoolName: JSON.stringify(school), points: Math.round((pointsBySlot.get(slot.id) ?? 0) * 100) / 100, exactMatchGames: exactGames, normalizedMatchGames: normalizedGames, matchingSourceTeamNames, mismatch: exactGames !== normalizedGames };
+      });
+      return {
+        season,
+        totalSourceGames: sourceGames.length, regularSourceGames: regularGames.length,
+        slotsWithPointsButZeroGames: results.filter(r => r.points > 0 && r.exactMatchGames === 0),
+        slotsWhereNormalizedDiffersFromExact: results.filter(r => r.mismatch),
+      };
+    }),
     debugRosterSearch: adminProcedure.input(z.object({ school: z.string(), search: z.string().optional() })).query(async ({ input }) => {
       const season = (await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } }))[0]?.season ?? new Date().getFullYear();
       const roster = await getRoster(input.school, season);
