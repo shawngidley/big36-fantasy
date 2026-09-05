@@ -509,6 +509,104 @@ export const leagueRouter = router({
       }
       return { season, week: input.week, dryRun: input.dryRun, gamesChecked: games.length, planned, unavailable, diagnostics: diagnostics.filter(entry => (entry.lostAthletes as unknown[]).length > 0 || !entry.boxGameFound || !entry.fumblesCategoryFound) };
     }),
+    // Season-wide audit + insert-only apply, covering a real CALENDAR date range rather than a
+    // CFBD week number (CFBD's "week 1" spans Aug 29 through Labor Day, so a week-number filter
+    // would both over- and under-select depending on the exact dates wanted). Recomputes every
+    // drafted slot's points from scratch using all of today's fixes (string-id roster/stat/play-id
+    // matching, score-change special-teams attribution, hardened K/ST rules, box-score fumbles,
+    // multi-letter name disambiguation) and classifies every difference from the stored ledger as
+    // missing (safe to insert), extra (ledger has something current logic doesn't support), or
+    // wrong-slot (same play, different credited slot/position). Only "missing" is ever written, and
+    // only when dryRun is explicitly false.
+    auditDateRange: adminProcedure.input(z.object({ startDate: z.string(), endDate: z.string(), dryRun: z.boolean().default(true) })).mutation(async ({ input }) => {
+      const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
+      const season = automationRows[0]?.season;
+      if (!season) throw new Error("No season configured.");
+      const [schedule, league] = await Promise.all([getRegularSeasonGames(season), getLeagueSnapshot()]);
+      const start = new Date(input.startDate), end = new Date(input.endDate);
+      end.setUTCHours(23, 59, 59, 999);
+      const selected = league.owners.flatMap(owner => owner.picks.map(pick => ({ schoolName: pick.schoolName, position: pick.position as LivePosition, draftSlotId: pick.id, ownerName: owner.teamName })));
+      const draftedSchools = new Set(selected.map(pick => pick.schoolName));
+      const games = schedule.filter(game => {
+        const played = new Date(game.startDate);
+        return game.completed && played >= start && played <= end && (draftedSchools.has(game.homeTeam) || draftedSchools.has(game.awayTeam));
+      });
+      const weekNumbers = Array.from(new Set(games.map(game => game.week)));
+      const playsByWeek = new Map<number, Awaited<ReturnType<typeof getWeekPlays>>>();
+      const statsByWeek = new Map<number, Awaited<ReturnType<typeof getWeekPlayStats>>>();
+      for (const week of weekNumbers) { playsByWeek.set(week, await getWeekPlays(season, week)); statsByWeek.set(week, await getWeekPlayStats(season, week)); }
+      const weekRows = await supabaseRest<Array<{ id: string; week_number: number }>>("b36_scoring_weeks", { query: { select: "id,week_number" } });
+
+      type Row = { gameId: number; game: string; date: string; owner: string; school: string; position: string; eventType: string; points: number; note: string; key: string; classification: "missing" | "already-present" };
+      const missing: Row[] = []; const alreadyPresent: Row[] = [];
+      const extra: Array<{ gameId: number; game: string; owner: string; school: string; position: string; eventType: string; points: number; key: string; recordedBy: string }> = [];
+      const rosterCache = new Map<string, Awaited<ReturnType<typeof getRoster>>>();
+      const boxCache = new Map<string, Awaited<ReturnType<typeof getGamePlayerStats>>>();
+
+      for (const game of games) {
+        const plays = (playsByWeek.get(game.week) ?? []).filter(play => play.gameId === game.id);
+        const stats = statsByWeek.get(game.week) ?? [];
+        const officialBySlot = new Map<string, { points: number; keys: Set<string>; entries: Array<{ eventType: string; points: number; key: string; note: string }> }>();
+        for (const school of [game.homeTeam, game.awayTeam]) {
+          let roster = rosterCache.get(school);
+          if (!roster) { roster = await getRoster(school, season); rosterCache.set(school, roster); }
+          const schoolPlays = plays.filter((play, index) => play.offense === school && !isSupersededInterceptionPlay(play, plays[index + 1]));
+          const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: stats.filter(stat => String(stat.playId) === String(play.id)), roster: roster!, selectedSchoolPositions: selected, provisional: false }));
+          // Fumbles lost from the box score, authoritative over any play-derived fumble candidate for a school where it's available.
+          if (draftedSchools.has(school)) {
+            const cacheKey = `${game.week}:${school}`;
+            let box = boxCache.get(cacheKey);
+            if (box === undefined) { box = await getGamePlayerStats(season, game.week, school); boxCache.set(cacheKey, box); }
+            const gameBox = box.find(entry => entry.id === game.id);
+            const fromBox = boxScoreFumbleCandidates({ gameId: game.id, school, box: gameBox, roster, selectedSchoolPositions: selected, alreadyWrittenBySlot: new Map() });
+            if (fromBox.available) {
+              for (let index = candidates.length - 1; index >= 0; index -= 1) if (candidates[index].eventType === "FUMBLE_LOST" && candidates[index].schoolName === school) candidates.splice(index, 1);
+              candidates.push(...fromBox.candidates);
+            }
+          }
+          for (const candidate of candidates) {
+            if (!draftedSchools.has(candidate.schoolName)) continue;
+            const rules = await getScoringRulesForEvent(candidate.eventType as never);
+            const score = calculateEventScore(rules, { eventType: candidate.eventType as never, position: candidate.position, statValue: candidate.statValue, yardDistance: candidate.yardDistance });
+            const slotKey = `${candidate.schoolName}:${candidate.position}`;
+            const entry = officialBySlot.get(slotKey) ?? { points: 0, keys: new Set<string>(), entries: [] };
+            entry.points += score.points; entry.keys.add(candidate.sourceEventKey); entry.entries.push({ eventType: candidate.eventType, points: score.points, key: candidate.sourceEventKey, note: candidate.note });
+            officialBySlot.set(slotKey, entry);
+          }
+        }
+
+        for (const slot of selected) {
+          if (slot.schoolName !== game.homeTeam && slot.schoolName !== game.awayTeam) continue;
+          const official = officialBySlot.get(`${slot.schoolName}:${slot.position}`) ?? { points: 0, keys: new Set<string>(), entries: [] };
+          const stored = await supabaseRest<Array<{ id: string; event_type: string; computed_points: number; audit_action: string; source_event_key: string | null; source_game_id: number | null; recorded_by_open_id: string; correction_of_event_id: string | null }>>("b36_scoring_events", { query: { select: "id,event_type,computed_points,audit_action,source_event_key,source_game_id,recorded_by_open_id,correction_of_event_id", draft_slot_id: q.eq(slot.draftSlotId), source_game_id: q.eq(game.id) } });
+          const reversedIds = new Set(stored.filter(row => row.audit_action === "REVERSAL" && row.correction_of_event_id).map(row => row.correction_of_event_id));
+          const activeKeys = new Set(stored.filter(row => row.audit_action !== "REVERSAL" && !reversedIds.has(row.id) && row.source_event_key).map(row => row.source_event_key as string));
+          for (const entry of official.entries) {
+            const row: Row = { gameId: game.id, game: `${game.awayTeam} at ${game.homeTeam}`, date: game.startDate, owner: slot.ownerName, school: slot.schoolName, position: slot.position, eventType: entry.eventType, points: entry.points, note: entry.note, key: entry.key, classification: activeKeys.has(entry.key) ? "already-present" : "missing" };
+            (row.classification === "missing" ? missing : alreadyPresent).push(row);
+          }
+          for (const row of stored) {
+            if (row.audit_action === "REVERSAL" || reversedIds.has(row.id) || !row.source_event_key || official.keys.has(row.source_event_key)) continue;
+            extra.push({ gameId: game.id, game: `${game.awayTeam} at ${game.homeTeam}`, owner: slot.ownerName, school: slot.schoolName, position: slot.position, eventType: row.event_type, points: row.computed_points, key: row.source_event_key, recordedBy: row.recorded_by_open_id });
+          }
+        }
+      }
+
+      let inserted = 0;
+      if (!input.dryRun) {
+        for (const row of missing) {
+          const weekRow = weekRows.find(week => games.find(game => game.id === row.gameId)?.week === week.week_number);
+          const slot = selected.find(pick => pick.ownerName === row.owner && pick.schoolName === row.school && pick.position === row.position);
+          if (!weekRow || !slot) continue;
+          await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: weekRow.id, draft_slot_id: slot.draftSlotId, event_type: row.eventType, stat_value: 1, yard_distance: null, computed_points: row.points, note: `${row.note} (season audit backfill)`, audit_action: "ENTRY", recorded_by_open_id: "cfbd-season-audit-backfill", source_event_key: row.key, source_game_id: row.gameId, is_provisional: false } });
+          inserted += 1;
+        }
+      }
+
+      const netByOwner = new Map<string, number>();
+      for (const row of missing) netByOwner.set(row.owner, (netByOwner.get(row.owner) ?? 0) + row.points);
+      return { season, startDate: input.startDate, endDate: input.endDate, dryRun: input.dryRun, gamesChecked: games.length, missing, alreadyPresentCount: alreadyPresent.length, extra, inserted, netPointsByOwner: Array.from(netByOwner.entries()).map(([owner, points]) => ({ owner, points })) };
+    }),
     fullScoringAudit: adminProcedure.input(z.object({ week: z.number() })).query(async ({ input }) => {
       const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
       const season = automationRows[0]?.season;

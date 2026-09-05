@@ -6,7 +6,20 @@ function apiKey() {
   return key;
 }
 
+// A global pace gate on actual outbound calls (cache hits skip this entirely). Bulk operations like
+// the season-wide audit make dozens of roster/box-score calls in a tight loop; CFBD's per-minute
+// limit was hit well before those loops finished, turning into a hard 429 that aborted the whole
+// operation. A small minimum gap between real requests keeps volume under the limit without any
+// call site needing to know about pacing.
+let nextSlotAt = 0;
+async function paceOutboundCall() {
+  const wait = Math.max(0, nextSlotAt - Date.now());
+  nextSlotAt = Math.max(Date.now(), nextSlotAt) + 120;
+  if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
+}
+
 export async function cfbdGet<T>(path: string, query: Record<string, string | number | undefined> = {}): Promise<T> {
+  await paceOutboundCall();
   const params = new URLSearchParams(Object.entries(query).filter(([, value]) => value !== undefined).map(([key, value]) => [key, String(value)]));
   const url = `${CFBD_BASE_URL}${path}${params.size ? `?${params}` : ""}`;
   const maxAttempts = 3;
