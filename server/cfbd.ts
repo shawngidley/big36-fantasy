@@ -14,7 +14,7 @@ function apiKey() {
 let nextSlotAt = 0;
 async function paceOutboundCall() {
   const wait = Math.max(0, nextSlotAt - Date.now());
-  nextSlotAt = Math.max(Date.now(), nextSlotAt) + 120;
+  nextSlotAt = Math.max(Date.now(), nextSlotAt) + 650;
   if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
 }
 
@@ -35,7 +35,7 @@ export async function cfbdGet<T>(path: string, query: Record<string, string | nu
         // back off longer before retrying. Other errors (auth, bad request) won't be fixed by
         // retrying, so fail immediately instead of wasting time.
         if ([502, 503, 504].includes(response.status) && attempt < maxAttempts) { await new Promise(resolve => setTimeout(resolve, 300 * attempt)); continue; }
-        if (response.status === 429 && attempt < maxAttempts) { await new Promise(resolve => setTimeout(resolve, 1500 * attempt)); continue; }
+        if (response.status === 429 && attempt < maxAttempts) { await new Promise(resolve => setTimeout(resolve, 2500 * attempt)); continue; }
         throw new Error(payload?.message ?? `CollegeFootballData ${path} failed (${response.status}).`);
       }
       return payload as T;
