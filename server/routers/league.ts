@@ -454,6 +454,58 @@ export const leagueRouter = router({
     // computed b36 bucket, and whether it currently has any b36_scoring_events attached (and to
     // which week_id) - so the actual database migration can target exact, verified game ids rather
     // than a guessed date range. Not on any scoring path; safe to remove once the split is applied.
+    // Read-only sweep for exactly one class of miss: special-teams touchdowns and blocked kicks
+    // that CFBD's play feed lists the KICKING team as "offense" for, which pre-fix code credited to
+    // the wrong (often undrafted) side and silently dropped. Re-derives candidates with today's
+    // fixed attribution logic and reports any that aren't yet in the ledger - narrow on purpose
+    // (a handful of event types, not a full point reconciliation) so it stays fast and safe, unlike
+    // the earlier full-season audit tool which hit CFBD rate limits and Vercel's timeout.
+    debugSpecialTeamsSweep: adminProcedure.input(z.object({ startDate: z.string(), endDate: z.string() })).mutation(async ({ input }) => {
+      const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
+      const season = automationRows[0]?.season;
+      if (!season) throw new Error("No season configured.");
+      const [schedule, league] = await Promise.all([getRegularSeasonGames(season), getLeagueSnapshot()]);
+      const start = new Date(input.startDate), end = new Date(input.endDate);
+      end.setUTCHours(23, 59, 59, 999);
+      const selected = league.owners.flatMap(owner => owner.picks.map(pick => ({ schoolName: pick.schoolName, position: pick.position as LivePosition, draftSlotId: pick.id, ownerName: owner.teamName })));
+      const draftedSchools = new Set(selected.map(pick => pick.schoolName));
+      const games = schedule.filter(game => {
+        const played = new Date(game.startDate);
+        return game.completed && played >= start && played <= end && (draftedSchools.has(game.homeTeam) || draftedSchools.has(game.awayTeam));
+      });
+      const specialTeamsEventTypes = new Set(["KICK_RETURN_TOUCHDOWN", "PUNT_RETURN_TOUCHDOWN", "BLOCKED_KICK_RETURN_TOUCHDOWN", "OTHER_SPECIAL_TEAMS_TOUCHDOWN", "BLOCKED_FIELD_GOAL", "BLOCKED_PUNT"]);
+      const weekNumbers = Array.from(new Set(games.map(game => game.week)));
+      const playsByWeek = new Map<number, Awaited<ReturnType<typeof getWeekPlays>>>();
+      const statsByWeek = new Map<number, Awaited<ReturnType<typeof getWeekPlayStats>>>();
+      for (const week of weekNumbers) { playsByWeek.set(week, await getWeekPlays(season, week)); statsByWeek.set(week, await getWeekPlayStats(season, week)); }
+      const rosterCache = new Map<string, Awaited<ReturnType<typeof getRoster>>>();
+      const missing: Array<{ gameId: number; game: string; owner: string; school: string; position: string; eventType: string; points: number; note: string; key: string }> = [];
+      for (const game of games) {
+        const plays = (playsByWeek.get(game.week) ?? []).filter(play => play.gameId === game.id);
+        const stats = statsByWeek.get(game.week) ?? [];
+        const activeKeys = new Set<string>();
+        const rows = await supabaseRest<Array<{ id: string; source_event_key: string | null; audit_action: string; correction_of_event_id: string | null }>>("b36_scoring_events", { query: { select: "id,source_event_key,audit_action,correction_of_event_id", source_game_id: q.eq(game.id) } });
+        const reversedIds = new Set(rows.filter(row => row.audit_action === "REVERSAL" && row.correction_of_event_id).map(row => row.correction_of_event_id));
+        for (const row of rows) { if (row.source_event_key && row.audit_action !== "REVERSAL" && !reversedIds.has(row.id)) activeKeys.add(row.source_event_key); }
+        for (const school of [game.homeTeam, game.awayTeam]) {
+          let roster = rosterCache.get(school);
+          if (!roster) { roster = await getRoster(school, season); rosterCache.set(school, roster); }
+          const schoolPlays = plays.filter((play, index) => play.offense === school && !isSupersededInterceptionPlay(play, plays[index + 1]));
+          const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: stats.filter(stat => String(stat.playId) === String(play.id)), roster: roster!, selectedSchoolPositions: selected, provisional: false }));
+          for (const candidate of candidates) {
+            if (!specialTeamsEventTypes.has(candidate.eventType)) continue;
+            if (!draftedSchools.has(candidate.schoolName)) continue;
+            if (activeKeys.has(candidate.sourceEventKey)) continue;
+            const slot = selected.find(pick => pick.schoolName === candidate.schoolName && pick.position === candidate.position);
+            if (!slot) continue;
+            const rules = await getScoringRulesForEvent(candidate.eventType as never);
+            const score = calculateEventScore(rules, { eventType: candidate.eventType as never, position: candidate.position, statValue: candidate.statValue, yardDistance: candidate.yardDistance });
+            missing.push({ gameId: game.id, game: `${game.awayTeam} at ${game.homeTeam}`, owner: slot.ownerName, school: candidate.schoolName, position: candidate.position, eventType: candidate.eventType, points: score.points, note: candidate.note, key: candidate.sourceEventKey });
+          }
+        }
+      }
+      return { season, startDate: input.startDate, endDate: input.endDate, gamesChecked: games.length, missing };
+    }),
     debugWeekSplit: adminProcedure.query(async () => {
       const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
       const season = automationRows[0]?.season;
