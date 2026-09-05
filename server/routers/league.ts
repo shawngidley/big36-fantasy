@@ -450,6 +450,34 @@ export const leagueRouter = router({
         boxscoreCategorySample: boxscorePlayers[0] ? { team: ((boxscorePlayers[0].team as Record<string, unknown> | undefined)?.displayName), categories: (boxscorePlayers[0].statistics as Array<Record<string, unknown>> | undefined)?.map(category => category.name) } : null,
       };
     }),
+    // One-time diagnostic for the Week 0 / Week 1 split: lists every CFBD week-1 game with its
+    // computed b36 bucket, and whether it currently has any b36_scoring_events attached (and to
+    // which week_id) - so the actual database migration can target exact, verified game ids rather
+    // than a guessed date range. Not on any scoring path; safe to remove once the split is applied.
+    debugWeekSplit: adminProcedure.query(async () => {
+      const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
+      const season = automationRows[0]?.season;
+      if (!season) throw new Error("No season configured.");
+      const [schedule, snapshot] = await Promise.all([getRegularSeasonGames(season), getLeagueSnapshot()]);
+      const week1Games = schedule.filter(game => game.week === 1);
+      const gameIds = week1Games.map(game => game.id);
+      const eventRows = gameIds.length ? await supabaseRest<Array<{ source_game_id: number | null; week_id: string; audit_action: string }>>("b36_scoring_events", { query: { select: "source_game_id,week_id,audit_action", source_game_id: `in.(${gameIds.join(",")})` } }) : [];
+      const weekIdToNumber = new Map(snapshot.weeks.map(week => [week.id, week.weekNumber]));
+      const games = week1Games.map(game => {
+        const b36Week = resolveB36WeekNumber(game);
+        const rowsForGame = eventRows.filter(row => row.source_game_id === game.id && row.audit_action !== "REVERSAL");
+        const currentWeekIds = Array.from(new Set(rowsForGame.map(row => row.week_id)));
+        return { id: game.id, homeTeam: game.homeTeam, awayTeam: game.awayTeam, startDate: game.startDate, easternDate: new Date(game.startDate).toLocaleDateString("en-CA", { timeZone: "America/New_York" }), completed: game.completed, resolvedB36Week: b36Week, eventCount: rowsForGame.length, currentWeekIds, currentWeekNumbers: currentWeekIds.map(id => weekIdToNumber.get(id) ?? null) };
+      });
+      return {
+        season,
+        existingWeekRows: snapshot.weeks.map(week => ({ id: week.id, weekNumber: week.weekNumber })),
+        totalWeek1Games: games.length,
+        gamesNeedingWeek0: games.filter(game => game.resolvedB36Week === 0),
+        gamesNeedingWeek0WithEvents: games.filter(game => game.resolvedB36Week === 0 && game.eventCount > 0),
+        gamesRemainingInWeek1WithEvents: games.filter(game => game.resolvedB36Week === 1 && game.eventCount > 0),
+      };
+    }),
     debugRosterSearch: adminProcedure.input(z.object({ school: z.string(), search: z.string().optional() })).query(async ({ input }) => {
       const season = (await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } }))[0]?.season ?? new Date().getFullYear();
       const roster = await getRoster(input.school, season);
