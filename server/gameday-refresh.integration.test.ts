@@ -219,6 +219,27 @@ describe("36 Football gameday source reconciliation", () => {
     expect(result.relevantGames).toBe(0);
     expect(writes.filter(write => write.table === "b36_scoring_events")).toHaveLength(0);
   });
+
+  it("reverses a stale live-detected entry the moment an official /plays candidate confirms the same play - not gated on game.completed, since CFBD can populate /plays before a game finishes", async () => {
+    const inProgressGame = { ...game, completed: false };
+    mocks.getRegularSeasonGames.mockResolvedValue([inProgressGame]);
+    mocks.getLiveScoreboard.mockResolvedValue([inProgressGame]);
+    // A live-detected touchdown already sits in the ledger under the synthetic transformed id...
+    const staleLive = { id: "live-event-1", source_event_key: "9101055qb:TOUCHDOWN:QB", source_game_id: 101, audit_action: "ENTRY", week_id: "week-1", draft_slot_id: "slot-qb", event_type: "TOUCHDOWN", stat_value: 1, yard_distance: 35, computed_points: 9, is_provisional: true, recorded_by_open_id: "cfbd-live-detection" };
+    const writes = arrange([staleLive]);
+    // ...and now the SAME real-world touchdown shows up in the authoritative /plays feed under its real id.
+    mocks.mapLivePlayToCandidates.mockReturnValue([candidate]);
+
+    const result = await runGamedayRefresh({ force: true });
+
+    const officialInsert = writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST" && (write.options.body as { source_event_key?: string })?.source_event_key === "101:55:qb");
+    const reversal = writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST" && (write.options.body as { audit_action?: string })?.audit_action === "REVERSAL");
+    expect(officialInsert).toBeTruthy();
+    expect(reversal).toBeTruthy();
+    expect((reversal!.options.body as { correction_of_event_id?: string }).correction_of_event_id).toBe("live-event-1");
+    expect((reversal!.options.body as { computed_points?: number }).computed_points).toBe(-9);
+    expect(result.insertedEvents).toBeGreaterThanOrEqual(2);
+  });
 });
 
 describe("resolveB36WeekNumber", () => {
