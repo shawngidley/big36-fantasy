@@ -506,6 +506,21 @@ export const leagueRouter = router({
       }
       return { season, startDate: input.startDate, endDate: input.endDate, gamesChecked: games.length, missing };
     }),
+    // One-time diagnostic: does getLeagueSnapshot()'s own public "events" array contain duplicate
+    // rows for a given school+position+week? Bypasses any client rendering entirely to settle
+    // whether a reported doubled total is a server-side data issue or a front-end rendering issue.
+    debugEventDuplication: adminProcedure.input(z.object({ school: z.string(), position: z.string(), week: z.number() })).query(async ({ input }) => {
+      const league = await getLeagueSnapshot();
+      const matches = league.events.filter(event => event.schoolName === input.school && event.position === input.position && event.weekNumber === input.week);
+      const keyCounts = new Map<string, number>();
+      for (const event of matches) keyCounts.set(event.id, (keyCounts.get(event.id) ?? 0) + 1);
+      return {
+        totalEventCountInSnapshot: league.events.length,
+        matchingRowCount: matches.length,
+        duplicateIds: Array.from(keyCounts.entries()).filter(([, count]) => count > 1),
+        rows: matches.map(event => ({ id: event.id, eventType: event.eventType, computedPoints: event.computedPoints, auditAction: event.auditAction, correctionOfEventId: event.correctionOfEventId })),
+      };
+    }),
     debugWeekSplit: adminProcedure.query(async () => {
       const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
       const season = automationRows[0]?.season;
