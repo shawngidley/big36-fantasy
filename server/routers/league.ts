@@ -413,6 +413,42 @@ export const leagueRouter = router({
       }
       return results;
     }),
+    // One-time diagnostic: does ESPN's hidden site API respond to server-side requests at all, and
+    // if so, what does it return for a real game? This writes nothing and is not on any scoring
+    // path - purely to inform whether ESPN is viable as a data source before any real integration
+    // work happens. Safe to delete once that decision is made.
+    debugEspnFetch: adminProcedure.input(z.object({ gameId: z.number() })).query(async ({ input }) => {
+      const url = `https://site.api.espn.com/apis/site/v2/sports/football/college-football/summary?event=${input.gameId}`;
+      const startedAt = Date.now();
+      let status: number | null = null; let bodyText = ""; let fetchError: string | null = null;
+      try {
+        const response = await fetch(url, { headers: { Accept: "application/json", "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36" } });
+        status = response.status;
+        bodyText = await response.text();
+      } catch (error) { fetchError = error instanceof Error ? error.message : String(error); }
+      const durationMs = Date.now() - startedAt;
+      if (fetchError || status !== 200) return { url, status, durationMs, fetchError, ok: false, bodyPreview: bodyText.slice(0, 2000) };
+      let parsed: unknown; let parseError: string | null = null;
+      try { parsed = JSON.parse(bodyText); } catch (error) { parseError = error instanceof Error ? error.message : String(error); }
+      if (parseError || !parsed || typeof parsed !== "object") return { url, status, durationMs, ok: false, parseError, bodyPreview: bodyText.slice(0, 2000) };
+      const data = parsed as Record<string, unknown>;
+      const header = data.header as Record<string, unknown> | undefined;
+      const competitions = (header?.competitions as Array<Record<string, unknown>> | undefined) ?? [];
+      const competitors = (competitions[0]?.competitors as Array<Record<string, unknown>> | undefined) ?? [];
+      const plays = (data.plays as Array<Record<string, unknown>> | undefined) ?? [];
+      const scoringPlays = (data.scoringPlays as Array<Record<string, unknown>> | undefined) ?? [];
+      const boxscore = data.boxscore as Record<string, unknown> | undefined;
+      const boxscorePlayers = (boxscore?.players as Array<Record<string, unknown>> | undefined) ?? [];
+      return {
+        url, status, durationMs, ok: true, bodyLength: bodyText.length,
+        teams: competitors.map(competitor => ({ team: (competitor.team as Record<string, unknown> | undefined)?.displayName, homeAway: competitor.homeAway, score: competitor.score })),
+        playCount: plays.length,
+        scoringPlayCount: scoringPlays.length,
+        scoringPlaysSample: scoringPlays.slice(0, 15).map(play => ({ text: play.text, type: (play.type as Record<string, unknown> | undefined)?.text, awayScore: play.awayScore, homeScore: play.homeScore })),
+        boxscoreTeamCount: boxscorePlayers.length,
+        boxscoreCategorySample: boxscorePlayers[0] ? { team: ((boxscorePlayers[0].team as Record<string, unknown> | undefined)?.displayName), categories: (boxscorePlayers[0].statistics as Array<Record<string, unknown>> | undefined)?.map(category => category.name) } : null,
+      };
+    }),
     debugRosterSearch: adminProcedure.input(z.object({ school: z.string(), search: z.string().optional() })).query(async ({ input }) => {
       const season = (await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } }))[0]?.season ?? new Date().getFullYear();
       const roster = await getRoster(input.school, season);
