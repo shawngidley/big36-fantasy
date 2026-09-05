@@ -145,6 +145,16 @@ describe("36 Football automatic scoring map", () => {
     expect(mapLivePlayToCandidates({ play: muff, stats: [], roster: [], selectedSchoolPositions: pick("Georgia Tech", "K_ST") }).map(c => c.eventType)).toContain("OTHER_SPECIAL_TEAMS_TOUCHDOWN");
     expect(mapLivePlayToCandidates({ play: muff, stats: [], roster: [], selectedSchoolPositions: pick("Georgia Tech", "DEF") }).map(c => c.eventType)).not.toContain("DEFENSIVE_TOUCHDOWN");
   });
+  it("matches CFBD's disambiguating first-name abbreviation when two teammates share an initial (Miami's Malachi Toney vs Monroe Toney)", () => {
+    const roster = [
+      { id: 1, firstName: "Malachi", lastName: "Toney", position: "WR" },
+      { id: 2, firstName: "Monroe", lastName: "Toney", position: "DB" },
+      { id: 3, firstName: "Darian", lastName: "Mensah", position: "QB" },
+    ];
+    const play = { id: 401858206117, gameId: 401858206, offense: "Miami", defense: "Stanford", scoring: true, playType: "Passing Touchdown", playText: "D. Mensah pass to Ma. Toney for 23 yds, for a TD (J. Weinberg KICK)" };
+    const candidates = mapLivePlayToCandidates({ play, stats: [], roster, selectedSchoolPositions: [{ schoolName: "Miami", position: "WR" }, { schoolName: "Miami", position: "QB" }] });
+    expect(candidates.map(c => `${c.eventType}:${c.position}`)).toEqual(expect.arrayContaining(["TOUCHDOWN:WR", "TOUCHDOWN:QB"]));
+  });
   it("recognizes only explicit special-teams touchdown play types and made kicks", () => {
     expect(specialTeamsTouchdownType("Kickoff Return Touchdown")).toBe("KICK_RETURN_TOUCHDOWN");
     expect(specialTeamsTouchdownType("Passing Touchdown")).toBeNull();

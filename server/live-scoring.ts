@@ -46,14 +46,37 @@ function positionByAthlete(roster: CfbdRosterAthlete[]) { return new Map(roster.
 const offensivePositions: LivePosition[] = ["QB", "RB", "WR", "TE"];
 const normalizeText = (value: string | null | undefined) => String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
+// CFBD abbreviates a play-by-play first name to just enough letters to disambiguate teammates who
+// share an initial - e.g. Miami's WR "Malachi Toney" appears as "Ma. Toney" because DB "Monroe
+// Toney" is also on the roster. Checking only a single-letter abbreviation ("M Toney") matches
+// neither and silently drops the catch. Every prefix length up to the full first name is tried, so
+// the roster's own duplicate-initial teammates are exactly what makes this necessary.
+function nameVariantsMatchText(text: string, firstName: string, lastName: string): boolean {
+  const last = normalizeText(lastName);
+  if (!last) return false;
+  const first = normalizeText(firstName);
+  if (first.length >= 3 && text.includes(` ${first} ${last} `)) return true;
+  for (let length = 1; length <= first.length; length += 1) {
+    if (text.includes(` ${first.slice(0, length)} ${last} `)) return true;
+  }
+  return false;
+}
+
 function positionsMentionedInText(playText: string | null | undefined, roster: CfbdRosterAthlete[], positions: Map<string, LivePosition | null>) {
   const text = ` ${normalizeText(playText)} `;
   const mentioned = new Set<LivePosition>();
-  for (const athlete of roster) {
+  const matches = roster.filter(athlete => normalizeText(athlete.lastName ?? "").length >= 3 && nameVariantsMatchText(text, athlete.firstName ?? "", athlete.lastName ?? ""));
+  // If the abbreviation is ambiguous (two teammates share it - shouldn't happen once CFBD's own
+  // disambiguating letters are honored above, but a name shorter than what CFBD used could still
+  // collide), prefer whichever athlete's fuller name variant actually appears, over a bare initial.
+  const resolved = matches.length <= 1 ? matches : matches.filter(athlete => {
+    const first = normalizeText(athlete.firstName ?? "");
+    for (let length = 2; length <= first.length; length += 1) if (text.includes(` ${first.slice(0, length)} ${normalizeText(athlete.lastName ?? "")} `)) return true;
+    return false;
+  });
+  for (const athlete of (resolved.length ? resolved : matches)) {
     const position = positions.get(String(athlete.id));
-    const name = normalizeText(`${athlete.firstName ?? ""} ${athlete.lastName ?? ""}`);
-    const shortName = normalizeText(`${String(athlete.firstName ?? "").slice(0, 1)} ${athlete.lastName ?? ""}`);
-    if (position && ((name.length >= 5 && text.includes(` ${name} `)) || (shortName.length >= 3 && text.includes(` ${shortName} `)))) mentioned.add(position);
+    if (position) mentioned.add(position);
   }
   return mentioned;
 }
