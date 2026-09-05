@@ -477,6 +477,51 @@ export const leagueRouter = router({
     // fixed attribution logic and reports any that aren't yet in the ledger - narrow on purpose
     // (a handful of event types, not a full point reconciliation) so it stays fast and safe, unlike
     // the earlier full-season audit tool which hit CFBD rate limits and Vercel's timeout.
+    // Backfill: existing scoring events (recorded before the play-text-in-note fix shipped) are
+    // missing the actual CFBD play description. Only touches rows written from a real per-play key
+    // (cfbd-live-refresh / cfbd-final-reconciliation) - live-detection keys use a synthetic
+    // transformed id that can't be matched back to a real play, and manual/box-score entries already
+    // have hand-written descriptions in their notes. Insert-only in spirit: PATCHes a note field,
+    // never touches points, and skips any row whose note already has the "— "..."" marker so it's
+    // safe to re-run.
+    backfillPlayText: adminProcedure.input(z.object({ startDate: z.string(), endDate: z.string(), dryRun: z.boolean().default(true) })).mutation(async ({ input }) => {
+      const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
+      const season = automationRows[0]?.season;
+      if (!season) throw new Error("No season configured.");
+      const schedule = await getRegularSeasonGames(season);
+      const start = new Date(input.startDate), end = new Date(input.endDate);
+      end.setUTCHours(23, 59, 59, 999);
+      const games = schedule.filter(game => { const played = new Date(game.startDate); return game.completed && played >= start && played <= end; });
+      const gameIds = games.map(game => game.id);
+      if (!gameIds.length) return { season, startDate: input.startDate, endDate: input.endDate, gamesChecked: 0, updated: 0, planned: [] as Array<{ id: string; sourceEventKey: string; oldNote: string | null; newNote: string }> };
+      const rows = await supabaseRestAll<{ id: string; source_event_key: string | null; source_game_id: number | null; note: string | null; audit_action: string; recorded_by_open_id: string }>("b36_scoring_events", { query: { select: "id,source_event_key,source_game_id,note,audit_action,recorded_by_open_id", source_game_id: `in.(${gameIds.join(",")})`, order: "created_at.asc" } });
+      const eligibleRows = rows.filter(row => row.audit_action === "ENTRY" && ["cfbd-live-refresh", "cfbd-final-reconciliation"].includes(row.recorded_by_open_id) && row.source_event_key && !row.note?.includes(' — "'));
+      const weekNumbers = Array.from(new Set(games.map(game => game.week)));
+      const playTextByWeekAndId = new Map<number, Map<string, string>>();
+      for (const week of weekNumbers) {
+        const plays = await getWeekPlays(season, week);
+        const map = new Map<string, string>();
+        for (const play of plays) if (play.playText) map.set(String(play.id), play.playText);
+        playTextByWeekAndId.set(week, map);
+      }
+      const planned: Array<{ id: string; sourceEventKey: string; oldNote: string | null; newNote: string }> = [];
+      for (const row of eligibleRows) {
+        const game = games.find(item => item.id === row.source_game_id);
+        if (!game) continue;
+        const playId = row.source_event_key!.split(":")[0];
+        const playText = playTextByWeekAndId.get(game.week)?.get(playId);
+        if (!playText) continue;
+        planned.push({ id: row.id, sourceEventKey: row.source_event_key!, oldNote: row.note, newNote: `${row.note ?? ""} — "${playText.trim()}"` });
+      }
+      let updated = 0;
+      if (!input.dryRun) {
+        for (const item of planned) {
+          await supabaseRest("b36_scoring_events", { method: "PATCH", query: { id: q.eq(item.id) }, body: { note: item.newNote } });
+          updated += 1;
+        }
+      }
+      return { season, startDate: input.startDate, endDate: input.endDate, dryRun: input.dryRun, gamesChecked: games.length, eligibleRowCount: eligibleRows.length, updated, planned };
+    }),
     debugSpecialTeamsSweep: adminProcedure.input(z.object({ startDate: z.string(), endDate: z.string() })).mutation(async ({ input }) => {
       const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
       const season = automationRows[0]?.season;
