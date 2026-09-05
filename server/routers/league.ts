@@ -413,6 +413,12 @@ export const leagueRouter = router({
       }
       return results;
     }),
+    debugRosterSearch: adminProcedure.input(z.object({ school: z.string(), search: z.string().optional() })).query(async ({ input }) => {
+      const season = (await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } }))[0]?.season ?? new Date().getFullYear();
+      const roster = await getRoster(input.school, season);
+      const filtered = input.search ? roster.filter(athlete => `${athlete.firstName ?? ""} ${athlete.lastName ?? ""}`.toLowerCase().includes(input.search!.toLowerCase())) : roster;
+      return { rosterSize: roster.length, matches: filtered.map(athlete => ({ id: athlete.id, firstName: athlete.firstName, lastName: athlete.lastName, position: athlete.position })) };
+    }),
     debugLivePlays: adminProcedure.input(z.object({ gameId: z.number() })).query(({ input }) => getLivePlays(input.gameId)),
     debugLiveCandidates: adminProcedure.input(z.object({ gameId: z.number(), school: z.string() })).query(async ({ input }) => {
       const [live, league] = await Promise.all([getLivePlays(input.gameId), getLeagueSnapshot()]);
