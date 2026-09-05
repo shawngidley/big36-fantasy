@@ -4,12 +4,14 @@ import LeagueShell from "@/components/LeagueShell";
 import TeamLogo from "@/components/TeamLogo";
 import { EmptyLedger, LeagueError, LeagueLoading } from "@/components/LeagueState";
 import { Badge } from "@/components/ui/badge";
+import { useGoBack } from "@/hooks/useGoBack";
 import { trpc } from "@/lib/trpc";
 
 export default function UnitDetail() {
   const [, params] = useRoute("/leaders/:position/:school");
   const position = params?.position ?? "";
   const school = params ? decodeURIComponent(params.school) : "";
+  const goBack = useGoBack("/leaders");
   const league = trpc.league.snapshot.useQuery();
   if (league.isLoading) return <LeagueShell><LeagueLoading /></LeagueShell>;
   if (league.error || !league.data) return <LeagueShell><LeagueError message={league.error?.message} /></LeagueShell>;
@@ -18,14 +20,14 @@ export default function UnitDetail() {
   const pick = owner?.picks.find(item => item.position === position && item.schoolName === school);
 
   if (!pick || !owner) return <LeagueShell eyebrow="Position leaders"><section className="container pt-10 sm:pt-14">
-    <Link href="/leaders" className="inline-flex items-center gap-1.5 text-xs font-bold text-primary hover:underline"><ArrowLeft className="h-3.5 w-3.5" /> Back to leaders</Link>
+    <Link href="/leaders" onClick={goBack} className="inline-flex items-center gap-1.5 text-xs font-bold text-primary hover:underline"><ArrowLeft className="h-3.5 w-3.5" /> Back to leaders</Link>
     <div className="mt-6"><EmptyLedger title="Unit not found" detail="This school-position group hasn't been drafted, or the link is out of date." /></div>
   </section></LeagueShell>;
 
   const weeks = league.data.weeks.map(week => ({ ...week, points: pick.weeklyPoints.find(item => item.weekId === week.id)?.points ?? 0 }));
 
   return <LeagueShell eyebrow="Position leaders"><section className="container pt-10 sm:pt-14">
-    <Link href="/leaders" className="inline-flex items-center gap-1.5 text-xs font-bold text-primary hover:underline"><ArrowLeft className="h-3.5 w-3.5" /> Back to leaders</Link>
+    <Link href="/leaders" onClick={goBack} className="inline-flex items-center gap-1.5 text-xs font-bold text-primary hover:underline"><ArrowLeft className="h-3.5 w-3.5" /> Back to leaders</Link>
     <div className="mt-6 flex flex-wrap items-center gap-4">
       <TeamLogo logoUrl={owner.logoUrl} teamName={school} size="lg" />
       <div><p className="section-kicker">{pick.positionLabel}</p><h1 className="display-title mt-1">{school}</h1><p className="mt-1 text-sm text-muted-foreground">{owner.teamName} · Pick {pick.draftPosition ?? "—"}</p></div>
