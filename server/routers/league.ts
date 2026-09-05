@@ -580,14 +580,48 @@ export const leagueRouter = router({
           const official = officialBySlot.get(`${slot.schoolName}:${slot.position}`) ?? { points: 0, keys: new Set<string>(), entries: [] };
           const stored = await supabaseRest<Array<{ id: string; event_type: string; computed_points: number; audit_action: string; source_event_key: string | null; source_game_id: number | null; recorded_by_open_id: string; correction_of_event_id: string | null }>>("b36_scoring_events", { query: { select: "id,event_type,computed_points,audit_action,source_event_key,source_game_id,recorded_by_open_id,correction_of_event_id", draft_slot_id: q.eq(slot.draftSlotId), source_game_id: q.eq(game.id) } });
           const reversedIds = new Set(stored.filter(row => row.audit_action === "REVERSAL" && row.correction_of_event_id).map(row => row.correction_of_event_id));
-          const activeKeys = new Set(stored.filter(row => row.audit_action !== "REVERSAL" && !reversedIds.has(row.id) && row.source_event_key).map(row => row.source_event_key as string));
+          const activeRows = stored.filter(row => row.audit_action !== "REVERSAL" && !reversedIds.has(row.id));
+          const activeKeys = new Set(activeRows.filter(row => row.source_event_key).map(row => row.source_event_key as string));
+          // A per-play key that isn't in the ledger does NOT automatically mean points are missing:
+          // last night's emergency restoration wrote several games as single LUMP-SUM rows (keys like
+          // "{gameId}:{POS}:regression-fix") that never match any individual play's key by design, but
+          // already cover the correct total. Comparing raw keys here (the original approach) would
+          // insert a second, fully redundant set of per-play points on top of an already-correct lump.
+          // The net total already stored for this slot+game is checked FIRST; per-play rows are only
+          // proposed for insertion when there is an actual, unexplained shortfall.
+          const storedTotal = Math.round(activeRows.reduce((sum, row) => sum + row.computed_points, 0) * 100) / 100;
+          const officialTotal = Math.round(official.points * 100) / 100;
+          const shortfall = Math.round((officialTotal - storedTotal) * 100) / 100;
+          const candidateEntries = official.entries.filter(entry => !activeKeys.has(entry.key));
+          const candidateSum = Math.round(candidateEntries.reduce((sum, entry) => sum + entry.points, 0) * 100) / 100;
           for (const entry of official.entries) {
-            const row: Row = { gameId: game.id, game: `${game.awayTeam} at ${game.homeTeam}`, date: game.startDate, owner: slot.ownerName, school: slot.schoolName, position: slot.position, eventType: entry.eventType, points: entry.points, note: entry.note, key: entry.key, classification: activeKeys.has(entry.key) ? "already-present" : "missing" };
-            (row.classification === "missing" ? missing : alreadyPresent).push(row);
+            if (activeKeys.has(entry.key)) { alreadyPresent.push({ gameId: game.id, game: `${game.awayTeam} at ${game.homeTeam}`, date: game.startDate, owner: slot.ownerName, school: slot.schoolName, position: slot.position, eventType: entry.eventType, points: entry.points, note: entry.note, key: entry.key, classification: "already-present" }); continue; }
+            const row: Row = { gameId: game.id, game: `${game.awayTeam} at ${game.homeTeam}`, date: game.startDate, owner: slot.ownerName, school: slot.schoolName, position: slot.position, eventType: entry.eventType, points: entry.points, note: entry.note, key: entry.key, classification: "missing" };
+            if (Math.abs(shortfall) < 0.01) {
+              // Net total already matches official (almost always a legacy lump-sum row covering it) -
+              // this specific key is genuinely new information but the points are already accounted
+              // for, so it is NOT safe to insert. Recorded as already-present rather than dropped
+              // silently, so the reasoning is visible if you want to look closer.
+              alreadyPresent.push({ ...row, classification: "already-present", note: `${row.note} (already covered by existing total for this slot/game, not itemized identically)` });
+            } else if (Math.abs(shortfall - candidateSum) < 0.01) {
+              // Clean case: the shortfall exactly equals the sum of the not-yet-present plays. Safe
+              // to insert all of them - nothing else in the ledger accounts for this gap.
+              missing.push(row);
+            } else {
+              // Shortfall exists but doesn't cleanly match the candidate plays (partial lump coverage,
+              // or a stored total that's already ahead in one place and short in another). Too
+              // ambiguous to auto-insert; surfaced under extra for a manual look instead.
+              extra.push({ gameId: game.id, game: `${game.awayTeam} at ${game.homeTeam}`, owner: slot.ownerName, school: slot.schoolName, position: slot.position, eventType: `NEEDS REVIEW: official ${officialTotal}, stored ${storedTotal}, candidate play ${entry.eventType} worth ${entry.points}`, points: shortfall, key: entry.key, recordedBy: "audit-ambiguous" });
+            }
           }
-          for (const row of stored) {
-            if (row.audit_action === "REVERSAL" || reversedIds.has(row.id) || !row.source_event_key || official.keys.has(row.source_event_key)) continue;
-            extra.push({ gameId: game.id, game: `${game.awayTeam} at ${game.homeTeam}`, owner: slot.ownerName, school: slot.schoolName, position: slot.position, eventType: row.event_type, points: row.computed_points, key: row.source_event_key, recordedBy: row.recorded_by_open_id });
+          // Only flag stored rows as a genuine overage when the slot's net total actually exceeds
+          // official (shortfall < 0) - a lump-sum row with an unmatched key is not "extra" by itself
+          // when the totals already reconcile.
+          if (shortfall < -0.01) {
+            for (const row of activeRows) {
+              if (row.source_event_key && official.keys.has(row.source_event_key)) continue;
+              extra.push({ gameId: game.id, game: `${game.awayTeam} at ${game.homeTeam}`, owner: slot.ownerName, school: slot.schoolName, position: slot.position, eventType: row.event_type, points: row.computed_points, key: row.source_event_key ?? "(no key)", recordedBy: row.recorded_by_open_id });
+            }
           }
         }
       }
