@@ -301,7 +301,11 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
     const returningSchool = play.scoringTeam && [schoolName, defensiveSchool].includes(play.scoringTeam) ? play.scoringTeam : defensiveSchool;
     if (eligibleSelection(returningSchool, "DST")) candidates.push({ sourceEventKey: `${play.id}:${specialTeamType}`, sourceGameId: play.gameId, schoolName: returningSchool, position: "DST", eventType: specialTeamType, statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · special teams return (${play.scoringTeam ? "by score change" : "defense of kicking team"})` });
   }
-  return uniqueCandidates(candidates);
+  // For auditing: attach the actual CFBD play description verbatim, not just our own generated
+  // summary, so anyone reviewing a scored play (a touchdown especially) can see exactly what
+  // happened without needing to re-fetch raw CFBD data.
+  const withPlayText = play.playText ? candidates.map(candidate => ({ ...candidate, note: `${candidate.note} — "${play.playText!.trim()}"` })) : candidates;
+  return uniqueCandidates(withPlayText);
 }
 
 // Fumbles lost from the per-game box score (/games/players -> "fumbles" -> "LOST"). This is the

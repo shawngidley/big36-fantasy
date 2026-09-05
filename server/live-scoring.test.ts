@@ -196,3 +196,10 @@ describe("36 Football automatic scoring map", () => {
     expect(hasMadePat("Rushing Touchdown", "(08:55) #14 J.Maiava rush for 1 yard TOUCHDOWN, clock 08:55 #45 C.Chittenden kick attempt no good (H: #35 L.Carrigan, LS: #53 L.Brown)")).toBe(false);
   });
 });
+
+it("attaches the actual CFBD play description to every candidate's note, for auditing - not just our own generated summary", () => {
+  const play = { id: 79, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: true, playType: "Field Goal Good", playText: "#33 A.Birr field goal attempt from 36 yards GOOD" };
+  const candidates = mapLivePlayToCandidates({ play, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Ohio State", position: "K" }] });
+  expect(candidates.length).toBeGreaterThan(0);
+  for (const candidate of candidates) expect(candidate.note).toContain("A.Birr field goal attempt from 36 yards GOOD");
+});
