@@ -14,7 +14,7 @@ vi.mock("./league-scoring", () => ({ calculateEventScore: mocks.calculateEventSc
 vi.mock("./live-scoring", () => ({ eligibleGameIdsForSchool: mocks.eligibleGameIdsForSchool, boxScoreFumbleCandidates: () => ({ available: false, candidates: [] }), finalShutoutCandidates: mocks.finalShutoutCandidates, isSupersededInterceptionPlay: mocks.isSupersededInterceptionPlay, mapLivePlayToCandidates: mocks.mapLivePlayToCandidates }));
 vi.mock("./supabase", () => ({ supabaseRest: mocks.supabaseRest }));
 
-import { runGamedayRefresh } from "./gameday-refresh";
+import { resolveB36WeekNumber, runGamedayRefresh } from "./gameday-refresh";
 
 const game = { id: 101, season: 2026, week: 1, seasonType: "regular", startDate: "2026-09-05T16:00:00Z", completed: true, homeTeam: "Ohio State", awayTeam: "Texas", homeClassification: "fbs", awayClassification: "fbs", homePoints: 21, awayPoints: 14 };
 const candidate = { sourceEventKey: "101:55:qb", sourceGameId: 101, schoolName: "Ohio State", position: "QB", eventType: "TOUCHDOWN", statValue: 1, yardDistance: 35, note: "Passing touchdown" };
@@ -218,5 +218,24 @@ describe("36 Football gameday source reconciliation", () => {
 
     expect(result.relevantGames).toBe(0);
     expect(writes.filter(write => write.table === "b36_scoring_events")).toHaveLength(0);
+  });
+});
+
+describe("resolveB36WeekNumber", () => {
+  it("splits Aug 29 (US/Eastern) CFBD week-1 games into b36 Week 0", () => {
+    // A Saturday afternoon ET kickoff, plainly Aug 29 in both UTC and Eastern.
+    expect(resolveB36WeekNumber({ week: 1, startDate: "2026-08-29T19:00:00Z" })).toBe(0);
+  });
+  it("keeps a late West Coast Aug 29 kickoff in Week 0 even though it crosses into Aug 30 UTC", () => {
+    // The real Memphis at UNLV game: 2026-08-30T02:00:00Z is 10:00 PM Aug 29 in US/Eastern (EDT, UTC-4).
+    expect(resolveB36WeekNumber({ week: 1, startDate: "2026-08-30T02:00:00Z" })).toBe(0);
+  });
+  it("keeps every other CFBD week-1 game (the Labor Day weekend slate) in Week 1", () => {
+    expect(resolveB36WeekNumber({ week: 1, startDate: "2026-09-03T23:00:00Z" })).toBe(1);
+    expect(resolveB36WeekNumber({ week: 1, startDate: "2026-09-05T16:00:00Z" })).toBe(1);
+  });
+  it("passes every other week number straight through untouched", () => {
+    expect(resolveB36WeekNumber({ week: 2, startDate: "2026-09-12T19:00:00Z" })).toBe(2);
+    expect(resolveB36WeekNumber({ week: 7, startDate: "2026-10-17T19:00:00Z" })).toBe(7);
   });
 });

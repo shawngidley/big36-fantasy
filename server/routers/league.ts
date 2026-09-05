@@ -13,6 +13,7 @@ import { yearOneRules } from "../year-one-rules";
 import { runGamedayRefresh } from "../gameday-refresh";
 import { syncFbsPoolAndSchedule } from "../gameday-refresh";
 import { adaptLiveGameToLegacyPlays } from "../gameday-refresh";
+import { resolveB36WeekNumber } from "../gameday-refresh";
 import { boxScoreFumbleCandidates, isSupersededInterceptionPlay, mapLivePlayToCandidates, matchBoxAthleteToRoster, type LivePosition } from "../live-scoring";
 import { decodeRegistrationLogo, hashRegistrationPin, normalizeRegistrationEmail, normalizeRegistrationPhone, verifyRegistrationPin } from "../registration";
 import { storagePut } from "../storage";
@@ -501,8 +502,6 @@ export const leagueRouter = router({
       const season = automationRows[0]?.season;
       if (!season) throw new Error("No season configured.");
       const [schedule, snapshot] = await Promise.all([getRegularSeasonGames(season), getLeagueSnapshot()]);
-      const weekRow = snapshot.weeks.find(week => week.weekNumber === input.week);
-      if (!weekRow) throw new Error(`No scoring week row for week ${input.week}.`);
       const selected = snapshot.owners.flatMap(owner => owner.picks.map(pick => ({ schoolName: pick.schoolName, position: pick.position as LivePosition, draftSlotId: pick.id, ownerName: owner.teamName })));
       const games = schedule.filter(game => game.week === input.week && game.completed && [game.homeTeam, game.awayTeam].some(team => selected.some(pick => pick.schoolName === team)));
       const gameIds = games.map(game => game.id);
@@ -513,6 +512,8 @@ export const leagueRouter = router({
       const unavailable: Array<{ gameId: number; school: string }> = [];
       const diagnostics: Array<Record<string, unknown>> = [];
       for (const game of games) {
+        const gameWeekRow = snapshot.weeks.find(week => week.weekNumber === resolveB36WeekNumber(game));
+        if (!gameWeekRow) throw new Error(`No scoring week row for b36 week ${resolveB36WeekNumber(game)} (game ${game.id}).`);
         for (const school of [game.homeTeam, game.awayTeam]) {
           if (!selected.some(pick => pick.schoolName === school)) continue;
           const box = (await getGamePlayerStats(season, input.week, school)).find(entry => entry.id === game.id);
@@ -539,7 +540,7 @@ export const leagueRouter = router({
             const status = known.has(candidate.sourceEventKey) ? "already-present" : input.dryRun ? "would-insert" : "inserted";
             planned.push({ gameId: game.id, game: `${game.awayTeam} at ${game.homeTeam}`, owner: slot.ownerName, school, position: candidate.position, fumblesLost: candidate.statValue, points: score.points, note: candidate.note, key: candidate.sourceEventKey, status });
             if (status !== "inserted") continue;
-            await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: weekRow.id, draft_slot_id: slot.draftSlotId, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points, note: `${candidate.note} (backfill)`, audit_action: "ENTRY", recorded_by_open_id: "cfbd-box-score-backfill", source_event_key: candidate.sourceEventKey, source_game_id: game.id, is_provisional: false } });
+            await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: gameWeekRow.id, draft_slot_id: slot.draftSlotId, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points, note: `${candidate.note} (backfill)`, audit_action: "ENTRY", recorded_by_open_id: "cfbd-box-score-backfill", source_event_key: candidate.sourceEventKey, source_game_id: game.id, is_provisional: false } });
           }
         }
       }
@@ -665,7 +666,8 @@ export const leagueRouter = router({
       let inserted = 0;
       if (!input.dryRun) {
         for (const row of missing) {
-          const weekRow = weekRows.find(week => games.find(game => game.id === row.gameId)?.week === week.week_number);
+          const matchingGame = games.find(game => game.id === row.gameId);
+          const weekRow = matchingGame && weekRows.find(week => week.week_number === resolveB36WeekNumber(matchingGame));
           const slot = selected.find(pick => pick.ownerName === row.owner && pick.schoolName === row.school && pick.position === row.position);
           if (!weekRow || !slot) continue;
           await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: weekRow.id, draft_slot_id: slot.draftSlotId, event_type: row.eventType, stat_value: 1, yard_distance: null, computed_points: row.points, note: `${row.note} (season audit backfill)`, audit_action: "ENTRY", recorded_by_open_id: "cfbd-season-audit-backfill", source_event_key: row.key, source_game_id: row.gameId, is_provisional: false } });

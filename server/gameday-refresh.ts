@@ -43,6 +43,18 @@ async function writeRefreshStatus(values: Record<string, unknown>) {
 // happen — that was a hidden dependency, not an intentional control. This creates it automatically
 // the first time it's needed, and keeps the in-memory snapshot in sync so later lookups within the
 // same refresh find it too.
+// CFBD numbers every game from opening Saturday through Labor Day weekend as "week 1" - there is no
+// way to ask CFBD for a finer breakdown. The league wants the Aug 29 (US/Eastern) openers tracked as
+// their own "Week 0", separate from the rest of that CFBD week-1 slate, which stays "Week 1" exactly
+// as before. This is the ONLY special case: every other CFBD week number maps straight through
+// unchanged. The date check uses US/Eastern (not UTC) so a Friday-night West Coast kickoff that
+// crosses into Aug 30 UTC still correctly counts as an Aug 29 game.
+export function resolveB36WeekNumber(game: { week: number; startDate: string }): number {
+  if (game.week !== 1) return game.week;
+  const easternDate = new Date(game.startDate).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  return easternDate === "2026-08-29" ? 0 : 1;
+}
+
 async function ensureWeekRow(weekNumber: number, weeks: Array<{ id: string; weekNumber: number }>): Promise<{ id: string; weekNumber: number }> {
   const existing = weeks.find(item => item.weekNumber === weekNumber);
   if (existing) return existing;
@@ -147,7 +159,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
         debugEntry.legacyPlayCount = legacyPlays.length;
         const existingRows = await supabaseRest<Array<{ source_event_key: string | null }>>("b36_scoring_events", { query: { select: "source_event_key", source_game_id: `eq.${game.id}`, audit_action: "eq.ENTRY" } });
         const knownLiveKeys = new Set(existingRows.filter(row => row.source_event_key).map(row => row.source_event_key));
-        const weekRow = await ensureWeekRow(game.week, snapshot.weeks);
+        const weekRow = await ensureWeekRow(resolveB36WeekNumber(game), snapshot.weeks);
         debugEntry.weekRowFound = Boolean(weekRow);
         debugEntry.availableWeekNumbers = snapshot.weeks.map(item => item.weekNumber);
         let candidateCount = 0, insertedForGame = 0, skippedNoSlot = 0;
@@ -186,12 +198,12 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
       const schools = Array.from(new Set<string>(games.flatMap(game => [game.homeTeam, game.awayTeam]).filter(school => selectedSchoolPositions.some(selection => selection.schoolName === school))));
       const rosterEntries: Array<[string, CfbdRosterAthlete[]]> = await Promise.all(schools.map(async school => [school, await getRoster(school, config.season)]));
       const rosters = new Map<string, CfbdRosterAthlete[]>(rosterEntries);
-      const weekRow = await ensureWeekRow(week, snapshot.weeks);
       const eventRows = await supabaseRest<SourceEvent[]>("b36_scoring_events", { query: { select: "id,source_event_key,source_game_id,audit_action,week_id,draft_slot_id,event_type,stat_value,yard_distance,computed_points,is_provisional", source_game_id: `in.(${games.map(game => game.id).join(",")})` } });
       const knownKeys = new Set(eventRows.filter(row => row.source_event_key && row.audit_action !== "REVERSAL").map(row => row.source_event_key));
       const reversedKeys = new Set(eventRows.filter(row => row.audit_action === "REVERSAL" && row.source_event_key).map(row => row.source_event_key));
       const originalByKey = new Map(eventRows.filter(row => row.source_event_key && row.audit_action === "ENTRY").map(row => [row.source_event_key!, row]));
       for (const game of games) {
+        const weekRow = await ensureWeekRow(resolveB36WeekNumber(game), snapshot.weeks);
         const currentCandidateKeys = new Set<string>();
         const gameCandidates = [
           ...[game.homeTeam, game.awayTeam].flatMap(school => {
