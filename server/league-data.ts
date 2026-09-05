@@ -1,7 +1,7 @@
 import type { Position, ScoringEventType } from "../drizzle/schema";
 import { rankBySeasonPoints } from "./league-scoring";
 import { ownerCanDraft } from "./serpentine-draft";
-import { q, supabaseRest, supabaseRpc } from "./supabase";
+import { q, supabaseRest, supabaseRestAll, supabaseRpc } from "./supabase";
 import { yearOneRules } from "./year-one-rules";
 
 export const b36Positions = ["QB", "RB", "WR", "TE", "K", "DST"] as const;
@@ -84,10 +84,14 @@ export async function getLeagueSnapshot() {
     supabaseRest<SlotRow[]>(slotPath, { query: { select: "*", order: "position.asc,draft_position.asc" } }),
     supabaseRest<WeekRow[]>("b36_scoring_weeks", { query: { select: "*", order: "week_number.asc" } }),
     supabaseRest<RuleRow[]>("b36_scoring_rules", { query: { select: "*", order: "event_type.asc,min_yards.asc" } }),
-    supabaseRest<EventRow[]>("b36_scoring_events", { query: { select: "*", order: "created_at.desc" } }),
+    supabaseRestAll<EventRow>("b36_scoring_events", { query: { select: "*", order: "created_at.desc" } }),
     supabaseRest<DraftStateRow[]>("b36_draft_state", { query: { select: "*", id: "eq.true" } }),
     supabaseRest<DraftTurnRow[]>("b36_draft_turns", { query: { select: "*", order: "global_pick.asc" } }),
-    supabaseRest<SourceGameRow[]>("b36_source_games", { query: { select: "season,season_type,completed,home_team,away_team" } }),
+    // A full FBS+FCS season schedule is well past 1000 rows, and PostgREST silently caps a plain
+    // select there with no error - this was returning only the first page, which is why many
+    // schools' completed games (and therefore the "games played" / average stats derived from
+    // them) were invisible depending on where their rows happened to land relative to that cutoff.
+    supabaseRestAll<SourceGameRow>("b36_source_games", { query: { select: "season,season_type,completed,home_team,away_team", order: "cfbd_game_id.asc" } }),
     supabaseRest<AutomationSeasonRow[]>("b36_automation_config", { query: { select: "season", id: "eq.true" } }),
   ]);
 

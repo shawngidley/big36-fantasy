@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({ supabaseRest: vi.fn() }));
 vi.mock("./supabase", () => ({
   q: { eq: (value: string | boolean) => `eq.${String(value)}`, isNull: "is.null" },
   supabaseRest: mocks.supabaseRest,
+  supabaseRestAll: mocks.supabaseRest,
 }));
 
 import { completedScheduleNormalization, getOwnerDraftBoard, getDraftResearchCatalog, getLeagueSnapshot, getScoringRulesForEvent, overallRankAtEvent, publicDraftResearchUnit } from "./league-data";

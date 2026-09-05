@@ -5,7 +5,7 @@ import { getAllDraftSlots, getDraftLotterySchedule, getOwnerDraftBoard, getDraft
 import { assertSchoolPositionAvailable, buildReversal, calculateEventScore, hasBalancedDraftAssignments, normalizeSchoolName } from "../league-scoring";
 import { buildSerpentineTurns } from "../serpentine-draft";
 import { assertInauguralDraftOrderCanBePublished, assertInauguralDraftRoundIsOpen, assertInauguralDraftWindow, inauguralDraftWindow } from "../../shared/draft-schedule";
-import { q, supabaseRest, supabaseRpc } from "../supabase";
+import { q, supabaseRest, supabaseRestAll, supabaseRpc } from "../supabase";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { getSessionCookieOptions } from "../_core/cookies";
 import { issueOwnerSession, OWNER_SESSION_COOKIE, OWNER_SESSION_MS } from "../commissioner-auth";
@@ -488,9 +488,9 @@ export const leagueRouter = router({
       const season = automationRows[0]?.season;
       if (!season) throw new Error("No season configured.");
       const [slots, sourceGames, eventRows] = await Promise.all([
-        supabaseRest<Array<{ id: string; owner_id: string; school_name: string | null; position: string }>>("b36_draft_slots", { query: { select: "id,owner_id,school_name,position", school_name: "not.is.null" } }),
-        supabaseRest<Array<{ season: number; season_type: string; completed: boolean; home_team: string; away_team: string }>>("b36_source_games", { query: { select: "season,season_type,completed,home_team,away_team" } }),
-        supabaseRest<Array<{ draft_slot_id: string; computed_points: number; audit_action: string }>>("b36_scoring_events", { query: { select: "draft_slot_id,computed_points,audit_action" } }),
+        supabaseRestAll<{ id: string; owner_id: string; school_name: string | null; position: string }>("b36_draft_slots", { query: { select: "id,owner_id,school_name,position", school_name: "not.is.null", order: "id.asc" } }),
+        supabaseRestAll<{ season: number; season_type: string; completed: boolean; home_team: string; away_team: string }>("b36_source_games", { query: { select: "season,season_type,completed,home_team,away_team", order: "cfbd_game_id.asc" } }),
+        supabaseRestAll<{ draft_slot_id: string; computed_points: number; audit_action: string }>("b36_scoring_events", { query: { select: "draft_slot_id,computed_points,audit_action", order: "created_at.asc" } }),
       ]);
       const regularGames = sourceGames.filter(game => game.season === season && game.season_type.toLowerCase() === "regular");
       const pointsBySlot = new Map<string, number>();

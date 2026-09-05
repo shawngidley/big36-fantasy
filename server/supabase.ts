@@ -34,6 +34,24 @@ export async function supabaseRest<T>(table: string, options: RestOptions = {}):
   return payload as T;
 }
 
+// PostgREST caps every response at 1000 rows regardless of the caller's own "limit" query param,
+// with NO error or truncation signal - a plain select on a table that has grown past 1000 rows
+// (b36_source_games, a full FBS+FCS season schedule, is well past it) silently returns only the
+// first page. This loops with limit/offset until a page comes back short, so callers on
+// potentially-large tables get every row. Requires a stable "order" in the query (PostgREST offset
+// pagination is only well-defined against a deterministic order) - callers must supply one.
+export async function supabaseRestAll<T>(table: string, options: RestOptions = {}): Promise<T[]> {
+  if (!options.query?.order) throw new Error(`supabaseRestAll(${table}) requires a stable "order" in query - offset pagination is undefined without one.`);
+  const pageSize = 1000;
+  const all: T[] = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const page = await supabaseRest<T[]>(table, { ...options, query: { ...options.query, limit: String(pageSize), offset: String(offset) } });
+    all.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return all;
+}
+
 export async function supabaseRpc<T>(functionName: string, body: Record<string, unknown>): Promise<T> {
   const { url, secret } = getConfig();
   const response = await fetch(`${url}/rest/v1/rpc/${functionName}`, {
