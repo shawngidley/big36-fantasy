@@ -11,7 +11,7 @@ vi.mock("./cfbd", () => ({
 }));
 vi.mock("./league-data", () => ({ getLeagueSnapshot: mocks.getLeagueSnapshot, getScoringRulesForEvent: mocks.getScoringRulesForEvent }));
 vi.mock("./league-scoring", () => ({ calculateEventScore: mocks.calculateEventScore }));
-vi.mock("./live-scoring", () => ({ eligibleGameIdsForSchool: mocks.eligibleGameIdsForSchool, boxScoreFumbleCandidates: () => ({ available: false, candidates: [] }), finalShutoutCandidates: mocks.finalShutoutCandidates, isSupersededInterceptionPlay: mocks.isSupersededInterceptionPlay, mapLivePlayToCandidates: mocks.mapLivePlayToCandidates }));
+vi.mock("./live-scoring", () => ({ eligibleGameIdsForSchool: mocks.eligibleGameIdsForSchool, boxScoreFumbleCandidates: () => ({ available: false, candidates: [] }), finalShutoutCandidates: mocks.finalShutoutCandidates, isSupersededInterceptionPlay: mocks.isSupersededInterceptionPlay, normalizeSchoolForComparison: (value: string) => value.trim().toLowerCase().replace(/\s+/g, " "), mapLivePlayToCandidates: mocks.mapLivePlayToCandidates }));
 vi.mock("./supabase", () => ({ supabaseRest: mocks.supabaseRest }));
 
 import { resolveB36WeekNumber, runGamedayRefresh } from "./gameday-refresh";

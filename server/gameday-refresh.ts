@@ -1,7 +1,7 @@
 import { getFbsTeams, getGamePlayerStats, getLivePlays, getLiveScoreboard, getRegularSeasonGames, getRoster, getWeekPlays, getWeekPlayStats, type CfbdGame, type CfbdLiveGame, type CfbdPlay, type CfbdRosterAthlete } from "./cfbd";
 import { getLeagueSnapshot, getScoringRulesForEvent } from "./league-data";
 import { calculateEventScore } from "./league-scoring";
-import { boxScoreFumbleCandidates, eligibleGameIdsForSchool, finalShutoutCandidates, isSupersededInterceptionPlay, mapLivePlayToCandidates, type LivePosition } from "./live-scoring";
+import { boxScoreFumbleCandidates, eligibleGameIdsForSchool, finalShutoutCandidates, isSupersededInterceptionPlay, mapLivePlayToCandidates, normalizeSchoolForComparison, type LivePosition } from "./live-scoring";
 import { supabaseRest } from "./supabase";
 
 type AutomationConfig = { season: number; enabled: boolean; last_refresh_at: string | null; schedule_cron_task_uid: string | null };
@@ -116,7 +116,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
     // is exactly what caused a real, serious regression tonight when a fumble-detection fix changed
     // which candidates got generated for plays across multiple already-settled games.
     const lockedWeekNumbers = new Set(snapshot.weeks.filter(week => week.status === "FINAL").map(week => week.weekNumber));
-    const draftedGames = scoreboardGames.filter(game => selectedSchoolPositions.some(selection => selection.schoolName === game.homeTeam || selection.schoolName === game.awayTeam));
+    const draftedGames = scoreboardGames.filter(game => selectedSchoolPositions.some(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(game.homeTeam) || normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(game.awayTeam)));
     // The lock must be per GAME, not per CFBD week number: CFBD's "week 1" spans opening weekend
     // through Labor Day, so locking the whole week number after the Aug 29 slate silently blocked
     // every game the following weekend. A game is settled (and therefore frozen) only when its week
@@ -169,14 +169,14 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
           // here silently dropped every live defensive credit unless both teams happened to be
           // drafted. The roster is only needed for offensive position attribution, so an undrafted
           // school gets an empty roster (no offensive candidates possible, no extra API call).
-          const schoolIsDrafted = selectedSchoolPositions.some(selection => selection.schoolName === school);
+          const schoolIsDrafted = selectedSchoolPositions.some(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(school));
           const roster = schoolIsDrafted ? await getRoster(school, config.season) : [];
           const schoolPlays = legacyPlays.filter((play, index) => play.offense === school && !isSupersededInterceptionPlay(play, legacyPlays[index + 1]));
           const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: [], roster, selectedSchoolPositions: selectedSchoolPositions.map(selection => ({ schoolName: selection.schoolName, position: selection.position })), provisional: true }));
           candidateCount += candidates.length;
           for (const candidate of candidates) {
             if (knownLiveKeys.has(candidate.sourceEventKey)) continue;
-            const slot = selectedSchoolPositions.find(selection => selection.schoolName === candidate.schoolName && selection.position === candidate.position);
+            const slot = selectedSchoolPositions.find(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(candidate.schoolName) && selection.position === candidate.position);
             if (!slot) { skippedNoSlot += 1; continue; }
             const rules = await getScoringRulesForEvent(candidate.eventType as never);
             const score = calculateEventScore(rules, { eventType: candidate.eventType as never, position: candidate.position, statValue: candidate.statValue, yardDistance: candidate.yardDistance });
@@ -195,7 +195,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
     for (const game of relevantGames) byWeek.set(game.week, [...(byWeek.get(game.week) ?? []), game]);
     for (const [week, games] of Array.from(byWeek.entries())) {
       const [plays, stats] = await Promise.all([getWeekPlays(config.season, week), getWeekPlayStats(config.season, week)]);
-      const schools = Array.from(new Set<string>(games.flatMap(game => [game.homeTeam, game.awayTeam]).filter(school => selectedSchoolPositions.some(selection => selection.schoolName === school))));
+      const schools = Array.from(new Set<string>(games.flatMap(game => [game.homeTeam, game.awayTeam]).filter(school => selectedSchoolPositions.some(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(school)))));
       const rosterEntries: Array<[string, CfbdRosterAthlete[]]> = await Promise.all(schools.map(async school => [school, await getRoster(school, config.season)]));
       const rosters = new Map<string, CfbdRosterAthlete[]>(rosterEntries);
       const eventRows = await supabaseRest<SourceEvent[]>("b36_scoring_events", { query: { select: "id,source_event_key,source_game_id,audit_action,week_id,draft_slot_id,event_type,stat_value,yard_distance,computed_points,is_provisional,recorded_by_open_id", source_game_id: `in.(${games.map(game => game.id).join(",")})` } });
@@ -233,13 +233,13 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
           // play-derived fumble candidates and let the box total (net of anything already written
           // from the play feed) drive the FUMBLE_LOST entries instead.
           for (const school of [game.homeTeam, game.awayTeam]) {
-            if (!selectedSchoolPositions.some(selection => selection.schoolName === school)) continue;
+            if (!selectedSchoolPositions.some(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(school))) continue;
             let box: Awaited<ReturnType<typeof getGamePlayerStats>>[number] | undefined;
             try { box = (await getGamePlayerStats(config.season, week, school)).find(entry => entry.id === game.id); } catch (error) { console.warn(`box score unavailable for ${school} game ${game.id}:`, error); }
             const alreadyWrittenBySlot = new Map<LivePosition, number>();
             for (const row of eventRows) {
               if (row.source_game_id !== game.id || row.event_type !== "FUMBLE_LOST" || row.audit_action !== "ENTRY" || !row.source_event_key || row.source_event_key.endsWith(":box") || reversedKeys.has(`${row.source_event_key}:reversal`)) continue;
-              const slot = selectedSchoolPositions.find(selection => selection.draftSlotId === row.draft_slot_id && selection.schoolName === school);
+              const slot = selectedSchoolPositions.find(selection => selection.draftSlotId === row.draft_slot_id && normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(school));
               if (slot) alreadyWrittenBySlot.set(slot.position, (alreadyWrittenBySlot.get(slot.position) ?? 0) + row.stat_value);
             }
             const fromBox = boxScoreFumbleCandidates({ gameId: game.id, school, box, roster: rosters.get(school) ?? [], selectedSchoolPositions, alreadyWrittenBySlot });
@@ -253,7 +253,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
         }
         gameCandidates.forEach(candidate => currentCandidateKeys.add(candidate.sourceEventKey));
         for (const candidate of gameCandidates) {
-          const slot = selectedSchoolPositions.find(selection => selection.schoolName === candidate.schoolName && selection.position === candidate.position);
+          const slot = selectedSchoolPositions.find(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(candidate.schoolName) && selection.position === candidate.position);
           if (!slot) continue;
           const rules = await getScoringRulesForEvent(candidate.eventType as never);
           const score = calculateEventScore(rules, { eventType: candidate.eventType as never, position: candidate.position, statValue: candidate.statValue, yardDistance: candidate.yardDistance });
