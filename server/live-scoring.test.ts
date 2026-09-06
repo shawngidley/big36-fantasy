@@ -204,6 +204,13 @@ describe("36 Football automatic scoring map", () => {
     expect(pat?.schoolName).toBe("Georgia Tech");
   });
 
+  it("credits a kickoff-return fumble recovery to the kicking team when they're the one who actually recovers it, not the returning team CFBD lists as defense - real Kennesaw State/West Georgia play where this fumble was missed entirely", () => {
+    const play = { id: 401864425190, gameId: 401864425, offense: "Kennesaw State", defense: "West Georgia", scoring: false, playType: "Fumble Recovery (Opponent)", playText: "#89 D.Kinney kickoff 63 yards to the UWG02 #18 S.Ferguson return 12 yards to the UWG14 fumbled by #18 S.Ferguson at UWG14 forced by #18 J.Anglin recovered by KSU #56 Z.Wilson at UWG14, End Of Play" };
+    const candidates = mapLivePlayToCandidates({ play, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Kennesaw State", position: "DST" }, { schoolName: "West Georgia", position: "DST" }] });
+    const turnover = candidates.find(candidate => candidate.eventType === "DEFENSIVE_TURNOVER");
+    expect(turnover?.schoolName).toBe("Kennesaw State");
+  });
+
   it("derives scoringTeam from the running score for the post-game /plays feed", async () => {
     const { annotateScoringTeams } = await import("./cfbd");
     const plays = annotateScoringTeams([

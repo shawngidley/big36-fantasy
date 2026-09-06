@@ -299,8 +299,13 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   // recoveries the loop above would otherwise miss entirely. Must check specifically for the
   // opponent recovering it - a generic "fumble recovery" match would also fire on "Fumble Recovery
   // (Own)", wrongly crediting the defense for a fumble the offense recovered themselves.
-  if (eligibleSelection(defensiveSchool, "DST") && isFumbleLostToOpponent && !isInvalidated && !candidates.some(candidate => candidate.eventType === "DEFENSIVE_TURNOVER" && candidate.schoolName === defensiveSchool) && !candidates.some(candidate => candidate.eventType === "DEFENSIVE_TOUCHDOWN" && candidate.schoolName === defensiveSchool)) {
-    candidates.push({ sourceEventKey: `${play.id}:DEFENSIVE_TURNOVER:playtype`, sourceGameId: play.gameId, schoolName: defensiveSchool, position: "DST", eventType: "DEFENSIVE_TURNOVER", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · fumble recovery (playType match)` });
+  // On a kickoff/punt return, CFBD lists the KICKING/PUNTING team as "offense" - so if the returner
+  // (defensiveSchool) fumbles and the kicking team recovers it, the actual recovering team is
+  // schoolName, not defensiveSchool. Only special-teams plays need this inversion; a normal
+  // offensive fumble recovered by the real defense is unaffected (specialTeamsPlay is false there).
+  const fumbleRecoveringSchool = specialTeamsPlay ? schoolName : defensiveSchool;
+  if (eligibleSelection(fumbleRecoveringSchool, "DST") && isFumbleLostToOpponent && !isInvalidated && !candidates.some(candidate => candidate.eventType === "DEFENSIVE_TURNOVER" && candidate.schoolName === fumbleRecoveringSchool) && !candidates.some(candidate => candidate.eventType === "DEFENSIVE_TOUCHDOWN" && candidate.schoolName === fumbleRecoveringSchool)) {
+    candidates.push({ sourceEventKey: `${play.id}:DEFENSIVE_TURNOVER:playtype`, sourceGameId: play.gameId, schoolName: fumbleRecoveringSchool, position: "DST", eventType: "DEFENSIVE_TURNOVER", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · fumble recovery (playType match)` });
   }
   // Live play data has no player-level stats to drive the loop above (only the final, post-game feed
   // does) — so defensive credit needs a text-based fallback here too, the same way offensive
