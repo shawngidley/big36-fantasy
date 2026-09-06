@@ -196,6 +196,14 @@ describe("36 Football automatic scoring map", () => {
     const rightSide = mapLivePlayToCandidates({ play: base, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Returning U", position: "DST" }] });
     expect(rightSide.find(candidate => candidate.eventType === "PUNT_RETURN_TOUCHDOWN")?.schoolName).toBe("Returning U");
   });
+
+  it("credits the PAT following a return touchdown to the team that actually scored, not the kicking team CFBD lists as offense - real Georgia Tech/Colorado play where the PAT was missed entirely for exactly this reason", () => {
+    const play = { id: 401856776225, gameId: 401856776, offense: "Colorado", defense: "Georgia Tech", scoring: true, scoringTeam: "Georgia Tech", playType: "Kickoff Return Touchdown", playText: "Rahkeem Smith 100 Yd Kickoff Return (Aidan Birr Kick)" };
+    const candidates = mapLivePlayToCandidates({ play, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Georgia Tech", position: "K" }, { schoolName: "Colorado", position: "K" }] });
+    const pat = candidates.find(candidate => candidate.eventType === "EXTRA_POINT");
+    expect(pat?.schoolName).toBe("Georgia Tech");
+  });
+
   it("derives scoringTeam from the running score for the post-game /plays feed", async () => {
     const { annotateScoringTeams } = await import("./cfbd");
     const plays = annotateScoringTeams([

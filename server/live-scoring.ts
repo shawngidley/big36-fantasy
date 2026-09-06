@@ -251,7 +251,14 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   const mentionsFieldGoal = playType.includes("field goal") || playTextNormalized.includes("field goal");
   const fieldGoalMissedOrBlocked = /(missed|no good|blocked)/.test(`${playType} ${playTextNormalized}`);
   if (eligibleSelection(schoolName, "K") && mentionsFieldGoal && !fieldGoalMissedOrBlocked) candidates.push({ sourceEventKey: `${play.id}:FIELD_GOAL:K`, sourceGameId: play.gameId, schoolName, position: "K", eventType: "FIELD_GOAL", statValue: 1, yardDistance: fieldGoalDistance(play), provisional, note: `CFBD play ${play.id} · made field goal` });
-  if (eligibleSelection(schoolName, "K") && hasMadePat(play.playType, play.playText)) candidates.push({ sourceEventKey: `${play.id}:EXTRA_POINT:K`, sourceGameId: play.gameId, schoolName, position: "K", eventType: "EXTRA_POINT", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · made PAT` });
+  // A PAT following a return touchdown (kickoff/punt/blocked-kick return) is bundled into the same
+  // play as the score itself, and CFBD lists the KICKING team as "offense" on that play - meaning
+  // schoolName here is the kicking team, not whoever actually scored and would attempt the PAT.
+  // scoringTeam (derived from which side's score moved) resolves this the same way the return-TD
+  // credit itself does; for a normal offensive-drive PAT, scoringTeam already equals schoolName, so
+  // this is a no-op there.
+  const patSchool = play.scoringTeam && [schoolName, play.defense].includes(play.scoringTeam) ? play.scoringTeam : schoolName;
+  if (eligibleSelection(patSchool, "K") && hasMadePat(play.playType, play.playText)) candidates.push({ sourceEventKey: `${play.id}:EXTRA_POINT:K`, sourceGameId: play.gameId, schoolName: patSchool, position: "K", eventType: "EXTRA_POINT", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · made PAT` });
   const defensiveSchool = play.defense;
   const defensiveStats = input.stats.filter(stat => normalizeSchoolForComparison(stat.team) === normalizeSchoolForComparison(defensiveSchool) && Number(stat.stat) !== 0);
   const playText = `${play.playType ?? ""} ${play.playText ?? ""}`.toLowerCase();
