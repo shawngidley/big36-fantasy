@@ -571,6 +571,37 @@ export const leagueRouter = router({
     // One-time diagnostic: does getLeagueSnapshot()'s own public "events" array contain duplicate
     // rows for a given school+position+week? Bypasses any client rendering entirely to settle
     // whether a reported doubled total is a server-side data issue or a front-end rendering issue.
+    // One-time migration: this morning's K/ST -> K/DST split only relabeled the position COLUMN;
+    // it never moved historical rows. Any special-teams event scored BEFORE the split (blocked
+    // kicks, return TDs, special-teams safeties) is still physically attached to whichever slot used
+    // to be the combined "K/ST" unit - which the rename turned into a plain "K" slot - even though
+    // these event types now belong exclusively to DST. Point values are identical for K vs DST on
+    // every one of these event types (only positionScope moved, not the flat points), so this is a
+    // pure re-pointing of draft_slot_id - no point recalculation needed. Dry-run by default.
+    migrateSpecialTeamsEventsToDst: adminProcedure.input(z.object({ dryRun: z.boolean().default(true) })).mutation(async ({ input }) => {
+      const dstOnlyEventTypes = ["BLOCKED_FIELD_GOAL", "BLOCKED_PUNT", "SPECIAL_TEAMS_SAFETY", "KICK_RETURN_TOUCHDOWN", "PUNT_RETURN_TOUCHDOWN", "BLOCKED_KICK_RETURN_TOUCHDOWN", "OTHER_SPECIAL_TEAMS_TOUCHDOWN"];
+      const normalize = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+      const slots = await supabaseRestAll<{ id: string; owner_id: string; school_name: string | null; position: string }>("b36_draft_slots", { query: { select: "id,owner_id,school_name,position", school_name: "not.is.null", order: "id.asc" } });
+      const slotById = new Map(slots.map(slot => [slot.id, slot]));
+      const dstSlotBySchool = new Map(slots.filter(slot => slot.position === "DST").map(slot => [normalize(slot.school_name as string), slot]));
+      const events = await supabaseRestAll<{ id: string; event_type: string; draft_slot_id: string; source_event_key: string | null; computed_points: number }>("b36_scoring_events", { query: { select: "id,event_type,draft_slot_id,source_event_key,computed_points", event_type: `in.(${dstOnlyEventTypes.join(",")})`, order: "created_at.asc" } });
+      const misfiled = events.filter(event => slotById.get(event.draft_slot_id)?.position === "K");
+      const planned: Array<{ eventId: string; eventType: string; points: number; key: string | null; school: string; fromOwnerSlot: string; toOwnerSlot: string | null; resolvable: boolean }> = [];
+      for (const event of misfiled) {
+        const fromSlot = slotById.get(event.draft_slot_id)!;
+        const toSlot = dstSlotBySchool.get(normalize(fromSlot.school_name as string));
+        planned.push({ eventId: event.id, eventType: event.event_type, points: event.computed_points, key: event.source_event_key, school: fromSlot.school_name as string, fromOwnerSlot: fromSlot.id, toOwnerSlot: toSlot?.id ?? null, resolvable: Boolean(toSlot) });
+      }
+      let moved = 0;
+      if (!input.dryRun) {
+        for (const item of planned) {
+          if (!item.resolvable || !item.toOwnerSlot) continue;
+          await supabaseRest("b36_scoring_events", { method: "PATCH", query: { id: q.eq(item.eventId) }, body: { draft_slot_id: item.toOwnerSlot } });
+          moved += 1;
+        }
+      }
+      return { dryRun: input.dryRun, totalDstEventsFound: events.length, misfiledOnK: misfiled.length, moved, planned };
+    }),
     debugEventDuplication: adminProcedure.input(z.object({ school: z.string(), position: z.string(), week: z.number() })).query(async ({ input }) => {
       const league = await getLeagueSnapshot();
       const matches = league.events.filter(event => event.schoolName === input.school && event.position === input.position && event.weekNumber === input.week);
