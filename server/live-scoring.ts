@@ -52,8 +52,13 @@ const normalizeText = (value: string | null | undefined) => String(value ?? "").
 // Toney" is also on the roster. Checking only a single-letter abbreviation ("M Toney") matches
 // neither and silently drops the catch. Every prefix length up to the full first name is tried, so
 // the roster's own duplicate-initial teammates are exactly what makes this necessary.
+// CFBD's play-by-play text almost always drops generational suffixes (Jr., Sr., II, III, IV) even
+// when the roster's own lastName carries one. Stripping the suffix before matching either name is
+// what lets these otherwise-correct roster entries actually match real play text.
+const stripGenerationalSuffix = (value: string) => value.replace(/\b(jr|sr|ii|iii|iv)\b/g, "").trim().replace(/\s+/g, " ");
+
 function nameVariantsMatchText(text: string, firstName: string, lastName: string): boolean {
-  const last = normalizeText(lastName);
+  const last = stripGenerationalSuffix(normalizeText(lastName));
   if (!last) return false;
   const first = normalizeText(firstName);
   if (first.length >= 3 && text.includes(` ${first} ${last} `)) return true;
@@ -72,7 +77,7 @@ function positionsMentionedInText(playText: string | null | undefined, roster: C
   // collide), prefer whichever athlete's fuller name variant actually appears, over a bare initial.
   const resolved = matches.length <= 1 ? matches : matches.filter(athlete => {
     const first = normalizeText(athlete.firstName ?? "");
-    for (let length = 2; length <= first.length; length += 1) if (text.includes(` ${first.slice(0, length)} ${normalizeText(athlete.lastName ?? "")} `)) return true;
+    for (let length = 2; length <= first.length; length += 1) if (text.includes(` ${first.slice(0, length)} ${stripGenerationalSuffix(normalizeText(athlete.lastName ?? ""))} `)) return true;
     return false;
   });
   for (const athlete of (resolved.length ? resolved : matches)) {

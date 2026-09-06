@@ -169,6 +169,16 @@ describe("36 Football automatic scoring map", () => {
     const candidates = mapLivePlayToCandidates({ play, stats: [], roster, selectedSchoolPositions: [{ schoolName: "Miami", position: "WR" }, { schoolName: "Miami", position: "QB" }] });
     expect(candidates.map(c => `${c.eventType}:${c.position}`)).toEqual(expect.arrayContaining(["TOUCHDOWN:WR", "TOUCHDOWN:QB"]));
   });
+
+  it("matches a roster player whose lastName carries a generational suffix (Jr./Sr./II/III/IV) against play text that omits it - real UTSA play where three separate receivers (Allen Jr., Wilson Jr., Young Jr.) all failed to match for exactly this reason", () => {
+    const roster = [
+      { id: 1, firstName: "DJ", lastName: "Allen Jr.", position: "WR" },
+      { id: 2, firstName: "Oscar", lastName: "McCown", position: "QB" },
+    ];
+    const play = { id: 401862700717, gameId: 401862700, offense: "UTSA", defense: "UT Rio Grande Valley", scoring: true, playType: "Passing Touchdown", playText: "(10:50) No Huddle-Shotgun #2 O.McCown pass complete short left to #15 D.Allen caught at UTSA38, for 62 yards to the UTRGV00 TOUCHDOWN, clock 10:41, 1ST DOWN" };
+    const candidates = mapLivePlayToCandidates({ play, stats: [], roster, selectedSchoolPositions: [{ schoolName: "UTSA", position: "WR" }, { schoolName: "UTSA", position: "QB" }] });
+    expect(candidates.map(c => `${c.eventType}:${c.position}`)).toEqual(expect.arrayContaining(["TOUCHDOWN:WR", "TOUCHDOWN:QB"]));
+  });
   it("recognizes only explicit special-teams touchdown play types and made kicks", () => {
     expect(specialTeamsTouchdownType("Kickoff Return Touchdown")).toBe("KICK_RETURN_TOUCHDOWN");
     expect(specialTeamsTouchdownType("Passing Touchdown")).toBeNull();
