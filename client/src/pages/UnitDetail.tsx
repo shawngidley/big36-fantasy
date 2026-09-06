@@ -33,7 +33,7 @@ export default function UnitDetail() {
       <div><p className="section-kicker">{pick.positionLabel}</p><h1 className="display-title mt-1">{school}</h1><p className="mt-1 text-sm text-muted-foreground">{owner.teamName} · Pick {pick.draftPosition ?? "—"}</p></div>
     </div>
     <div className="mt-6 grid grid-cols-3 gap-3 sm:max-w-md">
-      <div className="rounded-xl border border-border bg-card p-4"><p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Total</p><p className="mt-1 font-display text-2xl font-extrabold tabular-nums">{pick.seasonPoints.toFixed(2)}</p></div>
+      <div className="rounded-xl border border-border bg-card p-4"><p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Total</p><p className="mt-1 font-display text-2xl font-extrabold tabular-nums">{Math.round(pick.seasonPoints)}</p></div>
       <div className="rounded-xl border border-border bg-card p-4"><p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Avg</p><p className="mt-1 font-display text-2xl font-extrabold tabular-nums">{pick.averagePoints.toFixed(2)}</p></div>
       <div className="rounded-xl border border-border bg-card p-4"><p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Games</p><p className="mt-1 font-display text-2xl font-extrabold tabular-nums">{pick.gamesPlayed}</p></div>
     </div>
@@ -41,7 +41,7 @@ export default function UnitDetail() {
       <div className="border-b border-border bg-accent/40 px-5 py-4"><p className="section-kicker">Week by week</p><h2 className="mt-1 font-display text-xl font-extrabold tracking-tight">Weekly points</h2></div>
       {weeks.length ? <div className="divide-y divide-border/70">{weeks.map(week => <Link key={week.id} href={`/leaders/${position}/${encodeURIComponent(school)}/${week.weekNumber}`} className="flex items-center justify-between gap-3 px-5 py-3.5 transition-colors hover:bg-accent/30">
         <div><p className="font-bold">{week.label}</p><Badge variant="outline" className="mt-1 text-[10px]">{week.status}</Badge></div>
-        <p className="font-display text-lg font-extrabold tabular-nums">{week.points.toFixed(2)}</p>
+        <p className="font-display text-lg font-extrabold tabular-nums">{Math.round(week.points)}</p>
       </Link>)}</div> : <div className="p-5"><EmptyLedger title="No weeks yet" detail="Weekly scoring periods will appear here once the season starts." /></div>}
     </div>
   </section></LeagueShell>;
