@@ -8,6 +8,12 @@ describe("36 Football automatic scoring map", () => {
     expect(gameCountsForSchool(games, "Ohio State", 12)).toBe(true);
     expect(gameCountsForSchool(games, "Ohio State", 13)).toBe(false);
   });
+
+  it("matches a school regardless of case - CFBD's schedule spells it 'UTSA', a drafted slot spelled it 'Utsa' and silently never matched any of its games", () => {
+    const utsaGames = [{ id: 1, season: 2026, week: 1, seasonType: "regular", startDate: "2026-08-30T17:00:00Z", completed: true, homeTeam: "UTSA", awayTeam: "Colorado State" }];
+    expect(eligibleGameIdsForSchool(utsaGames, "Utsa")).toEqual([1]);
+    expect(gameCountsForSchool(utsaGames, "Utsa", 1)).toBe(true);
+  });
   it("excludes a reversed interception placeholder when the same drive immediately continues for the offense", () => {
     const interception = { id: 90, gameId: 9, driveId: "drive-4", playNumber: 7, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Interception", period: 4, clock: { minutes: 10, seconds: 36 } };
     const continuation = { id: 91, gameId: 9, driveId: "drive-4", playNumber: 8, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Rush", period: 4, clock: { minutes: 10, seconds: 36 } };

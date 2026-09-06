@@ -64,7 +64,9 @@ export function overallRankAtEvent(ownerId: string, owners: Array<{ id: string; 
 }
 
 export function completedScheduleNormalization(schoolName: string, regularGames: SourceGameRow[]) {
-  const schedule = regularGames.filter(game => game.home_team === schoolName || game.away_team === schoolName);
+  const normalize = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+  const normalizedSchool = normalize(schoolName);
+  const schedule = regularGames.filter(game => normalize(game.home_team) === normalizedSchool || normalize(game.away_team) === normalizedSchool);
   if (!schedule.length || schedule.length >= 12 || schedule.some(game => !game.completed)) return 1;
   return 12 / schedule.length;
 }
@@ -105,7 +107,8 @@ export async function getLeagueSnapshot() {
   const season = automationRows[0]?.season;
   const regularGames = sourceGameRows.filter(game => game.season === season && game.season_type.toLowerCase() === "regular");
   const normalizationFactorForSchool = (schoolName: string) => completedScheduleNormalization(schoolName, regularGames);
-  const gamesPlayedForSchool = (schoolName: string) => regularGames.filter(game => (game.home_team === schoolName || game.away_team === schoolName) && game.completed).length;
+  const normalizeSchoolName = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+  const gamesPlayedForSchool = (schoolName: string) => { const normalized = normalizeSchoolName(schoolName); return regularGames.filter(game => (normalizeSchoolName(game.home_team) === normalized || normalizeSchoolName(game.away_team) === normalized) && game.completed).length; };
 
   const owners = ownerRows.map(row => {
     const owner = camelOwner(row);

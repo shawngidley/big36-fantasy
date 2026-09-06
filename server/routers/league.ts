@@ -14,7 +14,7 @@ import { runGamedayRefresh } from "../gameday-refresh";
 import { syncFbsPoolAndSchedule } from "../gameday-refresh";
 import { adaptLiveGameToLegacyPlays } from "../gameday-refresh";
 import { resolveB36WeekNumber } from "../gameday-refresh";
-import { boxScoreFumbleCandidates, isSupersededInterceptionPlay, mapLivePlayToCandidates, matchBoxAthleteToRoster, type LivePosition } from "../live-scoring";
+import { boxScoreFumbleCandidates, isSupersededInterceptionPlay, mapLivePlayToCandidates, matchBoxAthleteToRoster, normalizeSchoolForComparison, type LivePosition } from "../live-scoring";
 import { decodeRegistrationLogo, hashRegistrationPin, normalizeRegistrationEmail, normalizeRegistrationPhone, verifyRegistrationPin } from "../registration";
 import { storagePut } from "../storage";
 import { notifyOwnerWhenUpcomingPickSafely, sendDraftSms } from "../draft-alerts";
@@ -907,7 +907,7 @@ export const leagueRouter = router({
       // Compare against what's actually stored for every drafted slot with a game this week.
       const results: Array<Record<string, unknown>> = [];
       for (const slot of selectedSchoolPositions) {
-        const inRelevantGame = relevantGames.some(game => game.homeTeam === slot.schoolName || game.awayTeam === slot.schoolName);
+        const inRelevantGame = relevantGames.some(game => normalizeSchoolForComparison(game.homeTeam) === normalizeSchoolForComparison(slot.schoolName) || normalizeSchoolForComparison(game.awayTeam) === normalizeSchoolForComparison(slot.schoolName));
         if (!inRelevantGame) continue;
         const stored = await supabaseRest<Array<{ computed_points: number; week_id: string }>>("b36_scoring_events", { query: { select: "computed_points,week_id", draft_slot_id: q.eq(slot.draftSlotId) } });
         const weekRows = await supabaseRest<Array<{ id: string }>>("b36_scoring_weeks", { query: { select: "id", week_number: `eq.${input.week}` } });
@@ -917,7 +917,7 @@ export const leagueRouter = router({
         const official = officialTotals.get(`${slot.schoolName}:${slot.position}`) ?? 0;
         if (Math.abs(official - storedNet) > 0.01) results.push({ owner: slot.teamName, school: slot.schoolName, position: slot.position, officialPoints: official, storedPoints: storedNet, difference: Math.round((official - storedNet) * 100) / 100 });
       }
-      return { checkedSlots: selectedSchoolPositions.filter(slot => relevantGames.some(game => game.homeTeam === slot.schoolName || game.awayTeam === slot.schoolName)).length, gamesChecked: relevantGames.length, mismatches: results, gameTeamNames: relevantGames.map(game => ({ gameId: game.id, homeTeam: game.homeTeam, awayTeam: game.awayTeam, playCount: plays.filter(play => play.gameId === game.id).length })) };
+      return { checkedSlots: selectedSchoolPositions.filter(slot => relevantGames.some(game => normalizeSchoolForComparison(game.homeTeam) === normalizeSchoolForComparison(slot.schoolName) || normalizeSchoolForComparison(game.awayTeam) === normalizeSchoolForComparison(slot.schoolName))).length, gamesChecked: relevantGames.length, mismatches: results, gameTeamNames: relevantGames.map(game => ({ gameId: game.id, homeTeam: game.homeTeam, awayTeam: game.awayTeam, playCount: plays.filter(play => play.gameId === game.id).length })) };
     }),
     findLikelyDuplicateScoring: adminProcedure.query(async () => {
       // Targets the exact failure mode found tonight: a manual restoration entry for something

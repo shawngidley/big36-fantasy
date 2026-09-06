@@ -12,7 +12,8 @@ const positionForRosterValue = (position: string | null | undefined): LivePositi
 };
 
 export function eligibleGameIdsForSchool(games: CfbdGame[], schoolName: string) {
-  return games.filter(game => game.seasonType.toLowerCase() === "regular" && (game.homeTeam === schoolName || game.awayTeam === schoolName)).sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime() || a.id - b.id).slice(0, 12).map(game => game.id);
+  const normalizedSchool = normalizeSchoolForComparison(schoolName);
+  return games.filter(game => game.seasonType.toLowerCase() === "regular" && (normalizeSchoolForComparison(game.homeTeam) === normalizedSchool || normalizeSchoolForComparison(game.awayTeam) === normalizedSchool)).sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime() || a.id - b.id).slice(0, 12).map(game => game.id);
 }
 
 export function gameCountsForSchool(games: CfbdGame[], schoolName: string, gameId: number) {
