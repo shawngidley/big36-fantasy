@@ -34,7 +34,7 @@ export default function UnitDetail() {
     </div>
     <div className="mt-6 grid grid-cols-3 gap-3 sm:max-w-md">
       <div className="rounded-xl border border-border bg-card p-4"><p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Total</p><p className="mt-1 font-display text-2xl font-extrabold tabular-nums">{Math.round(pick.seasonPoints)}</p></div>
-      <div className="rounded-xl border border-border bg-card p-4"><p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Avg</p><p className="mt-1 font-display text-2xl font-extrabold tabular-nums">{pick.averagePoints.toFixed(2)}</p></div>
+      <div className="rounded-xl border border-border bg-card p-4"><p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Avg</p><p className="mt-1 font-display text-2xl font-extrabold tabular-nums">{Math.round(pick.averagePoints)}</p></div>
       <div className="rounded-xl border border-border bg-card p-4"><p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Games</p><p className="mt-1 font-display text-2xl font-extrabold tabular-nums">{pick.gamesPlayed}</p></div>
     </div>
     <div className="mt-8 overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
