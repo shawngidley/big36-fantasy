@@ -211,6 +211,18 @@ describe("36 Football automatic scoring map", () => {
     expect(turnover?.schoolName).toBe("Kennesaw State");
   });
 
+  it("credits a trick-play touchdown pass to the actual thrower's real position (RB), not a blanket default to QB, when CFBD has no stats and the thrower isn't the drafted QB - real Delaware play where an RB threw a 75-yard TD pass to another RB", () => {
+    const roster = [
+      { id: 1, firstName: "Viron", lastName: "Ellison Jr.", position: "RB" },
+      { id: 2, firstName: "Kaderris", lastName: "Roberts", position: "RB" },
+      { id: 3, firstName: "Nick", lastName: "Minicucci", position: "QB" },
+    ];
+    const play = { id: 401864424544, gameId: 401864424, offense: "Delaware", defense: "Merrimack", scoring: true, playType: "Passing Touchdown", playText: "No Huddle-Shotgun #21 V.Ellison Jr. pass complete deep right to #3 K.Roberts caught at DEL45, for 75 yards to the MC00 TOUCHDOWN, clock 09:11, 1ST DOWN" };
+    const candidates = mapLivePlayToCandidates({ play, stats: [], roster, selectedSchoolPositions: [{ schoolName: "Delaware", position: "QB" }, { schoolName: "Delaware", position: "RB" }] });
+    expect(candidates.some(candidate => candidate.eventType === "TOUCHDOWN" && candidate.position === "QB")).toBe(false);
+    expect(candidates.some(candidate => candidate.eventType === "TOUCHDOWN" && candidate.position === "RB")).toBe(true);
+  });
+
   it("derives scoringTeam from the running score for the post-game /plays feed", async () => {
     const { annotateScoringTeams } = await import("./cfbd");
     const plays = annotateScoringTeams([

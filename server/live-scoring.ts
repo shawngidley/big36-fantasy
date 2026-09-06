@@ -94,8 +94,8 @@ function passerPositionsInText(playText: string | null | undefined, roster: Cfbd
   const mentioned = new Set<LivePosition>();
   for (const athlete of roster) {
     const position = positions.get(String(athlete.id));
-    const name = normalizeText(`${athlete.firstName ?? ""} ${athlete.lastName ?? ""}`);
-    const shortName = normalizeText(`${String(athlete.firstName ?? "").slice(0, 1)} ${athlete.lastName ?? ""}`);
+    const name = stripGenerationalSuffix(normalizeText(`${athlete.firstName ?? ""} ${athlete.lastName ?? ""}`));
+    const shortName = stripGenerationalSuffix(normalizeText(`${String(athlete.firstName ?? "").slice(0, 1)} ${athlete.lastName ?? ""}`));
     if (position && ((name.length >= 5 && (beforePass.includes(` ${name} `) || afterPassFrom.includes(` ${name} `))) || (shortName.length >= 3 && (beforePass.includes(` ${shortName} `) || afterPassFrom.includes(` ${shortName} `))))) mentioned.add(position);
   }
   return mentioned;
@@ -199,7 +199,14 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   };
   if (passingTouchdown) {
     const qbSource = passingTouchdownPositions.has("QB") || (explicitTouchdownPositions.has("QB") && athletePositionsFor(type => type.includes("reception")).size > 0) || passerPositions.has("QB");
-    if (qbSource) offensiveCandidate("QB", "TOUCHDOWN");
+    if (qbSource) {
+      offensiveCandidate("QB", "TOUCHDOWN");
+    } else {
+      // No QB evidence at all (no stats, no text mention) - if the text specifically identifies a
+      // real, non-QB passer (a trick play: an RB or WR throwing it), credit that player's own
+      // position rather than either defaulting to QB or dropping the pass side of the play entirely.
+      Array.from(passerPositions).filter(position => position !== "QB").forEach(position => offensiveCandidate(position, "TOUCHDOWN"));
+    }
     const scorer = offensivePositions.filter(position => position !== "QB" && explicitTouchdownPositions.has(position));
     const legacyScorer = offensivePositions.filter(position => position !== "QB" && athletePositionsFor(type => type.includes("reception")).has(position));
     const positionsToCredit = scorer.length > 0 ? scorer : legacyScorer.length > 0 ? legacyScorer : offensivePositions.filter(position => position !== "QB" && mentionedPositions.has(position));
