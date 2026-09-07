@@ -583,6 +583,16 @@ export const leagueRouter = router({
     // strings (e.g. "Louisiana State University" drafted while CFBD's schedule only ever calls it
     // "LSU"). A pure-casing mismatch still scores correctly today; a genuine name mismatch never
     // will, since no normalization can bridge two unrelated strings. Read-only.
+    // Search the FULL season schedule (not just early weeks) for team names matching a substring.
+    debugScheduleTeamSearch: adminProcedure.input(z.object({ search: z.string() })).query(async ({ input }) => {
+      const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
+      const season = automationRows[0]?.season;
+      if (!season) throw new Error("No season configured.");
+      const schedule = await getRegularSeasonGames(season);
+      const matcher = input.search.toLowerCase();
+      const names = new Set(schedule.flatMap(game => [game.homeTeam, game.awayTeam]).filter(name => name.toLowerCase().includes(matcher)));
+      return { matches: Array.from(names) };
+    }),
     debugSchoolNameMismatches: adminProcedure.query(async () => {
       const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
       const season = automationRows[0]?.season;
