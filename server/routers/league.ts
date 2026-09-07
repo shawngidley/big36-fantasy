@@ -578,6 +578,35 @@ export const leagueRouter = router({
     // these event types now belong exclusively to DST. Point values are identical for K vs DST on
     // every one of these event types (only positionScope moved, not the flat points), so this is a
     // pure re-pointing of draft_slot_id - no point recalculation needed. Dry-run by default.
+    // Season-wide check for drafted school names that don't match CFBD's schedule AT ALL - not
+    // just casing (that's already handled by normalizeSchoolForComparison), but genuinely different
+    // strings (e.g. "Louisiana State University" drafted while CFBD's schedule only ever calls it
+    // "LSU"). A pure-casing mismatch still scores correctly today; a genuine name mismatch never
+    // will, since no normalization can bridge two unrelated strings. Read-only.
+    debugSchoolNameMismatches: adminProcedure.query(async () => {
+      const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
+      const season = automationRows[0]?.season;
+      if (!season) throw new Error("No season configured.");
+      const schedule = await getRegularSeasonGames(season);
+      const normalize = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+      const scheduleTeamNames = new Set(schedule.flatMap(game => [game.homeTeam, game.awayTeam]));
+      const scheduleTeamNamesNormalized = new Map<string, string>();
+      for (const name of Array.from(scheduleTeamNames)) if (!scheduleTeamNamesNormalized.has(normalize(name))) scheduleTeamNamesNormalized.set(normalize(name), name);
+      const slots = await supabaseRestAll<{ id: string; school_name: string | null; position: string; owner_id: string }>("b36_draft_slots", { query: { select: "id,school_name,position,owner_id", school_name: "not.is.null", order: "id.asc" } });
+      const owners = await supabaseRestAll<{ id: string; team_name: string }>("b36_owners", { query: { select: "id,team_name", order: "id.asc" } });
+      const ownerNameById = new Map(owners.map(owner => [owner.id, owner.team_name]));
+      const distinctSchools = Array.from(new Set(slots.map(slot => slot.school_name as string)));
+      const exactMismatches: Array<{ school: string; normalizedMatchInSchedule: string | null; affectedSlots: Array<{ position: string; owner: string }> }> = [];
+      const caseOnlyMismatches: Array<{ school: string; scheduleSpelling: string; affectedSlots: Array<{ position: string; owner: string }> }> = [];
+      for (const school of distinctSchools) {
+        if (scheduleTeamNames.has(school)) continue;
+        const affectedSlots = slots.filter(slot => slot.school_name === school).map(slot => ({ position: slot.position, owner: ownerNameById.get(slot.owner_id) ?? "Unknown" }));
+        const normalizedMatch = scheduleTeamNamesNormalized.get(normalize(school)) ?? null;
+        if (normalizedMatch) caseOnlyMismatches.push({ school, scheduleSpelling: normalizedMatch, affectedSlots });
+        else exactMismatches.push({ school, normalizedMatchInSchedule: normalizedMatch, affectedSlots });
+      }
+      return { season, distinctSchoolCount: distinctSchools.length, scheduleTeamCount: scheduleTeamNames.size, caseOnlyMismatches, exactMismatches };
+    }),
     migrateSpecialTeamsEventsToDst: adminProcedure.input(z.object({ dryRun: z.boolean().default(true) })).mutation(async ({ input }) => {
       const dstOnlyEventTypes = ["BLOCKED_FIELD_GOAL", "BLOCKED_PUNT", "SPECIAL_TEAMS_SAFETY", "KICK_RETURN_TOUCHDOWN", "PUNT_RETURN_TOUCHDOWN", "BLOCKED_KICK_RETURN_TOUCHDOWN", "OTHER_SPECIAL_TEAMS_TOUCHDOWN"];
       const normalize = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
