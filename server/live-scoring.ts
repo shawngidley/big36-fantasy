@@ -252,7 +252,15 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   // Only fires if the loop above (which has the real player, if the stat data was available) didn't
   // already credit someone, to avoid crediting a generic "mentioned" position twice.
   if (isFumbleLostToOpponent && !isInvalidated && !candidates.some(candidate => candidate.eventType === "FUMBLE_LOST" && candidate.schoolName === schoolName)) {
-    const fumblingPosition = offensivePositions.find(position => mentionedPositions.has(position));
+    // "fumbled by X" names the actual player who lost it - on a completed-pass-then-fumble play,
+    // BOTH the passer and the receiver are mentioned in the same text, and picking "whichever
+    // offensive position appears anywhere" always favored the QB (first in position order) even
+    // when it was the receiver who fumbled after the catch. Checking specifically the text after
+    // "fumbled by" identifies the real fumbler; only falls back to the broader (less precise) check
+    // when that phrase isn't present in the text at all.
+    const fumblerSegment = playTextNormalized.split("fumbled by")[1] ?? "";
+    const fumblerMentionedPositions = fumblerSegment ? positionsMentionedInText(fumblerSegment, roster, positions) : new Set<LivePosition>();
+    const fumblingPosition = offensivePositions.find(position => fumblerMentionedPositions.has(position)) ?? offensivePositions.find(position => mentionedPositions.has(position));
     if (fumblingPosition && eligibleSelection(schoolName, fumblingPosition)) candidates.push({ sourceEventKey: `${play.id}:FUMBLE_LOST:${fumblingPosition}`, sourceGameId: play.gameId, schoolName, position: fumblingPosition, eventType: "FUMBLE_LOST", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · fumble lost (playType match)` });
   }
   const mentionsFieldGoal = playType.includes("field goal") || playTextNormalized.includes("field goal");

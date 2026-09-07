@@ -223,6 +223,17 @@ describe("36 Football automatic scoring map", () => {
     expect(candidates.some(candidate => candidate.eventType === "TOUCHDOWN" && candidate.position === "RB")).toBe(true);
   });
 
+  it("credits a lost fumble to the receiver who actually fumbled after the catch, not the QB who threw the completed pass - real USC/Fresno State play where the QB was wrongly charged for a fumble the receiver committed", () => {
+    const roster = [
+      { id: 1, firstName: "Jayden", lastName: "Maiava", position: "QB" },
+      { id: 2, firstName: "Waymond", lastName: "Jordan", position: "RB" },
+    ];
+    const play = { id: 401858436133, gameId: 401858436, offense: "USC", defense: "Fresno State", scoring: false, playType: "Fumble Recovery (Opponent)", playText: "(02:43) No Huddle-Shotgun #14 J.Maiava pass complete short right to #2 W.Jordan caught at USC40, for 10 yards to the FST43 fumbled by #2 W.Jordan at FST43 forced by #11 D.Hampsten recovered by FST #35 T.Khajavi at FST43, End Of Play" };
+    const candidates = mapLivePlayToCandidates({ play, stats: [], roster, selectedSchoolPositions: [{ schoolName: "USC", position: "QB" }, { schoolName: "USC", position: "RB" }] });
+    const fumble = candidates.find(candidate => candidate.eventType === "FUMBLE_LOST");
+    expect(fumble?.position).toBe("RB");
+  });
+
   it("derives scoringTeam from the running score for the post-game /plays feed", async () => {
     const { annotateScoringTeams } = await import("./cfbd");
     const plays = annotateScoringTeams([
