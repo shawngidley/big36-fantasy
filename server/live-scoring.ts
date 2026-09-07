@@ -309,13 +309,13 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
     // "Fumble" and "Fumble Forced" exist) - checking for it here could never match. Fumble
     // recoveries are correctly handled below via the playType-based fallback instead.
     if (eligibleSelection(defensiveSchool, "DST") && type.includes("interception")) candidates.push(defensiveCandidate("DEFENSIVE_TURNOVER", stat, "DST"));
-    if (play.scoring && !specialTeamsPlay && eligibleSelection(defensiveSchool, "DST") && type.includes("touchdown")) candidates.push(defensiveCandidate("DEFENSIVE_TOUCHDOWN", stat, "DST", play.yardsGained ?? extractReturnYards(play.playText) ?? null));
+    if (play.scoring && !specialTeamsPlay && eligibleSelection(defensiveSchool, "DST") && type.includes("touchdown")) candidates.push(defensiveCandidate("DEFENSIVE_TOUCHDOWN", stat, "DST", extractReturnYards(play.playText) ?? play.yardsGained ?? null));
   }
   // A pick-six or fumble-return touchdown is reliably flagged by the play mentioning both a
   // turnover (interception, or "(Opponent)" fumble recovery) AND "touchdown" - independent of
   // whether player-level stats exist yet, the same weakness already fixed for sacks/turnovers.
   if (!specialTeamsPlay && eligibleSelection(defensiveSchool, "DST") && !isInvalidated && (isInterceptionReturn || isFumbleLostToOpponent) && (playType.includes("touchdown") || playTextNormalized.includes("touchdown")) && !candidates.some(candidate => candidate.eventType === "DEFENSIVE_TOUCHDOWN" && candidate.schoolName === defensiveSchool)) {
-    candidates.push({ sourceEventKey: `${play.id}:DEFENSIVE_TOUCHDOWN:playtype`, sourceGameId: play.gameId, schoolName: defensiveSchool, position: "DST", eventType: "DEFENSIVE_TOUCHDOWN", statValue: 1, yardDistance: play.yardsGained ?? extractReturnYards(play.playText) ?? null, provisional, note: `CFBD play ${play.id} · defensive touchdown (playType match)` });
+    candidates.push({ sourceEventKey: `${play.id}:DEFENSIVE_TOUCHDOWN:playtype`, sourceGameId: play.gameId, schoolName: defensiveSchool, position: "DST", eventType: "DEFENSIVE_TOUCHDOWN", statValue: 1, yardDistance: extractReturnYards(play.playText) ?? play.yardsGained ?? null, provisional, note: `CFBD play ${play.id} · defensive touchdown (playType match)` });
   }
   // A fumble recovery is reliably flagged on the play's own playType (e.g. "Fumble Recovery
   // (Opponent)" or "Fumble Return Touchdown") independent of whether a matching player-level stat
