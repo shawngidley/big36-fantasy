@@ -399,7 +399,7 @@ export const leagueRouter = router({
         const season = automationRows[0]?.season;
         if (!season) throw new Error("No season configured.");
         const [plays, stats, league] = await Promise.all([getWeekPlays(season, input.week), getWeekPlayStats(season, input.week), getLeagueSnapshot()]);
-        const play = plays.find(p => p.id === input.playId);
+        const play = plays.find(p => String(p.id) === String(input.playId));
         if (!play) throw new Error(`Play ${input.playId} not found in week ${input.week}.`);
         const playStats = stats.filter(stat => String(stat.playId) === String(play.id));
         const roster = await getRoster(play.offense, season);
