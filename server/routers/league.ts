@@ -394,17 +394,21 @@ export const leagueRouter = router({
     // real drafted selections) for one specific play - to see definitively whether candidate
     // generation itself succeeds with live data, versus a synthetic unit test's simplified inputs.
     debugCandidatesForPlay: adminProcedure.input(z.object({ week: z.number(), playId: z.number() })).query(async ({ input }) => {
-      const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
-      const season = automationRows[0]?.season;
-      if (!season) throw new Error("No season configured.");
-      const [plays, stats, league] = await Promise.all([getWeekPlays(season, input.week), getWeekPlayStats(season, input.week), getLeagueSnapshot()]);
-      const play = plays.find(p => p.id === input.playId);
-      if (!play) throw new Error(`Play ${input.playId} not found in week ${input.week}.`);
-      const playStats = stats.filter(stat => String(stat.playId) === String(play.id));
-      const roster = await getRoster(play.offense, season);
-      const selectedSchoolPositions = league.owners.flatMap(owner => owner.picks.map(pick => ({ schoolName: pick.schoolName, position: pick.position as LivePosition, draftSlotId: pick.id, ownerName: owner.teamName })));
-      const candidates = mapLivePlayToCandidates({ play, stats: playStats, roster, selectedSchoolPositions, provisional: false });
-      return { play, playStatsCount: playStats.length, rosterSize: roster.length, candidates };
+      try {
+        const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
+        const season = automationRows[0]?.season;
+        if (!season) throw new Error("No season configured.");
+        const [plays, stats, league] = await Promise.all([getWeekPlays(season, input.week), getWeekPlayStats(season, input.week), getLeagueSnapshot()]);
+        const play = plays.find(p => p.id === input.playId);
+        if (!play) throw new Error(`Play ${input.playId} not found in week ${input.week}.`);
+        const playStats = stats.filter(stat => String(stat.playId) === String(play.id));
+        const roster = await getRoster(play.offense, season);
+        const selectedSchoolPositions = league.owners.flatMap(owner => owner.picks.map(pick => ({ schoolName: pick.schoolName, position: pick.position as LivePosition, draftSlotId: pick.id, ownerName: owner.teamName })));
+        const candidates = mapLivePlayToCandidates({ play, stats: playStats, roster, selectedSchoolPositions, provisional: false });
+        return { play, playStatsCount: playStats.length, rosterSize: roster.length, candidates, threw: null };
+      } catch (error) {
+        return { threw: { message: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : null } };
+      }
     }),
     debugRawPlays: adminProcedure.input(z.object({ week: z.number(), gameId: z.number().optional(), team: z.string().optional() })).query(async ({ input }) => {
       const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
