@@ -57,6 +57,15 @@ const normalizeText = (value: string | null | undefined) => String(value ?? "").
 // what lets these otherwise-correct roster entries actually match real play text.
 const stripGenerationalSuffix = (value: string) => value.replace(/\b(jr|sr|ii|iii|iv)\b/g, "").trim().replace(/\s+/g, " ");
 
+// A defensive/turnover-return touchdown's actual return distance is what CFBD's play text
+// explicitly states ("...return 55 yards to the...") - the generic play.yardsGained field reflects
+// the OFFENSE's net yardage on the play, which is typically null, zero, or meaningless on a
+// turnover return, causing DEFENSIVE_TOUCHDOWN's yard-banded scoring rules to never match anything.
+function extractReturnYards(playText: string | null | undefined): number | null {
+  const match = normalizeText(playText).match(/return (\d+) yards?/);
+  return match ? Number(match[1]) : null;
+}
+
 function nameVariantsMatchText(text: string, firstName: string, lastName: string): boolean {
   const last = stripGenerationalSuffix(normalizeText(lastName));
   if (!last) return false;
@@ -300,13 +309,13 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
     // "Fumble" and "Fumble Forced" exist) - checking for it here could never match. Fumble
     // recoveries are correctly handled below via the playType-based fallback instead.
     if (eligibleSelection(defensiveSchool, "DST") && type.includes("interception")) candidates.push(defensiveCandidate("DEFENSIVE_TURNOVER", stat, "DST"));
-    if (play.scoring && !specialTeamsPlay && eligibleSelection(defensiveSchool, "DST") && type.includes("touchdown")) candidates.push(defensiveCandidate("DEFENSIVE_TOUCHDOWN", stat, "DST", play.yardsGained ?? null));
+    if (play.scoring && !specialTeamsPlay && eligibleSelection(defensiveSchool, "DST") && type.includes("touchdown")) candidates.push(defensiveCandidate("DEFENSIVE_TOUCHDOWN", stat, "DST", play.yardsGained ?? extractReturnYards(play.playText) ?? null));
   }
   // A pick-six or fumble-return touchdown is reliably flagged by the play mentioning both a
   // turnover (interception, or "(Opponent)" fumble recovery) AND "touchdown" - independent of
   // whether player-level stats exist yet, the same weakness already fixed for sacks/turnovers.
   if (!specialTeamsPlay && eligibleSelection(defensiveSchool, "DST") && !isInvalidated && (isInterceptionReturn || isFumbleLostToOpponent) && (playType.includes("touchdown") || playTextNormalized.includes("touchdown")) && !candidates.some(candidate => candidate.eventType === "DEFENSIVE_TOUCHDOWN" && candidate.schoolName === defensiveSchool)) {
-    candidates.push({ sourceEventKey: `${play.id}:DEFENSIVE_TOUCHDOWN:playtype`, sourceGameId: play.gameId, schoolName: defensiveSchool, position: "DST", eventType: "DEFENSIVE_TOUCHDOWN", statValue: 1, yardDistance: play.yardsGained ?? null, provisional, note: `CFBD play ${play.id} · defensive touchdown (playType match)` });
+    candidates.push({ sourceEventKey: `${play.id}:DEFENSIVE_TOUCHDOWN:playtype`, sourceGameId: play.gameId, schoolName: defensiveSchool, position: "DST", eventType: "DEFENSIVE_TOUCHDOWN", statValue: 1, yardDistance: play.yardsGained ?? extractReturnYards(play.playText) ?? null, provisional, note: `CFBD play ${play.id} · defensive touchdown (playType match)` });
   }
   // A fumble recovery is reliably flagged on the play's own playType (e.g. "Fumble Recovery
   // (Opponent)" or "Fumble Return Touchdown") independent of whether a matching player-level stat

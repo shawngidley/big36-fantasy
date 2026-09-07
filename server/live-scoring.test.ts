@@ -234,6 +234,13 @@ describe("36 Football automatic scoring map", () => {
     expect(fumble?.position).toBe("RB");
   });
 
+  it("extracts the real return distance from play text for a defensive touchdown, since play.yardsGained reflects the offense's yardage on a turnover-return play and is typically null/meaningless there - real Notre Dame pick-six that was blocking automation for the whole league because no yardage meant no scoring rule could ever match", () => {
+    const play = { id: 401858438493, gameId: 401858438, offense: "Wisconsin", defense: "Notre Dame", scoring: true, yardsGained: null, playType: "Pass Interception Return", playText: "(08:59) Shotgun #1 C.Joseph pass intercepted by #2 D.McKinney at UND45 #2 D.McKinney return 55 yards to the WIS00 TOUCHDOWN, clock 08:52" };
+    const candidates = mapLivePlayToCandidates({ play, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Notre Dame", position: "DST" }] });
+    const touchdown = candidates.find(candidate => candidate.eventType === "DEFENSIVE_TOUCHDOWN");
+    expect(touchdown?.yardDistance).toBe(55);
+  });
+
   it("derives scoringTeam from the running score for the post-game /plays feed", async () => {
     const { annotateScoringTeams } = await import("./cfbd");
     const plays = annotateScoringTeams([

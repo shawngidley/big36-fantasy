@@ -178,10 +178,18 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
             if (knownLiveKeys.has(candidate.sourceEventKey)) continue;
             const slot = selectedSchoolPositions.find(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(candidate.schoolName) && selection.position === candidate.position);
             if (!slot) { skippedNoSlot += 1; continue; }
-            const rules = await getScoringRulesForEvent(candidate.eventType as never);
-            const score = calculateEventScore(rules, { eventType: candidate.eventType as never, position: candidate.position, statValue: candidate.statValue, yardDistance: candidate.yardDistance });
-            await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: weekRow.id, draft_slot_id: slot.draftSlotId, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points, note: `${candidate.note} (live)`, audit_action: "ENTRY", recorded_by_open_id: "cfbd-live-detection", source_event_key: candidate.sourceEventKey, source_game_id: game.id, is_provisional: true } });
-            knownLiveKeys.add(candidate.sourceEventKey); insertedEvents += 1; insertedForGame += 1;
+            // A single candidate's data problem (missing yardage, a rules gap, anything unexpected)
+            // must never crash the whole tick and block every other game's scoring. Skip just this
+            // candidate - it's not added to knownLiveKeys, so a later tick retries it once whatever
+            // was wrong (often the underlying CFBD data itself) has had a chance to resolve.
+            try {
+              const rules = await getScoringRulesForEvent(candidate.eventType as never);
+              const score = calculateEventScore(rules, { eventType: candidate.eventType as never, position: candidate.position, statValue: candidate.statValue, yardDistance: candidate.yardDistance });
+              await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: weekRow.id, draft_slot_id: slot.draftSlotId, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points, note: `${candidate.note} (live)`, audit_action: "ENTRY", recorded_by_open_id: "cfbd-live-detection", source_event_key: candidate.sourceEventKey, source_game_id: game.id, is_provisional: true } });
+              knownLiveKeys.add(candidate.sourceEventKey); insertedEvents += 1; insertedForGame += 1;
+            } catch (error) {
+              console.error(`Skipping candidate ${candidate.sourceEventKey}: ${error instanceof Error ? error.message : String(error)}`);
+            }
           }
         }
         debugEntry.candidateCount = candidateCount; debugEntry.insertedForGame = insertedForGame; debugEntry.skippedNoSlot = skippedNoSlot; debugEntry.alreadyKnownCount = knownLiveKeys.size;
@@ -255,32 +263,39 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
         for (const candidate of gameCandidates) {
           const slot = selectedSchoolPositions.find(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(candidate.schoolName) && selection.position === candidate.position);
           if (!slot) continue;
-          const rules = await getScoringRulesForEvent(candidate.eventType as never);
-          const score = calculateEventScore(rules, { eventType: candidate.eventType as never, position: candidate.position, statValue: candidate.statValue, yardDistance: candidate.yardDistance });
-          const original = originalByKey.get(candidate.sourceEventKey);
-          if (!original) {
-            await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: weekRow.id, draft_slot_id: slot.draftSlotId, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points, note: candidate.note, audit_action: "ENTRY", recorded_by_open_id: "cfbd-live-refresh", source_event_key: candidate.sourceEventKey, source_game_id: candidate.sourceGameId, is_provisional: !game.completed } });
-            knownKeys.add(candidate.sourceEventKey); insertedEvents += 1;
-            // The official candidate just confirmed is real - if a live-detected entry for the same
-            // (game, slot, eventType) is still active, it's now a confirmed duplicate. Reverse it now
-            // rather than waiting for game.completed, since /plays can populate well before then.
-            const pendingGroupKey = `${game.id}:${slot.draftSlotId}:${candidate.eventType}`;
-            const pendingLive = pendingLiveByGameSlotType.get(pendingGroupKey);
-            const stalePending = pendingLive?.shift();
-            if (stalePending) {
-              const staleReversalKey = `${stalePending.source_event_key}:reversal`;
-              if (!reversedKeys.has(staleReversalKey)) {
-                await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: stalePending.week_id, draft_slot_id: stalePending.draft_slot_id, event_type: stalePending.event_type, stat_value: stalePending.stat_value, yard_distance: stalePending.yard_distance, computed_points: sourceEventReversalPoints(stalePending.computed_points), note: `Superseded by confirmed official play ${candidate.sourceEventKey} (no longer waiting on game completion)`, audit_action: "REVERSAL", correction_of_event_id: stalePending.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: staleReversalKey, source_game_id: game.id, is_provisional: false } });
-                reversedKeys.add(staleReversalKey); insertedEvents += 1;
+          // A single candidate's data problem (missing yardage, a rules gap, anything unexpected)
+          // must never crash the whole tick and block every other game's scoring. Skip just this
+          // candidate and move on - a later tick retries it once whatever was wrong has resolved.
+          try {
+            const rules = await getScoringRulesForEvent(candidate.eventType as never);
+            const score = calculateEventScore(rules, { eventType: candidate.eventType as never, position: candidate.position, statValue: candidate.statValue, yardDistance: candidate.yardDistance });
+            const original = originalByKey.get(candidate.sourceEventKey);
+            if (!original) {
+              await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: weekRow.id, draft_slot_id: slot.draftSlotId, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points, note: candidate.note, audit_action: "ENTRY", recorded_by_open_id: "cfbd-live-refresh", source_event_key: candidate.sourceEventKey, source_game_id: candidate.sourceGameId, is_provisional: !game.completed } });
+              knownKeys.add(candidate.sourceEventKey); insertedEvents += 1;
+              // The official candidate just confirmed is real - if a live-detected entry for the same
+              // (game, slot, eventType) is still active, it's now a confirmed duplicate. Reverse it now
+              // rather than waiting for game.completed, since /plays can populate well before then.
+              const pendingGroupKey = `${game.id}:${slot.draftSlotId}:${candidate.eventType}`;
+              const pendingLive = pendingLiveByGameSlotType.get(pendingGroupKey);
+              const stalePending = pendingLive?.shift();
+              if (stalePending) {
+                const staleReversalKey = `${stalePending.source_event_key}:reversal`;
+                if (!reversedKeys.has(staleReversalKey)) {
+                  await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: stalePending.week_id, draft_slot_id: stalePending.draft_slot_id, event_type: stalePending.event_type, stat_value: stalePending.stat_value, yard_distance: stalePending.yard_distance, computed_points: sourceEventReversalPoints(stalePending.computed_points), note: `Superseded by confirmed official play ${candidate.sourceEventKey} (no longer waiting on game completion)`, audit_action: "REVERSAL", correction_of_event_id: stalePending.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: staleReversalKey, source_game_id: game.id, is_provisional: false } });
+                  reversedKeys.add(staleReversalKey); insertedEvents += 1;
+                }
               }
+            } else if (game.completed && sourceEventNeedsCorrection(original, { points: score.points, yardDistance: candidate.yardDistance, statValue: candidate.statValue })) {
+              const correctionKey = `${candidate.sourceEventKey}:correction:${score.points}:${candidate.yardDistance ?? "none"}:${candidate.statValue}`;
+              if (!knownKeys.has(correctionKey)) {
+                await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: original.week_id, draft_slot_id: original.draft_slot_id, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points - original.computed_points, note: `Official CFBD final correction updated source event ${candidate.sourceEventKey}`, audit_action: "CORRECTION", correction_of_event_id: original.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: correctionKey, source_game_id: candidate.sourceGameId, is_provisional: false } });
+                knownKeys.add(correctionKey); insertedEvents += 1;
+              }
+              await supabaseRest("b36_scoring_events", { method: "PATCH", query: { id: `eq.${original.id}` }, body: { is_provisional: false } });
             }
-          } else if (game.completed && sourceEventNeedsCorrection(original, { points: score.points, yardDistance: candidate.yardDistance, statValue: candidate.statValue })) {
-            const correctionKey = `${candidate.sourceEventKey}:correction:${score.points}:${candidate.yardDistance ?? "none"}:${candidate.statValue}`;
-            if (!knownKeys.has(correctionKey)) {
-              await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: original.week_id, draft_slot_id: original.draft_slot_id, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points - original.computed_points, note: `Official CFBD final correction updated source event ${candidate.sourceEventKey}`, audit_action: "CORRECTION", correction_of_event_id: original.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: correctionKey, source_game_id: candidate.sourceGameId, is_provisional: false } });
-              knownKeys.add(correctionKey); insertedEvents += 1;
-            }
-            await supabaseRest("b36_scoring_events", { method: "PATCH", query: { id: `eq.${original.id}` }, body: { is_provisional: false } });
+          } catch (error) {
+            console.error(`Skipping candidate ${candidate.sourceEventKey}: ${error instanceof Error ? error.message : String(error)}`);
           }
         }
         for (const school of [game.homeTeam, game.awayTeam]) {

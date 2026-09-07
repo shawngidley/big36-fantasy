@@ -240,6 +240,26 @@ describe("36 Football gameday source reconciliation", () => {
     expect((reversal!.options.body as { computed_points?: number }).computed_points).toBe(-9);
     expect(result.insertedEvents).toBeGreaterThanOrEqual(2);
   });
+
+  it("skips a candidate whose scoring throws (e.g. no rule matches, missing yardage) instead of crashing the whole tick and blocking every other candidate - this exact class of failure took down automation for the entire league on real production data (a Notre Dame pick-six with no return yardage)", async () => {
+    const snapshotWithTwoSlots = { owners: [{ picks: [{ id: "slot-qb", schoolName: "Ohio State", position: "QB" }, { id: "slot-dst", schoolName: "Ohio State", position: "DST" }] }], weeks: [{ id: "week-1", weekNumber: 1 }] };
+    mocks.getLeagueSnapshot.mockResolvedValue(snapshotWithTwoSlots);
+    const badCandidate = { sourceEventKey: "101:99:dst", sourceGameId: 101, schoolName: "Ohio State", position: "DST", eventType: "DEFENSIVE_TOUCHDOWN", statValue: 1, yardDistance: null, note: "Defensive touchdown" };
+    const writes = arrange([]);
+    mocks.mapLivePlayToCandidates.mockReturnValue([badCandidate, candidate]);
+    mocks.calculateEventScore.mockImplementation((_rules: unknown, event: { eventType: string }) => {
+      if (event.eventType === "DEFENSIVE_TOUCHDOWN") throw new Error("No active Big 36 scoring rule matches DEFENSIVE_TOUCHDOWN for DST.");
+      return { points: 9 };
+    });
+
+    const result = await runGamedayRefresh({ force: true });
+
+    const goodInsert = writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST" && (write.options.body as { source_event_key?: string })?.source_event_key === "101:55:qb");
+    const badInsert = writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST" && (write.options.body as { source_event_key?: string })?.source_event_key === "101:99:dst");
+    expect(goodInsert).toBeTruthy();
+    expect(badInsert).toBeUndefined();
+    expect(result.insertedEvents).toBeGreaterThanOrEqual(1);
+  });
 });
 
 describe("resolveB36WeekNumber", () => {
