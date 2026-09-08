@@ -232,6 +232,13 @@ describe("36 Football automatic scoring map", () => {
     expect(candidates.some(candidate => candidate.eventType === "TOUCHDOWN")).toBe(false);
   });
 
+  it("credits a fumble lost that a replay review CONFIRMED (overturning an original 'no fumble' call) - real Texas A&M play (Horton fumble, recovered by Missouri State) that was wrongly suppressed by the same overturned-invalidation ambiguity, this time for a fumble instead of a touchdown", () => {
+    const play = { id: 401856668287, gameId: 401856668, offense: "Texas A&M", defense: "Missouri State", scoring: false, playType: "Fumble Recovery (Opponent)", playText: "(10:06) No Huddle-Shotgun #10 M.Reed pass complete short right to #7 I.Horton caught at MSU15, for 16 yards to the MSU15 fumbled by #7 I.Horton at MSU15 forced by #12 J.Boamah recovered by MSU #12 J.Boamah at MSU15, End Of Play. The previous play is under automatic review - \"Fumble\". CALL OVERTURNED. (Original Play: (10:06) No Huddle-Shotgun #10 M.Reed pass complete short right to #7 I.Horton caught at MSU15, for 16 yards to the MSU15)" };
+    const candidates = mapLivePlayToCandidates({ play, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Texas A&M", position: "DST" }, { schoolName: "Missouri State", position: "DST" }] });
+    const turnover = candidates.find(candidate => candidate.eventType === "DEFENSIVE_TURNOVER");
+    expect(turnover?.schoolName).toBe("Missouri State");
+  });
+
   it("credits a trick-play touchdown pass to the actual thrower's real position (RB), not a blanket default to QB, when CFBD has no stats and the thrower isn't the drafted QB - real Delaware play where an RB threw a 75-yard TD pass to another RB", () => {
     const roster = [
       { id: 1, firstName: "Viron", lastName: "Ellison Jr.", position: "RB" },
