@@ -23,12 +23,15 @@ describe("College Football gameday polling window", () => {
   it("runs during the configured Eastern Thursday-through-Sunday game window and skips quiet weekdays", () => {
     expect(isCollegeFootballGamedayWindow(new Date("2026-09-03T22:00:00.000Z"))).toBe(true);
     expect(isCollegeFootballGamedayWindow(new Date("2026-09-05T15:00:00.000Z"))).toBe(true);
-    expect(isCollegeFootballGamedayWindow(new Date("2026-09-01T16:00:00.000Z"))).toBe(false);
+    expect(isCollegeFootballGamedayWindow(new Date("2026-09-01T19:00:00.000Z"))).toBe(false); // Tuesday ~3pm ET, clearly outside even the extended Tuesday-morning allowance
   });
-  it("keeps running well past 3am Sunday and into Monday morning, so late Saturday-night games actually get time to finalize (the bug that left multiple games permanently stuck unreconciled)", () => {
+  it("keeps running well past 3am Sunday, all through Monday, and into Tuesday morning - so late Saturday-night AND Monday-night games actually get time to finalize (Monday used to cut off at noon, which left a real Monday-night SMU/Florida State game permanently stuck unreconciled)", () => {
     expect(isCollegeFootballGamedayWindow(new Date("2026-09-06T14:00:00.000Z"))).toBe(true); // Sunday ~10am ET
     expect(isCollegeFootballGamedayWindow(new Date("2026-09-06T23:00:00.000Z"))).toBe(true); // Sunday ~7pm ET
     expect(isCollegeFootballGamedayWindow(new Date("2026-09-07T14:00:00.000Z"))).toBe(true); // Monday ~10am ET
-    expect(isCollegeFootballGamedayWindow(new Date("2026-09-07T20:00:00.000Z"))).toBe(false); // Monday ~4pm ET, back to quiet
+    expect(isCollegeFootballGamedayWindow(new Date("2026-09-07T20:00:00.000Z"))).toBe(true); // Monday ~4pm ET - now still active, not "back to quiet"
+    expect(isCollegeFootballGamedayWindow(new Date("2026-09-08T03:30:00.000Z"))).toBe(true); // Monday ~11:30pm ET, a real Monday night game still in progress
+    expect(isCollegeFootballGamedayWindow(new Date("2026-09-08T13:00:00.000Z"))).toBe(true); // Tuesday ~9am ET, reconciliation runway for that Monday night game
+    expect(isCollegeFootballGamedayWindow(new Date("2026-09-08T19:00:00.000Z"))).toBe(false); // Tuesday ~3pm ET, back to quiet
   });
 });

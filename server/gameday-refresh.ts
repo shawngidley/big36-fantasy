@@ -22,15 +22,17 @@ export function isCollegeFootballGamedayWindow(now = new Date()) {
   const weekday = parts.find(part => part.type === "weekday")?.value;
   const hour = Number(parts.find(part => part.type === "hour")?.value ?? "0");
   // Games can legitimately kick off as late as 10-11pm ET and take hours to fully reconcile once
-  // CFBD's official data becomes available - the previous window (cutting off at 3am Sunday) left
-  // late Saturday games permanently stuck unreconciled, since the automation would simply stop
-  // trying once "outside the window" and never come back to them. This window now runs generously
-  // through the whole weekend into Monday, giving every game ample time to actually get finalized,
-  // not just detected as complete.
+  // CFBD's official data becomes available - the previous window (cutting off at 3am Sunday, then
+  // later at noon Monday) left late games permanently stuck unreconciled, since the automation would
+  // simply stop trying once "outside the window" and never come back to them. Monday night games are
+  // a normal, regular part of the schedule (not an edge case), so Monday now runs all day like
+  // Sat/Sun, and the window extends into Tuesday morning to give a Monday night game - which can
+  // finish near midnight - the same reconciliation runway every other day already gets.
   if (weekday === "Thu" || weekday === "Fri") return hour >= 15;
   if (weekday === "Sat") return true;
   if (weekday === "Sun") return true;
-  if (weekday === "Mon") return hour <= 12;
+  if (weekday === "Mon") return true;
+  if (weekday === "Tue") return hour <= 12;
   return false;
 }
 

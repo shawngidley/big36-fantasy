@@ -14,7 +14,7 @@ vi.mock("./league-scoring", () => ({ calculateEventScore: mocks.calculateEventSc
 vi.mock("./live-scoring", () => ({ eligibleGameIdsForSchool: mocks.eligibleGameIdsForSchool, boxScoreFumbleCandidates: () => ({ available: false, candidates: [] }), finalShutoutCandidates: mocks.finalShutoutCandidates, isSupersededInterceptionPlay: mocks.isSupersededInterceptionPlay, normalizeSchoolForComparison: (value: string) => value.trim().toLowerCase().replace(/\s+/g, " "), mapLivePlayToCandidates: mocks.mapLivePlayToCandidates }));
 vi.mock("./supabase", () => ({ supabaseRest: mocks.supabaseRest }));
 
-import { resolveB36WeekNumber, runGamedayRefresh } from "./gameday-refresh";
+import { isCollegeFootballGamedayWindow, resolveB36WeekNumber, runGamedayRefresh } from "./gameday-refresh";
 
 const game = { id: 101, season: 2026, week: 1, seasonType: "regular", startDate: "2026-09-05T16:00:00Z", completed: true, homeTeam: "Ohio State", awayTeam: "Texas", homeClassification: "fbs", awayClassification: "fbs", homePoints: 21, awayPoints: 14 };
 const candidate = { sourceEventKey: "101:55:qb", sourceGameId: 101, schoolName: "Ohio State", position: "QB", eventType: "TOUCHDOWN", statValue: 1, yardDistance: 35, note: "Passing touchdown" };
@@ -278,5 +278,34 @@ describe("resolveB36WeekNumber", () => {
   it("passes every other week number straight through untouched", () => {
     expect(resolveB36WeekNumber({ week: 2, startDate: "2026-09-12T19:00:00Z" })).toBe(2);
     expect(resolveB36WeekNumber({ week: 7, startDate: "2026-10-17T19:00:00Z" })).toBe(7);
+  });
+});
+
+describe("isCollegeFootballGamedayWindow", () => {
+  it("covers Monday night, when a real SMU/Florida State game sat completely unprocessed because the window used to cut off at noon Monday", () => {
+    // Monday 2026-09-07, 11:30pm ET
+    expect(isCollegeFootballGamedayWindow(new Date("2026-09-08T03:30:00Z"))).toBe(true);
+  });
+  it("covers Tuesday morning, to give a Monday night game the same reconciliation runway every other day gets", () => {
+    // Tuesday 2026-09-08, 9:00am ET
+    expect(isCollegeFootballGamedayWindow(new Date("2026-09-08T13:00:00Z"))).toBe(true);
+  });
+  it("excludes Tuesday afternoon and Wednesday, when there is normally no FBS action", () => {
+    // Tuesday 2026-09-08, 3:00pm ET
+    expect(isCollegeFootballGamedayWindow(new Date("2026-09-08T19:00:00Z"))).toBe(false);
+    // Wednesday 2026-09-09, noon ET
+    expect(isCollegeFootballGamedayWindow(new Date("2026-09-09T16:00:00Z"))).toBe(false);
+  });
+  it("still requires Thursday/Friday to be after 3pm ET", () => {
+    // Thursday 2026-09-10, 10:00am ET
+    expect(isCollegeFootballGamedayWindow(new Date("2026-09-10T14:00:00Z"))).toBe(false);
+    // Thursday 2026-09-10, 4:00pm ET
+    expect(isCollegeFootballGamedayWindow(new Date("2026-09-10T20:00:00Z"))).toBe(true);
+  });
+  it("covers all of Saturday and Sunday", () => {
+    // Saturday 2026-09-12, 6:00am ET
+    expect(isCollegeFootballGamedayWindow(new Date("2026-09-12T10:00:00Z"))).toBe(true);
+    // Sunday 2026-09-13, 11:00pm ET
+    expect(isCollegeFootballGamedayWindow(new Date("2026-09-14T03:00:00Z"))).toBe(true);
   });
 });
