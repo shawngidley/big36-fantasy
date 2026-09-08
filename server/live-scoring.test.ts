@@ -239,6 +239,16 @@ describe("36 Football automatic scoring map", () => {
     expect(turnover?.schoolName).toBe("Missouri State");
   });
 
+  it("credits a rushing touchdown to the player who actually scored, not a different player named later in the same text for an unrelated subsequent event (a two-point attempt) - real Kansas State play where Avery Johnson (QB) ran for the TD but Linkon Cure (TE), named only in the following two-point-attempt clause, got wrongly credited instead since TE was the drafted position and QB wasn't", () => {
+    const roster = [
+      { id: 1, firstName: "Avery", lastName: "Johnson", position: "QB" },
+      { id: 2, firstName: "Linkon", lastName: "Cure", position: "TE" },
+    ];
+    const play = { id: 40185677194, gameId: 401856771, offense: "Kansas State", defense: "Nicholls", scoring: true, playType: "Rushing Touchdown", playText: "(07:05) No Huddle-Shotgun #2 A.Johnson rush left for 10 yards gain to the NICH00 TOUCHDOWN, clock 06:59, 1ST DOWN #0 L.Cure rush attempt Successful" };
+    const candidates = mapLivePlayToCandidates({ play, stats: [], roster, selectedSchoolPositions: [{ schoolName: "Kansas State", position: "TE" }] });
+    expect(candidates.some(candidate => candidate.eventType === "TOUCHDOWN" && candidate.position === "TE")).toBe(false);
+  });
+
   it("credits a trick-play touchdown pass to the actual thrower's real position (RB), not a blanket default to QB, when CFBD has no stats and the thrower isn't the drafted QB - real Delaware play where an RB threw a 75-yard TD pass to another RB", () => {
     const roster = [
       { id: 1, firstName: "Viron", lastName: "Ellison Jr.", position: "RB" },

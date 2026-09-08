@@ -187,6 +187,15 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   // own penalty history, which must not retroactively void an already-completed score. For plays
   // that never mention "touchdown" at all this is a no-op and every other check is unaffected.
   const [beforeTouchdown, ...afterTouchdownParts] = playTextNormalized.split(/touchdown/);
+  // Who actually scored is named right before "touchdown" appears in CFBD's text; text AFTER it
+  // often describes a SEPARATE subsequent event (most commonly a PAT or two-point conversion
+  // attempt, frequently involving a completely different player). The broader mentionedPositions
+  // set (scanning the whole play text) doesn't distinguish these, so when there's no structured stat
+  // data to fall back on, any player mentioned ANYWHERE - including in that later, unrelated clause -
+  // could get wrongly credited with the touchdown itself. Real Kansas State play: Avery Johnson (QB)
+  // ran for the touchdown, but Linkon Cure (TE) - named only in the following two-point-attempt
+  // clause - got credited instead, since TE was the drafted position and QB wasn't.
+  const mentionedPositionsBeforeTouchdown = positionsMentionedInText(beforeTouchdown, roster, positions);
   const afterTouchdown = afterTouchdownParts.join("touchdown");
   const relevantAfterTouchdown = afterTouchdown.split(/kick attempt|pat attempt|point attempt/)[0] ?? "";
   const invalidationScopedText = playTextNormalized.includes("touchdown") ? `${beforeTouchdown} touchdown ${relevantAfterTouchdown}` : playTextNormalized;
@@ -234,12 +243,12 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
     }
     const scorer = offensivePositions.filter(position => position !== "QB" && explicitTouchdownPositions.has(position));
     const legacyScorer = offensivePositions.filter(position => position !== "QB" && athletePositionsFor(type => type.includes("reception")).has(position));
-    const positionsToCredit = scorer.length > 0 ? scorer : legacyScorer.length > 0 ? legacyScorer : offensivePositions.filter(position => position !== "QB" && mentionedPositions.has(position));
+    const positionsToCredit = scorer.length > 0 ? scorer : legacyScorer.length > 0 ? legacyScorer : offensivePositions.filter(position => position !== "QB" && mentionedPositionsBeforeTouchdown.has(position));
     positionsToCredit.forEach(position => offensiveCandidate(position, "TOUCHDOWN"));
   } else if (rushingTouchdown) {
     const scorer = offensivePositions.filter(position => rushingTouchdownPositions.has(position) || explicitTouchdownPositions.has(position));
     const legacyScorer = offensivePositions.filter(position => athletePositionsFor(type => type.includes("rush")).has(position));
-    const positionsToCredit = scorer.length > 0 ? scorer : legacyScorer.length > 0 ? legacyScorer : offensivePositions.filter(position => mentionedPositions.has(position));
+    const positionsToCredit = scorer.length > 0 ? scorer : legacyScorer.length > 0 ? legacyScorer : offensivePositions.filter(position => mentionedPositionsBeforeTouchdown.has(position));
     positionsToCredit.forEach(position => offensiveCandidate(position, "TOUCHDOWN"));
   }
   // Like PATs, CFBD frequently gives a two-point conversion attempt a generic playType (just "Rush"
