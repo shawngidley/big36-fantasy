@@ -608,6 +608,35 @@ export const leagueRouter = router({
     // of a game that finished during a window when automation was broken (like today's incident)
     // and, being already "completed"/settled, will never automatically get a first pass now that
     // automation is healthy again. Read-only.
+    // Sweep for the exact bug found in the Ole Miss game: a live-detected entry and its official
+    // confirmation both still active for the same (game, slot, event type) - meaning the live entry
+    // was never reversed once the official one landed. Groups active ENTRY rows and flags any group
+    // containing both a cfbd-live-detection row and a cfbd-live-refresh/cfbd-final-reconciliation
+    // row simultaneously. Read-only.
+    debugUnreversedLiveDuplicates: adminProcedure.query(async () => {
+      const eventRows = await supabaseRestAll<{ id: string; source_game_id: number | null; draft_slot_id: string; event_type: string; audit_action: string; recorded_by_open_id: string; correction_of_event_id: string | null; computed_points: number; source_event_key: string | null }>("b36_scoring_events", { query: { select: "id,source_game_id,draft_slot_id,event_type,audit_action,recorded_by_open_id,correction_of_event_id,computed_points,source_event_key", order: "created_at.asc" } });
+      const reversedIds = new Set(eventRows.filter(row => row.audit_action === "REVERSAL" && row.correction_of_event_id).map(row => row.correction_of_event_id));
+      const activeEntries = eventRows.filter(row => row.audit_action === "ENTRY" && !reversedIds.has(row.id));
+      const groups = new Map<string, typeof activeEntries>();
+      for (const row of activeEntries) {
+        const key = `${row.source_game_id}:${row.draft_slot_id}:${row.event_type}`;
+        groups.set(key, [...(groups.get(key) ?? []), row]);
+      }
+      const slots = await supabaseRestAll<{ id: string; school_name: string | null; position: string; owner_id: string }>("b36_draft_slots", { query: { select: "id,school_name,position,owner_id", order: "id.asc" } });
+      const owners = await supabaseRestAll<{ id: string; team_name: string }>("b36_owners", { query: { select: "id,team_name", order: "id.asc" } });
+      const slotById = new Map(slots.map(slot => [slot.id, slot]));
+      const ownerNameById = new Map(owners.map(owner => [owner.id, owner.team_name]));
+      const flagged: Array<{ gameId: number | null; school: string; position: string; owner: string; eventType: string; rows: Array<{ id: string; source: string; points: number; key: string | null }> }> = [];
+      for (const [groupKey, rows] of Array.from(groups.entries())) {
+        const hasLive = rows.some(row => row.recorded_by_open_id === "cfbd-live-detection");
+        const hasOfficial = rows.some(row => row.recorded_by_open_id === "cfbd-live-refresh" || row.recorded_by_open_id === "cfbd-final-reconciliation");
+        if (!hasLive || !hasOfficial) continue;
+        const [gameIdStr, slotId, eventType] = groupKey.split(":");
+        const slot = slotById.get(slotId);
+        flagged.push({ gameId: gameIdStr === "null" ? null : Number(gameIdStr), school: slot?.school_name ?? "Unknown", position: slot?.position ?? "?", owner: slot ? (ownerNameById.get(slot.owner_id) ?? "Unknown") : "Unknown", eventType, rows: rows.map(row => ({ id: row.id, source: row.recorded_by_open_id, points: row.computed_points, key: row.source_event_key })) });
+      }
+      return { totalEventRows: eventRows.length, flaggedGroupCount: flagged.length, flagged };
+    }),
     debugUnprocessedGames: adminProcedure.query(async () => {
       const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
       const season = automationRows[0]?.season;
