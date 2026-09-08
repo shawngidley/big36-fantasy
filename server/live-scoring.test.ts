@@ -249,6 +249,17 @@ describe("36 Football automatic scoring map", () => {
     expect(candidates.some(candidate => candidate.eventType === "TOUCHDOWN" && candidate.position === "TE")).toBe(false);
   });
 
+  it("detects a two-point conversion combined in the same play block as a touchdown, using CFBD's 'rush attempt Successful' vocabulary rather than the phrase 'two point conversion' - and credits the RIGHT scorer (the two-point attempt's own player, not the touchdown's) - real Kansas State play where Linkon Cure's (TE) successful two-point rush after Johnson's TD went entirely undetected", () => {
+    const roster = [
+      { id: 1, firstName: "Avery", lastName: "Johnson", position: "QB" },
+      { id: 2, firstName: "Linkon", lastName: "Cure", position: "TE" },
+    ];
+    const play = { id: 40185677194, gameId: 401856771, offense: "Kansas State", defense: "Nicholls", scoring: true, playType: "Rushing Touchdown", playText: "(07:05) No Huddle-Shotgun #2 A.Johnson rush left for 10 yards gain to the NICH00 TOUCHDOWN, clock 06:59, 1ST DOWN #0 L.Cure rush attempt Successful" };
+    const candidates = mapLivePlayToCandidates({ play, stats: [], roster, selectedSchoolPositions: [{ schoolName: "Kansas State", position: "TE" }] });
+    const twoPoint = candidates.find(candidate => candidate.eventType === "TWO_POINT_CONVERSION");
+    expect(twoPoint?.position).toBe("TE");
+  });
+
   it("credits a trick-play touchdown pass to the actual thrower's real position (RB), not a blanket default to QB, when CFBD has no stats and the thrower isn't the drafted QB - real Delaware play where an RB threw a 75-yard TD pass to another RB", () => {
     const roster = [
       { id: 1, firstName: "Viron", lastName: "Ellison Jr.", position: "RB" },

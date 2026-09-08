@@ -254,18 +254,28 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   // Like PATs, CFBD frequently gives a two-point conversion attempt a generic playType (just "Rush"
   // or "Pass Reception") and only mentions "two-point conversion" in the play text itself - checking
   // playType alone (the original bug here) misses these entirely.
-  const twoPointMentioned = /two.point conversion/.test(playType) || /two.point conversion/.test(playTextNormalized) || /two point (pass|rush)/.test(playType);
+  // CFBD sometimes describes a two-point attempt combined in the SAME play block as the touchdown
+  // itself, using a completely different vocabulary ("[Player] rush/pass attempt Successful/Failed")
+  // rather than the phrase "two point conversion" - real Kansas State play: after Johnson's TD, "#0
+  // L.Cure rush attempt Successful" is a made two-point conversion that went entirely undetected.
+  const twoPointMentioned = /two.point conversion/.test(playType) || /two.point conversion/.test(playTextNormalized) || /two point (pass|rush)/.test(playType) || /\b(rush|pass) attempt (successful|failed)\b/.test(playTextNormalized);
   const twoPointFailed = /(failed|fail|no good|incomplete|unsuccessful)/.test(playTextNormalized);
   const successfulTwoPoint = twoPointMentioned && !twoPointFailed && !isInvalidated;
+  // When this play ALSO contains a touchdown (the combined case above), the two-point attempt's own
+  // scorer is named in the text after "touchdown" - scoping to just that portion avoids crediting the
+  // touchdown's own scorer (a different player) for the separate two-point attempt too. A standalone
+  // two-point play (no touchdown mentioned in the same text) has no such competing name to worry
+  // about, so it keeps using the full, unscoped set as before.
+  const mentionedPositionsForTwoPoint = playTextNormalized.includes("touchdown") ? positionsMentionedInText(afterTouchdown, roster, positions) : mentionedPositions;
   if (successfulTwoPoint) {
     const isPassPlay = playType.includes("pass") || playTextNormalized.includes("pass");
     if (isPassPlay) {
-      const qbSource = athletePositionsFor(type => type.includes("completion") || type.includes("pass")).has("QB") || mentionedPositions.has("QB");
+      const qbSource = athletePositionsFor(type => type.includes("completion") || type.includes("pass")).has("QB") || mentionedPositionsForTwoPoint.has("QB");
       if (qbSource) offensiveCandidate("QB", "TWO_POINT_CONVERSION");
-      const scorer = offensivePositions.filter(position => position !== "QB" && (athletePositionsFor(type => type.includes("reception")).has(position) || mentionedPositions.has(position)));
+      const scorer = offensivePositions.filter(position => position !== "QB" && (athletePositionsFor(type => type.includes("reception")).has(position) || mentionedPositionsForTwoPoint.has(position)));
       scorer.forEach(position => offensiveCandidate(position, "TWO_POINT_CONVERSION"));
     } else {
-      const scorer = offensivePositions.filter(position => athletePositionsFor(type => type.includes("rush")).has(position) || mentionedPositions.has(position));
+      const scorer = offensivePositions.filter(position => athletePositionsFor(type => type.includes("rush")).has(position) || mentionedPositionsForTwoPoint.has(position));
       scorer.forEach(position => offensiveCandidate(position, "TWO_POINT_CONVERSION"));
     }
   }
