@@ -211,6 +211,13 @@ describe("36 Football automatic scoring map", () => {
     expect(turnover?.schoolName).toBe("Kennesaw State");
   });
 
+  it("detects a muffed kickoff return as a real turnover even though CFBD's playType is just 'Kickoff' and the text says 'muffed' rather than 'fumble' - real Notre Dame/Wisconsin play that was invisible to the playType-only fumble check", () => {
+    const play = { id: 401858438100, gameId: 401858438, offense: "Notre Dame", defense: "Wisconsin", scoring: false, playType: "Kickoff", playText: "(01:31) #18 E.Schmidt kickoff 60 yards to the Wis05 muffed by #32 H.Bortolotti at Wis05 recovered by UND #43 K.Kia at Wis13, End Of Play." };
+    const candidates = mapLivePlayToCandidates({ play, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Notre Dame", position: "DST" }, { schoolName: "Wisconsin", position: "DST" }] });
+    const turnover = candidates.find(candidate => candidate.eventType === "DEFENSIVE_TURNOVER");
+    expect(turnover?.schoolName).toBe("Notre Dame");
+  });
+
   it("credits a trick-play touchdown pass to the actual thrower's real position (RB), not a blanket default to QB, when CFBD has no stats and the thrower isn't the drafted QB - real Delaware play where an RB threw a 75-yard TD pass to another RB", () => {
     const roster = [
       { id: 1, firstName: "Viron", lastName: "Ellison Jr.", position: "RB" },

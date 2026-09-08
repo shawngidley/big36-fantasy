@@ -197,7 +197,13 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   // the fumble to the defense, but checking only one phrase (the original gap here) meant a
   // fumble-six correctly credited the defense's touchdown while never penalizing the offense for
   // losing the ball in the first place.
-  const isFumbleLostToOpponent = playType.includes("fumble recovery (opponent)") || playType.includes("fumble return touchdown");
+  // A muffed kickoff/punt return (the returner fails to control the catch) uses "muffed" in CFBD's
+  // text rather than "fumble," and the playType is often just "Kickoff"/"Punt" rather than a clean
+  // "Fumble Recovery (Opponent)" tag - so this was invisible to the playType-only check above. Real
+  // Notre Dame/Wisconsin play: "muffed by #32 H.Bortolotti ... recovered by UND #43 K.Kia" was a
+  // genuine takeaway that went completely undetected.
+  const isMuffedReturn = /muffed/.test(playTextNormalized) && /recovered by/.test(playTextNormalized);
+  const isFumbleLostToOpponent = playType.includes("fumble recovery (opponent)") || playType.includes("fumble return touchdown") || isMuffedReturn;
   const hasOffensiveTouchdownText = /(touchdown|\btd\b)/.test(`${playType} ${playTextNormalized}`);
   const passingTouchdown = !isTwoPoint && !isInvalidated && !isInterceptionReturn && (passingTouchdownPositions.has("QB") || (explicitTouchdownPositions.has("QB") && athletePositionsFor(type => type.includes("reception")).size > 0) || (hasOffensiveTouchdownText && /\bpass\b/.test(`${playType} ${playTextNormalized}`)));
   const rushingTouchdown = !isTwoPoint && !isInvalidated && !passingTouchdown && (rushingTouchdownPositions.size > 0 || (hasOffensiveTouchdownText && /\b(rush\w*|run)\b/.test(`${playType} ${playTextNormalized}`)));
