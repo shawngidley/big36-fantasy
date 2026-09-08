@@ -190,7 +190,15 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   const afterTouchdown = afterTouchdownParts.join("touchdown");
   const relevantAfterTouchdown = afterTouchdown.split(/kick attempt|pat attempt|point attempt/)[0] ?? "";
   const invalidationScopedText = playTextNormalized.includes("touchdown") ? `${beforeTouchdown} touchdown ${relevantAfterTouchdown}` : playTextNormalized;
-  const isInvalidated = /(no play|nullified by penalty|reversed|overturned)/.test(`${playType} ${invalidationScopedText}`);
+  // "Overturned" is uniquely context-dependent, unlike the other invalidation words: CFBD's text
+  // always states the CONFIRMED, final result first, then explains the review, so "call overturned
+  // (original play: ...incomplete...)" after an already-stated touchdown means the review CONFIRMED
+  // the score (overturning the earlier incomplete call), not voided it. Only treat "overturned" as
+  // invalidating when no touchdown was already confirmed before that word appears. Real Indiana play
+  // (Hoover to Marsh) was a confirmed 15-yard TD that got wrongly nullified by this exact ambiguity.
+  const overturnedIndex = playTextNormalized.search(/overturned/);
+  const overturnedConfirmsScore = overturnedIndex >= 0 && /touchdown/.test(playTextNormalized.slice(0, overturnedIndex));
+  const isInvalidated = /(no play|nullified by penalty|reversed)/.test(`${playType} ${invalidationScopedText}`) || (/overturned/.test(invalidationScopedText) && !overturnedConfirmsScore);
   const isInterceptionReturn = playType.includes("interception");
   // CFBD uses a different playType when the fumble is returned for a touchdown ("Fumble Return
   // Touchdown") versus when it isn't ("Fumble Recovery (Opponent)") - both mean the offense lost

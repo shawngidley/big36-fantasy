@@ -218,6 +218,20 @@ describe("36 Football automatic scoring map", () => {
     expect(turnover?.schoolName).toBe("Notre Dame");
   });
 
+  it("does not invalidate a touchdown that a replay review CONFIRMED (overturning an earlier incomplete call) - real Indiana play where a confirmed 15-yard TD pass was wrongly nullified because CFBD's text contains the word 'overturned' even though it means the score stood", () => {
+    const roster = [{ id: 1, firstName: "J.", lastName: "Hoover", position: "QB" }];
+    const play = { id: 40185842532, gameId: 401858425, offense: "Indiana", defense: "North Texas", scoring: true, playType: "Passing Touchdown", playText: "(13:40) Shotgun #10 J.Hoover pass complete short left to #11 N.Marsh caught at UNT00, for 15 yards to the UNT00 TOUCHDOWN, clock 13:36, 1ST DOWN. The previous play is under automatic review - \"Pass completion\". CALL OVERTURNED. (Original Play: (13:40) Shotgun #10 J.Hoover pass incomplete short left to #11 N.Marsh thrown to UNT00) #15 N.Radicic kick attempt good" };
+    const candidates = mapLivePlayToCandidates({ play, stats: [], roster, selectedSchoolPositions: [{ schoolName: "Indiana", position: "QB" }] });
+    expect(candidates.some(candidate => candidate.eventType === "TOUCHDOWN" && candidate.position === "QB")).toBe(true);
+  });
+
+  it("still invalidates a touchdown that a replay review overturned AWAY from a score (the opposite real scenario)", () => {
+    const roster = [{ id: 1, firstName: "J.", lastName: "Hoover", position: "QB" }];
+    const play = { id: 999, gameId: 1, offense: "Indiana", defense: "North Texas", scoring: false, playType: "Passing Touchdown", playText: "Shotgun #10 J.Hoover pass incomplete short left to #11 N.Marsh. The previous play is under automatic review - \"Pass completion\". CALL OVERTURNED. (Original Play: Shotgun #10 J.Hoover pass complete short left to #11 N.Marsh caught at UNT00, for 15 yards to the UNT00 TOUCHDOWN)" };
+    const candidates = mapLivePlayToCandidates({ play, stats: [], roster, selectedSchoolPositions: [{ schoolName: "Indiana", position: "QB" }] });
+    expect(candidates.some(candidate => candidate.eventType === "TOUCHDOWN")).toBe(false);
+  });
+
   it("credits a trick-play touchdown pass to the actual thrower's real position (RB), not a blanket default to QB, when CFBD has no stats and the thrower isn't the drafted QB - real Delaware play where an RB threw a 75-yard TD pass to another RB", () => {
     const roster = [
       { id: 1, firstName: "Viron", lastName: "Ellison Jr.", position: "RB" },
