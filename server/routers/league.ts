@@ -604,6 +604,26 @@ export const leagueRouter = router({
     // "LSU"). A pure-casing mismatch still scores correctly today; a genuine name mismatch never
     // will, since no normalization can bridge two unrelated strings. Read-only.
     // Search the FULL season schedule (not just early weeks) for team names matching a substring.
+    // Sweep for completed, drafted-relevant games with ZERO scoring events at all - the signature
+    // of a game that finished during a window when automation was broken (like today's incident)
+    // and, being already "completed"/settled, will never automatically get a first pass now that
+    // automation is healthy again. Read-only.
+    debugUnprocessedGames: adminProcedure.query(async () => {
+      const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
+      const season = automationRows[0]?.season;
+      if (!season) throw new Error("No season configured.");
+      const [schedule, slots, eventRows] = await Promise.all([
+        getRegularSeasonGames(season),
+        supabaseRestAll<{ school_name: string | null }>("b36_draft_slots", { query: { select: "school_name", school_name: "not.is.null", order: "id.asc" } }),
+        supabaseRestAll<{ source_game_id: number | null }>("b36_scoring_events", { query: { select: "source_game_id", order: "created_at.asc" } }),
+      ]);
+      const normalize = (value: string) => value.trim().toLowerCase().replace(/\s+/g, " ");
+      const draftedSchools = new Set(slots.map(slot => normalize(slot.school_name as string)));
+      const gamesWithEvents = new Set(eventRows.map(row => row.source_game_id).filter((id): id is number => id !== null));
+      const relevantCompletedGames = schedule.filter(game => game.completed && (draftedSchools.has(normalize(game.homeTeam)) || draftedSchools.has(normalize(game.awayTeam))));
+      const unprocessed = relevantCompletedGames.filter(game => !gamesWithEvents.has(game.id));
+      return { season, relevantCompletedGameCount: relevantCompletedGames.length, unprocessedCount: unprocessed.length, unprocessed: unprocessed.map(game => ({ id: game.id, homeTeam: game.homeTeam, awayTeam: game.awayTeam, week: game.week, startDate: game.startDate })) };
+    }),
     debugScheduleTeamSearch: adminProcedure.input(z.object({ search: z.string() })).query(async ({ input }) => {
       const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
       const season = automationRows[0]?.season;
