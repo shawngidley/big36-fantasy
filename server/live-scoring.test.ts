@@ -260,6 +260,12 @@ describe("36 Football automatic scoring map", () => {
     expect(twoPoint?.position).toBe("TE");
   });
 
+  it("does not credit a field goal nullified by penalty, even though CFBD's text still says GOOD before the penalty note - real Georgia/Tennessee State play where a made 38-yard FG got wrongly credited despite 'nullified by penalty ... NO PLAY' appearing right in the text, since field goal detection never checked isInvalidated at all", () => {
+    const play = { id: 401856658277, gameId: 401856658, offense: "Georgia", defense: "Tennessee State", scoring: false, playType: "Field Goal Good", playText: "(07:46) #91 P.Woodring field goal attempt from 38 yards nullified by penaltyGOOD (H: #90 D.Miller, LS: #51 W.Snellings), clock 07:45 PENALTY UGA Equipment Violation 5 yards from TSU20 to TSU25. NO PLAY" };
+    const candidates = mapLivePlayToCandidates({ play, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Georgia", position: "K" }] });
+    expect(candidates.some(candidate => candidate.eventType === "FIELD_GOAL")).toBe(false);
+  });
+
   it("credits a trick-play touchdown pass to the actual thrower's real position (RB), not a blanket default to QB, when CFBD has no stats and the thrower isn't the drafted QB - real Delaware play where an RB threw a 75-yard TD pass to another RB", () => {
     const roster = [
       { id: 1, firstName: "Viron", lastName: "Ellison Jr.", position: "RB" },

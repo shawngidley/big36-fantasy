@@ -309,7 +309,7 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   }
   const mentionsFieldGoal = playType.includes("field goal") || playTextNormalized.includes("field goal");
   const fieldGoalMissedOrBlocked = /(missed|no good|blocked)/.test(`${playType} ${playTextNormalized}`);
-  if (eligibleSelection(schoolName, "K") && mentionsFieldGoal && !fieldGoalMissedOrBlocked) candidates.push({ sourceEventKey: `${play.id}:FIELD_GOAL:K`, sourceGameId: play.gameId, schoolName, position: "K", eventType: "FIELD_GOAL", statValue: 1, yardDistance: fieldGoalDistance(play), provisional, note: `CFBD play ${play.id} · made field goal` });
+  if (eligibleSelection(schoolName, "K") && mentionsFieldGoal && !fieldGoalMissedOrBlocked && !isInvalidated) candidates.push({ sourceEventKey: `${play.id}:FIELD_GOAL:K`, sourceGameId: play.gameId, schoolName, position: "K", eventType: "FIELD_GOAL", statValue: 1, yardDistance: fieldGoalDistance(play), provisional, note: `CFBD play ${play.id} · made field goal` });
   // A PAT following a return touchdown (kickoff/punt/blocked-kick return) is bundled into the same
   // play as the score itself, and CFBD lists the KICKING team as "offense" on that play - meaning
   // schoolName here is the kicking team, not whoever actually scored and would attempt the PAT.
@@ -328,7 +328,7 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   // "field goal attempt from 45 yards BLOCKED" / "punt ... BLOCKED by" - the words are rarely adjacent.
   const blockedFieldGoal = /blocked[^.]*field goal|field goal[^.]*blocked/.test(playText);
   const blockedPunt = !blockedFieldGoal && /blocked[^.]*punt|punt[^.]*blocked/.test(playText);
-  if (eligibleSelection(defensiveSchool, "DST") && blockedFieldGoal) candidates.push(specialTeamsCandidate("BLOCKED_FIELD_GOAL"));
+  if (eligibleSelection(defensiveSchool, "DST") && blockedFieldGoal && !isInvalidated) candidates.push(specialTeamsCandidate("BLOCKED_FIELD_GOAL"));
   if (eligibleSelection(defensiveSchool, "DST") && blockedPunt) candidates.push(specialTeamsCandidate("BLOCKED_PUNT"));
   if (playText.includes("safety")) {
     // The team that scored the safety is whoever's score moved; the play's defense otherwise.
