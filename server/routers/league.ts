@@ -662,6 +662,22 @@ export const leagueRouter = router({
       const names = new Set(schedule.flatMap(game => [game.homeTeam, game.awayTeam]).filter(name => name.toLowerCase().includes(matcher)));
       return { matches: Array.from(names) };
     }),
+    // Find a game by both teams' names, regardless of date - debugScoreboardMatch only covers a
+    // recent/current window, so older completed games (any week, not just the latest) need this.
+    debugFindGameByTeams: adminProcedure.input(z.object({ teamA: z.string(), teamB: z.string() })).query(async ({ input }) => {
+      const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
+      const season = automationRows[0]?.season;
+      if (!season) throw new Error("No season configured.");
+      const schedule = await getRegularSeasonGames(season);
+      const a = input.teamA.toLowerCase();
+      const b = input.teamB.toLowerCase();
+      const matches = schedule.filter(game => {
+        const home = game.homeTeam.toLowerCase();
+        const away = game.awayTeam.toLowerCase();
+        return (home.includes(a) && away.includes(b)) || (home.includes(b) && away.includes(a));
+      });
+      return { matches: matches.map(game => ({ id: game.id, homeTeam: game.homeTeam, awayTeam: game.awayTeam, week: game.week, completed: game.completed, startDate: game.startDate })) };
+    }),
     debugSchoolNameMismatches: adminProcedure.query(async () => {
       const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
       const season = automationRows[0]?.season;
