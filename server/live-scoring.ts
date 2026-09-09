@@ -202,13 +202,14 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   const overturnedIndex = playTextNormalized.search(/overturned/);
   // "Overturned" is uniquely context-dependent, unlike the other invalidation words: CFBD's text
   // always states the CONFIRMED, final result first, then explains the review, so a real event
-  // (a touchdown OR a fumble/recovery) already described before "overturned" means the review
-  // CONFIRMED that event by overturning an earlier, different original call - not voided it. Only
-  // treat "overturned" as invalidating when no such confirmed event appears before that word. Real
-  // Indiana play (Hoover to Marsh) was a confirmed TD wrongly nullified by this ambiguity; real Texas
-  // A&M play (Horton fumble, recovered by Missouri State) was a confirmed turnover with the exact
-  // same problem - the review overturned an original "no fumble" call into a real, lost fumble.
-  const overturnedConfirmsRealEvent = overturnedIndex >= 0 && /(touchdown|fumbled)/.test(playTextNormalized.slice(0, overturnedIndex));
+  // (a touchdown, a fumble/recovery, OR an interception) already described before "overturned" means
+  // the review CONFIRMED that event by overturning an earlier, different original call - not voided
+  // it. Only treat "overturned" as invalidating when no such confirmed event appears before that
+  // word. Real Indiana play (Hoover to Marsh) was a confirmed TD wrongly nullified by this ambiguity;
+  // real Texas A&M play (Horton fumble, recovered by Missouri State) was a confirmed turnover with
+  // the exact same problem; real Texas Tech play (Hammond intercepted by Wilcox, originally ruled
+  // incomplete/broken up) was a confirmed interception with the same ambiguity a third time.
+  const overturnedConfirmsRealEvent = overturnedIndex >= 0 && /(touchdown|fumbled|intercepted)/.test(playTextNormalized.slice(0, overturnedIndex));
   const isInvalidated = /(no play|nullified by penalty|reversed)/.test(`${playType} ${invalidationScopedText}`) || (/overturned/.test(invalidationScopedText) && !overturnedConfirmsRealEvent);
   const isInterceptionReturn = playType.includes("interception");
   // CFBD uses a different playType when the fumble is returned for a touchdown ("Fumble Return

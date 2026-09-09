@@ -239,6 +239,13 @@ describe("36 Football automatic scoring map", () => {
     expect(turnover?.schoolName).toBe("Missouri State");
   });
 
+  it("credits an interception that a replay review CONFIRMED (overturning an original 'incomplete/broken up' call) - real Texas Tech play (Hammond intercepted by Wilcox) that was wrongly suppressed by the same overturned-invalidation ambiguity a third time, now for an interception instead of a touchdown or fumble", () => {
+    const roster = [{ id: 1, firstName: "W.", lastName: "Hammond", position: "QB" }];
+    const play = { id: 401856770285, gameId: 401856770, offense: "Texas Tech", defense: "Abilene Christian", scoring: false, playType: "Interception", playText: "(07:13) No Huddle-Shotgun #15 W.Hammond pass intercepted by #22 J.Wilcox at ACU07, End Of Play. The previous play is under automatic review - \"Interception\". CALL OVERTURNED. (Original Play: (07:13) No Huddle-Shotgun #15 W.Hammond pass incomplete deep right to #9 D.Lee Jr. thrown to ACU10 broken up by #22 J.Wilcox)" };
+    const candidates = mapLivePlayToCandidates({ play, stats: [], roster, selectedSchoolPositions: [{ schoolName: "Texas Tech", position: "QB" }] });
+    expect(candidates.some(candidate => candidate.eventType === "INTERCEPTION_THROWN" && candidate.position === "QB")).toBe(true);
+  });
+
   it("credits a rushing touchdown to the player who actually scored, not a different player named later in the same text for an unrelated subsequent event (a two-point attempt) - real Kansas State play where Avery Johnson (QB) ran for the TD but Linkon Cure (TE), named only in the following two-point-attempt clause, got wrongly credited instead since TE was the drafted position and QB wasn't", () => {
     const roster = [
       { id: 1, firstName: "Avery", lastName: "Johnson", position: "QB" },
