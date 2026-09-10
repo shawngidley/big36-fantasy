@@ -211,7 +211,11 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   // incomplete/broken up) was a confirmed interception with the same ambiguity a third time.
   const overturnedConfirmsRealEvent = overturnedIndex >= 0 && /(touchdown|fumbled|intercepted)/.test(playTextNormalized.slice(0, overturnedIndex));
   const isInvalidated = /(no play|nullified by penalty|reversed)/.test(`${playType} ${invalidationScopedText}`) || (/overturned/.test(invalidationScopedText) && !overturnedConfirmsRealEvent);
-  const isInterceptionReturn = playType.includes("interception");
+  // CFBD sometimes labels the playType by whatever ELSE happened on the play (here, a penalty on the
+  // return) rather than the interception itself, even though the text clearly describes one. Real
+  // Portland State/SDSU play: "pass intercepted by #14 I.Green ... PENALTY SDSU Unsportsmanlike
+  // Conduct" was typed "Penalty," making the interception invisible to a playType-only check.
+  const isInterceptionReturn = playType.includes("interception") || /\bintercepted\b/.test(playTextNormalized);
   // CFBD uses a different playType when the fumble is returned for a touchdown ("Fumble Return
   // Touchdown") versus when it isn't ("Fumble Recovery (Opponent)") - both mean the offense lost
   // the fumble to the defense, but checking only one phrase (the original gap here) meant a

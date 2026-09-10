@@ -218,6 +218,13 @@ describe("36 Football automatic scoring map", () => {
     expect(turnover?.schoolName).toBe("Notre Dame");
   });
 
+  it("detects an interception as a real turnover even when CFBD's playType is 'Penalty' rather than 'Interception' (because a penalty happened on the same play) - real Portland State/SDSU play where a confirmed interception went completely undetected", () => {
+    const play = { id: 401860879391, gameId: 401860879, offense: "Portland State", defense: "San Diego State", scoring: false, playType: "Penalty", playText: "(01:36) No Huddle-Shotgun #5 G.Downing pass intercepted by #14 I.Green at SDSU21 #14 I.Green return 10 yards to the SDSU31 (#10 T.Beaman) PENALTY SDSU UNS: Unsportsmanlike Conduct (#11 K.Clay) 15 yards from SDSU31 to SDSU16" };
+    const candidates = mapLivePlayToCandidates({ play, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "San Diego State", position: "DST" }] });
+    const turnover = candidates.find(candidate => candidate.eventType === "DEFENSIVE_TURNOVER");
+    expect(turnover?.schoolName).toBe("San Diego State");
+  });
+
   it("does not invalidate a touchdown that a replay review CONFIRMED (overturning an earlier incomplete call) - real Indiana play where a confirmed 15-yard TD pass was wrongly nullified because CFBD's text contains the word 'overturned' even though it means the score stood", () => {
     const roster = [{ id: 1, firstName: "J.", lastName: "Hoover", position: "QB" }];
     const play = { id: 40185842532, gameId: 401858425, offense: "Indiana", defense: "North Texas", scoring: true, playType: "Passing Touchdown", playText: "(13:40) Shotgun #10 J.Hoover pass complete short left to #11 N.Marsh caught at UNT00, for 15 yards to the UNT00 TOUCHDOWN, clock 13:36, 1ST DOWN. The previous play is under automatic review - \"Pass completion\". CALL OVERTURNED. (Original Play: (13:40) Shotgun #10 J.Hoover pass incomplete short left to #11 N.Marsh thrown to UNT00) #15 N.Radicic kick attempt good" };
