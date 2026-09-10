@@ -297,6 +297,16 @@ describe("36 Football automatic scoring map", () => {
     expect(candidates.some(candidate => candidate.eventType === "OTHER_SPECIAL_TEAMS_TOUCHDOWN")).toBe(false);
   });
 
+  it("credits a shared sack (CFBD gives each of two players their own per-athlete sack stat for the same play) only once, not twice - seen four times today with real data (Texas, Georgia, LSU, Florida)", () => {
+    const play = { id: 999, gameId: 1, offense: "Team A", defense: "Team B", scoring: false, playType: "Sack", playText: "Sacked by two defenders" };
+    const stats = [
+      { playId: 999, athleteId: 1, team: "Team B", statType: "SACK", stat: 1 },
+      { playId: 999, athleteId: 2, team: "Team B", statType: "SACK", stat: 1 },
+    ];
+    const candidates = mapLivePlayToCandidates({ play, stats, roster: [], selectedSchoolPositions: [{ schoolName: "Team B", position: "DST" }] });
+    expect(candidates.filter(candidate => candidate.eventType === "SACK")).toHaveLength(1);
+  });
+
   it("credits a trick-play touchdown pass to the actual thrower's real position (RB), not a blanket default to QB, when CFBD has no stats and the thrower isn't the drafted QB - real Delaware play where an RB threw a 75-yard TD pass to another RB", () => {
     const roster = [
       { id: 1, firstName: "Viron", lastName: "Ellison Jr.", position: "RB" },

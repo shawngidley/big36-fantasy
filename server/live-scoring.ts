@@ -347,9 +347,17 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
     if (specialTeamsPlay && eligibleSelection(safetySchool, "DST")) candidates.push(safetyCandidate("SPECIAL_TEAMS_SAFETY", "DST", "special teams safety"));
     if (!specialTeamsPlay && eligibleSelection(safetySchool, "DST")) candidates.push(safetyCandidate("DEFENSIVE_SAFETY", "DST", "defensive safety"));
   }
+  // A sack CFBD splits between two players (a "half sack" each) generates a separate per-athlete
+  // stat record for each - crediting every one of them separately double-counts what is really ONE
+  // sack event. Seen four times with real data today (Texas, Georgia, LSU, Florida). Track whether
+  // this play has already been credited a sack and skip any further per-athlete sack stat for it.
+  let sackAlreadyCreditedForPlay = false;
   for (const stat of defensiveStats) {
     const type = stat.statType.toLowerCase();
-    if (eligibleSelection(defensiveSchool, "DST") && type.includes("sack")) candidates.push(defensiveCandidate("SACK", stat, "DST"));
+    if (eligibleSelection(defensiveSchool, "DST") && type.includes("sack")) {
+      if (!sackAlreadyCreditedForPlay) { candidates.push(defensiveCandidate("SACK", stat, "DST")); sackAlreadyCreditedForPlay = true; }
+      continue;
+    }
     // "Fumble Recovery" is not a real CFBD stat category for defensive players (confirmed: only
     // "Fumble" and "Fumble Forced" exist) - checking for it here could never match. Fumble
     // recoveries are correctly handled below via the playType-based fallback instead.
