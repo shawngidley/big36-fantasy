@@ -263,6 +263,17 @@ describe("36 Football automatic scoring map", () => {
     expect(candidates.some(candidate => candidate.eventType === "TOUCHDOWN" && candidate.position === "TE")).toBe(false);
   });
 
+  it("does not misclassify a rushing touchdown as a passing touchdown just because the word 'pass' appears later in the same text for an unrelated event - real Vanderbilt play where Alexander (RB) ran for the score, but Berlowitz's (QB) failed two-point PASS attempt afterward wrongly matched a whole-text /pass/ check and routed the credit to QB instead of RB", () => {
+    const roster = [
+      { id: 1, firstName: "Blaze", lastName: "Berlowitz", position: "QB" },
+      { id: 2, firstName: "Sedrick", lastName: "Alexander", position: "RB" },
+    ];
+    const play = { id: 401856669418, gameId: 401856669, offense: "Vanderbilt", defense: "Austin Peay", scoring: true, playType: "Rushing Touchdown", playText: "(05:25) Shotgun #28 S.Alexander rush middle for 18 yards gain to the APSU00 TOUCHDOWN, clock 05:24, 1ST DOWN #1 B.Berlowitz pass attempt failed" };
+    const candidates = mapLivePlayToCandidates({ play, stats: [], roster, selectedSchoolPositions: [{ schoolName: "Vanderbilt", position: "QB" }, { schoolName: "Vanderbilt", position: "RB" }] });
+    const touchdown = candidates.find(candidate => candidate.eventType === "TOUCHDOWN");
+    expect(touchdown?.position).toBe("RB");
+  });
+
   it("detects a two-point conversion combined in the same play block as a touchdown, using CFBD's 'rush attempt Successful' vocabulary rather than the phrase 'two point conversion' - and credits the RIGHT scorer (the two-point attempt's own player, not the touchdown's) - real Kansas State play where Linkon Cure's (TE) successful two-point rush after Johnson's TD went entirely undetected", () => {
     const roster = [
       { id: 1, firstName: "Avery", lastName: "Johnson", position: "QB" },
