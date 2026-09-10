@@ -386,9 +386,9 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
     if (isTurnoverPlay) candidates.push({ sourceEventKey: `${play.id}:DEFENSIVE_TURNOVER:unit`, sourceGameId: play.gameId, schoolName: defensiveSchool, position: "DST", eventType: "DEFENSIVE_TURNOVER", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · turnover (text match)` });
   }
   const typedSpecialTeamsTd = specialTeamsTouchdownType(play.playType);
-  const untypedSpecialTeamsTd = !typedSpecialTeamsTd && specialTeamsPlay && /touchdown|\btd\b/.test(playText) && !playText.includes("no play");
+  const untypedSpecialTeamsTd = !typedSpecialTeamsTd && specialTeamsPlay && /touchdown|\btd\b/.test(playText) && !isInvalidated;
   const specialTeamType = typedSpecialTeamsTd ?? (untypedSpecialTeamsTd ? "OTHER_SPECIAL_TEAMS_TOUCHDOWN" : null);
-  if (specialTeamType) {
+  if (specialTeamType && !isInvalidated) {
     // Credit the team whose score actually moved. Without that signal, the returning side is the
     // play's DEFENSE (the kicking/punting team is listed as offense), never the offense.
     const returningSchool = play.scoringTeam && [schoolName, defensiveSchool].includes(play.scoringTeam) ? play.scoringTeam : defensiveSchool;

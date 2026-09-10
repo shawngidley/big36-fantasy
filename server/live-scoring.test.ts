@@ -280,6 +280,12 @@ describe("36 Football automatic scoring map", () => {
     expect(candidates.some(candidate => candidate.eventType === "FIELD_GOAL")).toBe(false);
   });
 
+  it("does not credit a punt-return touchdown nullified by penalty, even though CFBD's text says TOUCHDOWN before the penalty note - real Virginia Tech/VMI play where a 43-yard punt return TD got wrongly credited despite 'nullified by penalty' appearing right in the text, because this credit path had its own separate, narrower invalidation check (only 'no play', not the comprehensive isInvalidated) instead of reusing the existing one", () => {
+    const play = { id: 401858211442, gameId: 401858211, offense: "VMI", defense: "Virginia Tech", scoring: false, playType: "Punt Return", playText: "(13:10) #42 W.Lees punt 35 yards to the VMI43 #4 T.Denmark return 43 yards to the VMI00 TOUCHDOWN nullified by penalty, clock 13:02 PENALTY Hokies Holding (#30 C.Jones, Jr.) 10 yards from VMI14 to VMI24" };
+    const candidates = mapLivePlayToCandidates({ play, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Virginia Tech", position: "DST" }] });
+    expect(candidates.some(candidate => candidate.eventType === "OTHER_SPECIAL_TEAMS_TOUCHDOWN")).toBe(false);
+  });
+
   it("credits a trick-play touchdown pass to the actual thrower's real position (RB), not a blanket default to QB, when CFBD has no stats and the thrower isn't the drafted QB - real Delaware play where an RB threw a 75-yard TD pass to another RB", () => {
     const roster = [
       { id: 1, firstName: "Viron", lastName: "Ellison Jr.", position: "RB" },
