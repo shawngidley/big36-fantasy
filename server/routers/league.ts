@@ -1323,8 +1323,8 @@ export const leagueRouter = router({
       // picked from disk (base64 data URL) that needs decoding and uploading first, exactly like a
       // team owner's own logo upload already works.
       const uploadedLogo = input.logoDataUrl ? decodeRegistrationLogo(input.logoDataUrl) : null;
-      const uploadedLogoUrl = uploadedLogo ? await storagePut(`division-logos/${crypto.randomUUID()}.${uploadedLogo.extension}`, uploadedLogo.bytes, uploadedLogo.contentType) : null;
-      const values = { name: input.name, identity: input.identity ?? null, logo_url: uploadedLogoUrl ?? input.logoUrl ?? null, sort_order: input.sortOrder };
+      const storedLogo = uploadedLogo ? await storagePut(`division-logos/${crypto.randomUUID()}.${uploadedLogo.extension}`, uploadedLogo.bytes, uploadedLogo.contentType) : null;
+      const values = { name: input.name, identity: input.identity ?? null, logo_url: storedLogo?.url ?? input.logoUrl ?? null, sort_order: input.sortOrder };
       if (input.id) await supabaseRest("b36_divisions", { method: "PATCH", query: { id: q.eq(input.id) }, body: values });
       else {
         const divisions = await supabaseRest<Array<{ id: string }>>("b36_divisions", { query: { select: "id" } });
