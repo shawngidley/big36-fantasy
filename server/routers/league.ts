@@ -1318,8 +1318,13 @@ export const leagueRouter = router({
         return { success: true as const, ...result };
       } catch (error) { asError(error); }
     }),
-    upsertDivision: adminProcedure.input(z.object({ id: uuid.optional(), name: z.string().trim().min(2).max(80), identity: z.string().trim().max(160).nullable().optional(), logoUrl: z.string().url().max(1000).nullable().optional(), sortOrder: z.number().int().min(1).max(6) })).mutation(async ({ ctx, input }) => {
-      const values = { name: input.name, identity: input.identity ?? null, logo_url: input.logoUrl ?? null, sort_order: input.sortOrder };
+    upsertDivision: adminProcedure.input(z.object({ id: uuid.optional(), name: z.string().trim().min(2).max(80), identity: z.string().trim().max(160).nullable().optional(), logoUrl: z.string().url().max(1000).nullable().optional(), logoDataUrl: z.string().max(2_000_000).nullable().optional(), sortOrder: z.number().int().min(1).max(6) })).mutation(async ({ ctx, input }) => {
+      // A division's logo can arrive two ways: an already-hosted URL pasted in directly, or a file
+      // picked from disk (base64 data URL) that needs decoding and uploading first, exactly like a
+      // team owner's own logo upload already works.
+      const uploadedLogo = input.logoDataUrl ? decodeRegistrationLogo(input.logoDataUrl) : null;
+      const uploadedLogoUrl = uploadedLogo ? await storagePut(`division-logos/${crypto.randomUUID()}.${uploadedLogo.extension}`, uploadedLogo.bytes, uploadedLogo.contentType) : null;
+      const values = { name: input.name, identity: input.identity ?? null, logo_url: uploadedLogoUrl ?? input.logoUrl ?? null, sort_order: input.sortOrder };
       if (input.id) await supabaseRest("b36_divisions", { method: "PATCH", query: { id: q.eq(input.id) }, body: values });
       else {
         const divisions = await supabaseRest<Array<{ id: string }>>("b36_divisions", { query: { select: "id" } });
