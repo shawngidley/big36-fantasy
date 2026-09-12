@@ -307,6 +307,13 @@ describe("36 Football automatic scoring map", () => {
     expect(candidates.filter(candidate => candidate.eventType === "SACK")).toHaveLength(1);
   });
 
+  it("does not credit the offense a touchdown when a completed pass is fumbled and recovered by the DEFENSE before anyone scores - the score belongs to the defense's return, not the original catch. Real FAMU play: Coleman's completed pass to Burton, Burton fumbled, FAMU's McKenzie recovered and ran it in - both the QB and WR were wrongly credited a passing touchdown while FAMU's real defensive score went completely uncredited", () => {
+    const play = { id: 401858213660, gameId: 401858213, offense: "Opponent", defense: "FAMU", scoring: true, playType: "Fumble Return Touchdown", playText: "(07:07) Shotgun #11 D.Coleman pass complete short left to #40 B.Burton caught at FAMU35, for 3 yards to the FAMU30 fumbled by #40 B.Burton at FAMU30 forced by #3 C.McKenzie recovered by FAMU #3 C.McKenzie at FAMU30 TOUCHDOWN, clock 06:40 #43 G.Caison kick attempt good (H: #99 G.Trout, LS: #47 V.Quain)" };
+    const candidates = mapLivePlayToCandidates({ play, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Opponent", position: "QB" }, { schoolName: "Opponent", position: "WR" }, { schoolName: "FAMU", position: "DST" }] });
+    expect(candidates.some(candidate => candidate.eventType === "TOUCHDOWN")).toBe(false);
+    expect(candidates.some(candidate => candidate.eventType === "DEFENSIVE_TOUCHDOWN" && candidate.schoolName === "FAMU")).toBe(true);
+  });
+
   it("credits a trick-play touchdown pass to the actual thrower's real position (RB), not a blanket default to QB, when CFBD has no stats and the thrower isn't the drafted QB - real Delaware play where an RB threw a 75-yard TD pass to another RB", () => {
     const roster = [
       { id: 1, firstName: "Viron", lastName: "Ellison Jr.", position: "RB" },

@@ -227,15 +227,24 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   // Notre Dame/Wisconsin play: "muffed by #32 H.Bortolotti ... recovered by UND #43 K.Kia" was a
   // genuine takeaway that went completely undetected.
   const isMuffedReturn = /muffed/.test(playTextNormalized) && /recovered by/.test(playTextNormalized);
-  const isFumbleLostToOpponent = playType.includes("fumble recovery (opponent)") || playType.includes("fumble return touchdown") || isMuffedReturn;
+  // A reception (or run) that's THEN fumbled and recovered by someone else BEFORE the word
+  // "touchdown" appears means the ball changed hands before anyone scored - the original
+  // catch/pass has nothing to do with who actually reached the end zone. Without this check, the
+  // generic passing/rushing-touchdown text fallback saw "pass ... touchdown" and wrongly credited
+  // the original passer AND receiver, even though the receiver fumbled and the DEFENSE recovered
+  // and scored. Real FAMU play: Coleman's completed pass to Burton, Burton fumbled, FAMU's McKenzie
+  // recovered and ran it in - both Coleman and Burton were wrongly credited a passing touchdown
+  // while FAMU's real defensive score went completely uncredited.
+  const fumbleChangedPossessionBeforeTouchdown = /fumbled/.test(beforeTouchdown) && /recovered by/.test(beforeTouchdown) && !/(own player|'s own)/.test(beforeTouchdown);
+  const isFumbleLostToOpponent = playType.includes("fumble recovery (opponent)") || playType.includes("fumble return touchdown") || isMuffedReturn || fumbleChangedPossessionBeforeTouchdown;
   const hasOffensiveTouchdownText = /(touchdown|\btd\b)/.test(`${playType} ${playTextNormalized}`);
   // The final /pass/ fallback below must be scoped to the text BEFORE "touchdown" specifically -
   // otherwise a rushing touchdown followed by an unrelated pass-based PAT/2pt attempt (a different
   // player entirely) gets wrongly classified as a passing touchdown. Real Vanderbilt play: Alexander
   // (RB) ran for the score, but Berlowitz's (QB) failed two-point PASS attempt afterward matched this
   // generic check against the whole text, wrongly routing the touchdown credit to QB instead of RB.
-  const passingTouchdown = !isTwoPoint && !isInvalidated && !isInterceptionReturn && (passingTouchdownPositions.has("QB") || (explicitTouchdownPositions.has("QB") && athletePositionsFor(type => type.includes("reception")).size > 0) || (hasOffensiveTouchdownText && /\bpass\b/.test(`${playType} ${beforeTouchdown}`)));
-  const rushingTouchdown = !isTwoPoint && !isInvalidated && !passingTouchdown && (rushingTouchdownPositions.size > 0 || (hasOffensiveTouchdownText && /\b(rush\w*|run)\b/.test(`${playType} ${playTextNormalized}`)));
+  const passingTouchdown = !isTwoPoint && !isInvalidated && !isInterceptionReturn && !fumbleChangedPossessionBeforeTouchdown && (passingTouchdownPositions.has("QB") || (explicitTouchdownPositions.has("QB") && athletePositionsFor(type => type.includes("reception")).size > 0) || (hasOffensiveTouchdownText && /\bpass\b/.test(`${playType} ${beforeTouchdown}`)));
+  const rushingTouchdown = !isTwoPoint && !isInvalidated && !passingTouchdown && !fumbleChangedPossessionBeforeTouchdown && (rushingTouchdownPositions.size > 0 || (hasOffensiveTouchdownText && /\b(rush\w*|run)\b/.test(`${playType} ${playTextNormalized}`)));
   const scoringDistance = play.yardsToGoal ?? null;
   const offensiveCandidate = (position: LivePosition, eventType: "TOUCHDOWN" | "TWO_POINT_CONVERSION") => {
     if (!eligibleSelection(schoolName, position)) return;
