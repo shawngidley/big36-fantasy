@@ -613,6 +613,37 @@ export const leagueRouter = router({
     // was never reversed once the official one landed. Groups active ENTRY rows and flags any group
     // containing both a cfbd-live-detection row and a cfbd-live-refresh/cfbd-final-reconciliation
     // row simultaneously. Read-only.
+    // Sweep for the exact bug found in the NSU/Norfolk State game: a team-level defensive/special-
+    // teams event (sack, turnover, defensive touchdown, blocked kick) credited twice for the SAME
+    // play - once via an athlete-ID-suffixed key (CFBD's structured stats, available on an earlier
+    // tick) and once via the ":unit" text-based fallback (fired on a later tick when stats came back
+    // incomplete). These have genuinely different keys, so the existing exact-key duplicate check
+    // never catches them. Groups active ENTRY rows by (game, play ID, event type) and flags any group
+    // with more than one row. Read-only.
+    debugPerPlayDuplicateCredits: adminProcedure.query(async () => {
+      const perPlaySingleCreditTypes = new Set(["SACK", "DEFENSIVE_TURNOVER", "DEFENSIVE_TOUCHDOWN", "BLOCKED_PUNT", "BLOCKED_FIELD_GOAL", "SPECIAL_TEAMS_SAFETY", "KICK_RETURN_TOUCHDOWN", "PUNT_RETURN_TOUCHDOWN", "BLOCKED_KICK_RETURN_TOUCHDOWN", "OTHER_SPECIAL_TEAMS_TOUCHDOWN"]);
+      const eventRows = await supabaseRestAll<{ id: string; source_game_id: number | null; draft_slot_id: string; event_type: string; audit_action: string; recorded_by_open_id: string; correction_of_event_id: string | null; computed_points: number; source_event_key: string | null }>("b36_scoring_events", { query: { select: "id,source_game_id,draft_slot_id,event_type,audit_action,recorded_by_open_id,correction_of_event_id,computed_points,source_event_key", order: "created_at.asc" } });
+      const reversedIds = new Set(eventRows.filter(row => row.audit_action === "REVERSAL" && row.correction_of_event_id).map(row => row.correction_of_event_id));
+      const activeEntries = eventRows.filter(row => row.audit_action === "ENTRY" && !reversedIds.has(row.id) && perPlaySingleCreditTypes.has(row.event_type) && row.source_event_key);
+      const groups = new Map<string, typeof activeEntries>();
+      for (const row of activeEntries) {
+        const playId = row.source_event_key!.split(":")[0];
+        const key = `${playId}:${row.event_type}`;
+        groups.set(key, [...(groups.get(key) ?? []), row]);
+      }
+      const slots = await supabaseRestAll<{ id: string; school_name: string | null; position: string; owner_id: string }>("b36_draft_slots", { query: { select: "id,school_name,position,owner_id", order: "id.asc" } });
+      const owners = await supabaseRestAll<{ id: string; team_name: string }>("b36_owners", { query: { select: "id,team_name", order: "id.asc" } });
+      const slotById = new Map(slots.map(slot => [slot.id, slot]));
+      const ownerNameById = new Map(owners.map(owner => [owner.id, owner.team_name]));
+      const flagged: Array<{ playId: string; eventType: string; school: string; position: string; owner: string; rows: Array<{ id: string; key: string | null; points: number; source: string }> }> = [];
+      for (const rows of Array.from(groups.values())) {
+        if (rows.length < 2) continue;
+        const slot = slotById.get(rows[0].draft_slot_id);
+        const [playId, eventType] = [rows[0].source_event_key!.split(":")[0], rows[0].event_type];
+        flagged.push({ playId, eventType, school: slot?.school_name ?? "Unknown", position: slot?.position ?? "?", owner: slot ? (ownerNameById.get(slot.owner_id) ?? "Unknown") : "Unknown", rows: rows.map(row => ({ id: row.id, key: row.source_event_key, points: row.computed_points, source: row.recorded_by_open_id })) });
+      }
+      return { totalEventRows: eventRows.length, flaggedGroupCount: flagged.length, flagged };
+    }),
     debugUnreversedLiveDuplicates: adminProcedure.query(async () => {
       const eventRows = await supabaseRestAll<{ id: string; source_game_id: number | null; draft_slot_id: string; event_type: string; audit_action: string; recorded_by_open_id: string; correction_of_event_id: string | null; computed_points: number; source_event_key: string | null }>("b36_scoring_events", { query: { select: "id,source_game_id,draft_slot_id,event_type,audit_action,recorded_by_open_id,correction_of_event_id,computed_points,source_event_key", order: "created_at.asc" } });
       const reversedIds = new Set(eventRows.filter(row => row.audit_action === "REVERSAL" && row.correction_of_event_id).map(row => row.correction_of_event_id));
