@@ -260,6 +260,21 @@ describe("36 Football gameday source reconciliation", () => {
     expect(badInsert).toBeUndefined();
     expect(result.insertedEvents).toBeGreaterThanOrEqual(1);
   });
+
+  it("does not double-credit a team-level defensive event (sack, turnover, defensive touchdown) when CFBD's stats are available on one tick (an athlete-ID-suffixed key) but come back incomplete on a later tick, triggering the text-based ':unit' fallback for the SAME real play - confirmed with real production data where this created duplicate credits roughly 18 hours apart", async () => {
+    const snapshotWithDstSlot = { owners: [{ picks: [{ id: "slot-dst", schoolName: "Ohio State", position: "DST" }] }], weeks: [{ id: "week-1", weekNumber: 1 }] };
+    mocks.getLeagueSnapshot.mockResolvedValue(snapshotWithDstSlot);
+    const existingSackEvent = { id: "existing-1", source_event_key: "101:SACK:5112647", source_game_id: 101, audit_action: "ENTRY", week_id: "week-1", draft_slot_id: "slot-dst", event_type: "SACK", stat_value: 1, yard_distance: null, computed_points: 1, is_provisional: false, recorded_by_open_id: "cfbd-live-refresh" };
+    const writes = arrange([existingSackEvent]);
+    const duplicateUnitCandidate = { sourceEventKey: "101:SACK:unit", sourceGameId: 101, schoolName: "Ohio State", position: "DST", eventType: "SACK", statValue: 1, yardDistance: null, note: "Sack (text match)" };
+    mocks.mapLivePlayToCandidates.mockReturnValue([duplicateUnitCandidate]);
+    mocks.calculateEventScore.mockReturnValue({ points: 1 });
+
+    await runGamedayRefresh({ force: true });
+
+    const duplicateInsert = writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST" && (write.options.body as { source_event_key?: string })?.source_event_key === "101:SACK:unit");
+    expect(duplicateInsert).toBeUndefined();
+  });
 });
 
 describe("resolveB36WeekNumber", () => {

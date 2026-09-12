@@ -262,7 +262,22 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
           }
         }
         gameCandidates.forEach(candidate => currentCandidateKeys.add(candidate.sourceEventKey));
+        // Team-level defensive/special-teams events (unlike offensive touchdowns, which legitimately
+        // split across two positions like QB+WR on the same play) should only ever have ONE credit
+        // per play, no matter which athlete CFBD's stats happen to attribute it to. If stats were
+        // available on an earlier tick (producing an athlete-ID-suffixed key) but come back
+        // incomplete on a later tick, the text-based ":unit" fallback fires again with a DIFFERENT
+        // key for the same real event - our exact-key duplicate check doesn't catch this, since the
+        // keys genuinely differ. Confirmed with real production data: three separate plays (a sack,
+        // two interceptions, one of them a touchdown) each got double-credited this way, roughly 18
+        // hours apart, once with a real athlete ID and once via the "unit" fallback.
+        const perPlaySingleCreditTypes = new Set(["SACK", "DEFENSIVE_TURNOVER", "DEFENSIVE_TOUCHDOWN", "BLOCKED_PUNT", "BLOCKED_FIELD_GOAL", "SPECIAL_TEAMS_SAFETY", "KICK_RETURN_TOUCHDOWN", "PUNT_RETURN_TOUCHDOWN", "BLOCKED_KICK_RETURN_TOUCHDOWN", "OTHER_SPECIAL_TEAMS_TOUCHDOWN"]);
+        const alreadyCreditedPlayEventPrefixes = new Set(Array.from(knownKeys).filter((key): key is string => Boolean(key) && perPlaySingleCreditTypes.has(key!.split(":")[1] ?? "")).map(key => key.split(":").slice(0, 2).join(":")));
         for (const candidate of gameCandidates) {
+          if (perPlaySingleCreditTypes.has(candidate.eventType)) {
+            const prefix = candidate.sourceEventKey.split(":").slice(0, 2).join(":");
+            if (alreadyCreditedPlayEventPrefixes.has(prefix) && !knownKeys.has(candidate.sourceEventKey)) continue;
+          }
           const slot = selectedSchoolPositions.find(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(candidate.schoolName) && selection.position === candidate.position);
           if (!slot) continue;
           // A single candidate's data problem (missing yardage, a rules gap, anything unexpected)
