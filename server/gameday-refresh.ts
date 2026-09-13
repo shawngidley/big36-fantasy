@@ -278,6 +278,17 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
             const prefix = candidate.sourceEventKey.split(":").slice(0, 2).join(":");
             if (alreadyCreditedPlayEventPrefixes.has(prefix) && !knownKeys.has(candidate.sourceEventKey)) continue;
           }
+          // A box-score-derived FUMBLE_LOST (keyed by game+position, e.g. "401858213:FUMBLE_LOST:WR:box")
+          // and a play-level one (keyed by the specific play, e.g. "401858213660:FUMBLE_LOST:WR") use
+          // completely different key formats for the SAME real event, so neither the exact-key check
+          // above nor the per-play prefix check catches this overlap. Real Miami/FAMU play: a box-score
+          // fumble for Burton (WR) already existed; a new play-level one for the same fumble got added
+          // independently once the play's own possession-change detection started correctly excluding
+          // it from the (wrong) offensive touchdown credit, double-counting the same real fumble.
+          if (candidate.eventType === "FUMBLE_LOST" && !candidate.sourceEventKey.endsWith(":box")) {
+            const boxScoreKeyForThisPosition = `${candidate.sourceGameId}:FUMBLE_LOST:${candidate.position}:box`;
+            if (knownKeys.has(boxScoreKeyForThisPosition)) continue;
+          }
           const slot = selectedSchoolPositions.find(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(candidate.schoolName) && selection.position === candidate.position);
           if (!slot) continue;
           // A single candidate's data problem (missing yardage, a rules gap, anything unexpected)

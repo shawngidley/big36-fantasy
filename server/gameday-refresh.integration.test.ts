@@ -275,6 +275,21 @@ describe("36 Football gameday source reconciliation", () => {
     const duplicateInsert = writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST" && (write.options.body as { source_event_key?: string })?.source_event_key === "101:SACK:unit");
     expect(duplicateInsert).toBeUndefined();
   });
+
+  it("does not double-credit a FUMBLE_LOST when a box-score-derived credit (keyed by game+position) already exists and a play-level one (keyed by the specific play) arrives separately - these use completely different key formats for the same real event. Real Miami/FAMU play: a box-score fumble for Burton (WR) already existed; a new play-level one for the same fumble was added independently once the play's possession-change detection started correctly excluding it from the wrong offensive touchdown credit", async () => {
+    const snapshotWithWrSlot = { owners: [{ picks: [{ id: "slot-wr", schoolName: "Miami", position: "WR" }] }], weeks: [{ id: "week-1", weekNumber: 1 }] };
+    mocks.getLeagueSnapshot.mockResolvedValue(snapshotWithWrSlot);
+    const existingBoxScoreFumble = { id: "existing-1", source_event_key: "101:FUMBLE_LOST:WR:box", source_game_id: 101, audit_action: "ENTRY", week_id: "week-1", draft_slot_id: "slot-wr", event_type: "FUMBLE_LOST", stat_value: 1, yard_distance: null, computed_points: -3, is_provisional: false, recorded_by_open_id: "cfbd-live-refresh" };
+    const writes = arrange([existingBoxScoreFumble]);
+    const duplicatePlayLevelCandidate = { sourceEventKey: "101660:FUMBLE_LOST:WR", sourceGameId: 101, schoolName: "Miami", position: "WR", eventType: "FUMBLE_LOST", statValue: 1, yardDistance: null, note: "Fumble lost (playType match)" };
+    mocks.mapLivePlayToCandidates.mockReturnValue([duplicatePlayLevelCandidate]);
+    mocks.calculateEventScore.mockReturnValue({ points: -3 });
+
+    await runGamedayRefresh({ force: true });
+
+    const duplicateInsert = writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST" && (write.options.body as { source_event_key?: string })?.source_event_key === "101660:FUMBLE_LOST:WR");
+    expect(duplicateInsert).toBeUndefined();
+  });
 });
 
 describe("resolveB36WeekNumber", () => {
