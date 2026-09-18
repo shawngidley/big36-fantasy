@@ -79,14 +79,47 @@ function camelSlot(slot: SlotRow) {
   return { id: slot.id, ownerId: slot.owner_id, position: slot.position, draftPosition: slot.draft_position, schoolName: slot.school_name, selectedAt: slot.selected_at, selectedByOpenId: slot.selected_by_open_id };
 }
 
-export async function getLeagueSnapshot() {
+// getLeagueSnapshot is polled every ~20s per viewer from the Live Scoring page (via the `snapshot`
+// and `liveScores` procedures, the latter calling this again internally, plus `myProfile`), on top
+// of being called by gameday-refresh's own automation tick and several admin/debug procedures. With
+// no cache, every one of those calls independently pulled the entire (and growing) b36_scoring_events
+// table plus all of b36_source_games from Supabase - that full-table full-column scan, multiplied by
+// concurrent viewers, was the dominant source of Supabase egress. This short in-memory cache collapses
+// concurrent callers on the same warm serverless instance onto one shared read; a cold instance simply
+// misses and repopulates, which is fine. The snapshot is league-wide (no per-caller variation), so it's
+// cached under a single constant key, mirroring the cachedCfbdGet pattern in server/cfbd.ts (a Map of
+// {expiresAt, promise} keyed by request, with the entry dropped on failure so an error isn't cached).
+// No mutation explicitly invalidates this cache - the 15s TTL bounds staleness instead, same tradeoff
+// cachedCfbdGet already makes for scoreboard/live-play polling.
+const SNAPSHOT_CACHE_TTL_MS = 15_000;
+let snapshotCache: { expiresAt: number; promise: ReturnType<typeof fetchLeagueSnapshot> } | null = null;
+
+// Test-only escape hatch: each test in league-data.test.ts mocks Supabase differently and expects
+// getLeagueSnapshot() to hit those mocks fresh, which a real 15s TTL would defeat across tests that
+// run faster than that. Not used by production code paths.
+export function resetLeagueSnapshotCacheForTests() {
+  snapshotCache = null;
+}
+
+export function getLeagueSnapshot() {
+  if (snapshotCache && snapshotCache.expiresAt > Date.now()) return snapshotCache.promise;
+  const promise = fetchLeagueSnapshot().catch(error => { snapshotCache = null; throw error; });
+  snapshotCache = { expiresAt: Date.now() + SNAPSHOT_CACHE_TTL_MS, promise };
+  return promise;
+}
+
+async function fetchLeagueSnapshot() {
   const [divisionRows, ownerRows, slotRows, weekRows, ruleRows, eventRows, stateRows, turnRows, sourceGameRows, automationRows] = await Promise.all([
     supabaseRest<DivisionRow[]>("b36_divisions", { query: { select: "*", order: "sort_order.asc" } }),
     supabaseRest<OwnerRow[]>(ownerPath, { query: { select: "*", order: "team_name.asc" } }),
     supabaseRest<SlotRow[]>(slotPath, { query: { select: "*", order: "position.asc,draft_position.asc" } }),
     supabaseRest<WeekRow[]>("b36_scoring_weeks", { query: { select: "*", order: "week_number.asc" } }),
     supabaseRest<RuleRow[]>("b36_scoring_rules", { query: { select: "*", order: "event_type.asc,min_yards.asc" } }),
-    supabaseRestAll<EventRow>("b36_scoring_events", { query: { select: "*", order: "created_at.desc" } }),
+    // Only the columns this snapshot actually reads below (id, week_id, draft_slot_id, event_type,
+    // stat_value, yard_distance, computed_points, note, audit_action, correction_of_event_id,
+    // recorded_by_open_id, created_at) - not source_event_key/source_game_id/is_provisional, which
+    // other call sites need but this one never touches.
+    supabaseRestAll<EventRow>("b36_scoring_events", { query: { select: "id,week_id,draft_slot_id,event_type,stat_value,yard_distance,computed_points,note,audit_action,correction_of_event_id,recorded_by_open_id,created_at", order: "created_at.desc" } }),
     supabaseRest<DraftStateRow[]>("b36_draft_state", { query: { select: "*", id: "eq.true" } }),
     supabaseRest<DraftTurnRow[]>("b36_draft_turns", { query: { select: "*", order: "global_pick.asc" } }),
     // A full FBS+FCS season schedule is well past 1000 rows, and PostgREST silently caps a plain
