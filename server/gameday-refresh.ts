@@ -127,10 +127,13 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
   // this tick and let the next tick, a minute later, retry it.
   function raceAgainstDeadline<T>(promise: Promise<T>, label: string): Promise<T | { timedOut: true; label: string }> {
     const remainingMs = Math.max(deadlineAt - Date.now(), 0);
-    return Promise.race([
-      promise,
-      new Promise<{ timedOut: true; label: string }>(resolve => setTimeout(() => resolve({ timedOut: true, label }), remainingMs)),
-    ]);
+    let timeoutHandle: ReturnType<typeof setTimeout>;
+    const timeoutPromise = new Promise<{ timedOut: true; label: string }>(resolve => {
+      timeoutHandle = setTimeout(() => resolve({ timedOut: true, label }), remainingMs);
+    });
+    // Whichever side wins, the loser must not keep a live timer/closure around for up to 45s after
+    // the handler has otherwise finished - a big backlog week can call this 100+ times per tick.
+    return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutHandle));
   }
   try {
     const schedule = await syncFbsPoolAndSchedule(config.season);
@@ -295,6 +298,17 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
           }),
           ...finalShutoutCandidates({ game, selectedSchoolPositions: selectedSchoolPositions.map(selection => ({ schoolName: selection.schoolName, position: selection.position })), provisional: !game.completed }),
         ];
+        // Set when a completed game's box score fetch is cut off by the time budget below. A timed-
+        // out box score falls back to play-derived fumble candidates just like a genuine CFBD error
+        // does - but unlike an error (which is roughly as likely on any tick), a timeout is *most*
+        // likely on exactly the backlog-drain ticks this budget exists for. If those candidates then
+        // wrote as official (is_provisional: false), the game would look "settled" the moment its
+        // week locks FINAL - even though the box-score correction that FUMBLE_LOST exists to apply
+        // never actually ran - and no later tick would ever revisit it. Keeping this game's entries
+        // provisional until a tick gets a real box score (or the game stops being completed-with-a-
+        // pending-fumble-check) protects settledGameIds' "has an official entry" test from a plain
+        // budget cutoff, not just from CFBD being down.
+        let boxScoreIncompleteForGame = false;
         if (game.completed) {
           // Fumbles lost: the box score is authoritative once the game is over (see
           // boxScoreFumbleCandidates). When it's available for a school, drop that school's
@@ -309,7 +323,8 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
               // whole remaining budget uninterrupted, so this is raced the same way as the week-level
               // fan-out above.
               const boxResult = await raceAgainstDeadline(getGamePlayerStats(config.season, week, school), `box-score-${school}-${game.id}`);
-              box = "timedOut" in boxResult ? undefined : boxResult.find(entry => entry.id === game.id);
+              if ("timedOut" in boxResult) { boxScoreIncompleteForGame = true; box = undefined; }
+              else box = boxResult.find(entry => entry.id === game.id);
             } catch (error) { console.warn(`box score unavailable for ${school} game ${game.id}:`, error); }
             const alreadyWrittenBySlot = new Map<LivePosition, number>();
             for (const row of eventRows) {
@@ -364,7 +379,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
             const score = calculateEventScore(rules, { eventType: candidate.eventType as never, position: candidate.position, statValue: candidate.statValue, yardDistance: candidate.yardDistance });
             const original = originalByKey.get(candidate.sourceEventKey);
             if (!original) {
-              await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: weekRow.id, draft_slot_id: slot.draftSlotId, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points, note: candidate.note, audit_action: "ENTRY", recorded_by_open_id: "cfbd-live-refresh", source_event_key: candidate.sourceEventKey, source_game_id: candidate.sourceGameId, is_provisional: !game.completed } });
+              await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: weekRow.id, draft_slot_id: slot.draftSlotId, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points, note: candidate.note, audit_action: "ENTRY", recorded_by_open_id: "cfbd-live-refresh", source_event_key: candidate.sourceEventKey, source_game_id: candidate.sourceGameId, is_provisional: !game.completed || boxScoreIncompleteForGame } });
               knownKeys.add(candidate.sourceEventKey); insertedEvents += 1;
               // The official candidate just confirmed is real - if a live-detected entry for the same
               // (game, slot, eventType) is still active, it's now a confirmed duplicate. Reverse it now
@@ -385,7 +400,10 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
                 await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: original.week_id, draft_slot_id: original.draft_slot_id, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points - original.computed_points, note: `Official CFBD final correction updated source event ${candidate.sourceEventKey}`, audit_action: "CORRECTION", correction_of_event_id: original.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: correctionKey, source_game_id: candidate.sourceGameId, is_provisional: false } });
                 knownKeys.add(correctionKey); insertedEvents += 1;
               }
-              await supabaseRest("b36_scoring_events", { method: "PATCH", query: { id: `eq.${original.id}` }, body: { is_provisional: false } });
+              // Don't confirm the original entry official while this game's box score is still
+              // outstanding (see boxScoreIncompleteForGame above) - the correction amount itself is
+              // still applied, just without letting the row count toward "this game is settled" yet.
+              if (!boxScoreIncompleteForGame) await supabaseRest("b36_scoring_events", { method: "PATCH", query: { id: `eq.${original.id}` }, body: { is_provisional: false } });
             }
           } catch (error) {
             console.error(`Skipping candidate ${candidate.sourceEventKey}: ${error instanceof Error ? error.message : String(error)}`);
@@ -408,8 +426,13 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
             await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: original.week_id, draft_slot_id: original.draft_slot_id, event_type: original.event_type, stat_value: original.stat_value, yard_distance: original.yard_distance, computed_points: sourceEventReversalPoints(original.computed_points), note: `Official CFBD final correction reversed source event ${original.source_event_key}`, audit_action: "REVERSAL", correction_of_event_id: original.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: reversalKey, source_game_id: game.id, is_provisional: false } });
             reversedKeys.add(reversalKey); insertedEvents += 1;
           }
-          for (const original of originalEvents.filter(event => currentCandidateKeys.has(event.source_event_key!))) {
-            await supabaseRest("b36_scoring_events", { method: "PATCH", query: { id: `eq.${original.id}` }, body: { is_provisional: false } });
+          // Same reasoning as the correction path above: don't flip a previously live-detected entry
+          // to official while this game's box score is still outstanding, or it would count toward
+          // "this game is settled" before the box-derived fumble correction ever actually ran.
+          if (!boxScoreIncompleteForGame) {
+            for (const original of originalEvents.filter(event => currentCandidateKeys.has(event.source_event_key!))) {
+              await supabaseRest("b36_scoring_events", { method: "PATCH", query: { id: `eq.${original.id}` }, body: { is_provisional: false } });
+            }
           }
         }
       }
