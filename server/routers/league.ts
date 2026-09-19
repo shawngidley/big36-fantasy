@@ -14,7 +14,7 @@ import { runGamedayRefresh } from "../gameday-refresh";
 import { syncFbsPoolAndSchedule } from "../gameday-refresh";
 import { adaptLiveGameToLegacyPlays } from "../gameday-refresh";
 import { resolveB36WeekNumber } from "../gameday-refresh";
-import { boxScoreFumbleCandidates, isSupersededInterceptionPlay, mapLivePlayToCandidates, matchBoxAthleteToRoster, normalizeSchoolForComparison, type LivePosition } from "../live-scoring";
+import { boxScoreFumbleCandidates, finalShutoutCandidates, isSupersededInterceptionPlay, mapLivePlayToCandidates, matchBoxAthleteToRoster, normalizeSchoolForComparison, type LivePosition } from "../live-scoring";
 import { decodeRegistrationLogo, hashRegistrationPin, normalizeRegistrationEmail, normalizeRegistrationPhone, verifyRegistrationPin } from "../registration";
 import { storagePut } from "../storage";
 import { notifyOwnerWhenUpcomingPickSafely, sendDraftSms } from "../draft-alerts";
@@ -708,6 +708,42 @@ export const leagueRouter = router({
         return (home.includes(a) && away.includes(b)) || (home.includes(b) && away.includes(a));
       });
       return { matches: matches.map(game => ({ id: game.id, homeTeam: game.homeTeam, awayTeam: game.awayTeam, week: game.week, completed: game.completed, startDate: game.startDate })) };
+    }),
+    // One-shot diagnostic for "why didn't a DST get its shutout credit": finds the school's most
+    // relevant completed game (optionally disambiguated by week or opponent), reproduces the exact
+    // finalShutoutCandidates() check the automation runs, and reports the game's own week-lock and
+    // per-game "settled" status - since a locked/settled game is permanently skipped by future
+    // automation ticks regardless of what candidates it would generate today.
+    debugShutoutCheck: adminProcedure.input(z.object({ school: z.string(), week: z.number().optional(), opponent: z.string().optional() })).query(async ({ input }) => {
+      const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
+      const season = automationRows[0]?.season;
+      if (!season) throw new Error("No season configured.");
+      const [schedule, snapshot] = await Promise.all([getRegularSeasonGames(season), getLeagueSnapshot()]);
+      const normalize = normalizeSchoolForComparison;
+      const target = normalize(input.school);
+      let candidates = schedule.filter(game => (normalize(game.homeTeam) === target || normalize(game.awayTeam) === target) && game.seasonType.toLowerCase() === "regular");
+      if (input.week !== undefined) candidates = candidates.filter(game => resolveB36WeekNumber(game) === input.week);
+      if (input.opponent) { const opp = normalize(input.opponent); candidates = candidates.filter(game => normalize(game.homeTeam) === opp || normalize(game.awayTeam) === opp); }
+      const selectedSchoolPositions = snapshot.owners.flatMap(owner => owner.picks.map(pick => ({ schoolName: pick.schoolName, position: pick.position as LivePosition, draftSlotId: pick.id, ownerName: owner.teamName })));
+      const lockedWeekNumbers = new Set(snapshot.weeks.filter(week => week.status === "FINAL").map(week => week.weekNumber));
+      const results = await Promise.all(candidates.map(async game => {
+        const b36Week = resolveB36WeekNumber(game);
+        const shutoutCandidates = finalShutoutCandidates({ game, selectedSchoolPositions: selectedSchoolPositions.map(s => ({ schoolName: s.schoolName, position: s.position })), provisional: !game.completed });
+        const eventRows = await supabaseRest<Array<{ id: string; source_event_key: string | null; event_type: string; draft_slot_id: string; computed_points: number; audit_action: string; is_provisional: boolean; recorded_by_open_id: string }>>("b36_scoring_events", { query: { select: "id,source_event_key,event_type,draft_slot_id,computed_points,audit_action,is_provisional,recorded_by_open_id", source_game_id: q.eq(game.id) } });
+        const settled = lockedWeekNumbers.has(game.week) && game.completed && eventRows.some(row => row.audit_action === "ENTRY" && !row.is_provisional);
+        const homeSlot = selectedSchoolPositions.find(s => normalize(s.schoolName) === normalize(game.homeTeam) && s.position === "DST");
+        const awaySlot = selectedSchoolPositions.find(s => normalize(s.schoolName) === normalize(game.awayTeam) && s.position === "DST");
+        return {
+          gameId: game.id, homeTeam: game.homeTeam, awayTeam: game.awayTeam, cfbdWeek: game.week, b36Week, completed: game.completed,
+          homePoints: game.homePoints ?? null, awayPoints: game.awayPoints ?? null,
+          homeDstOwner: homeSlot?.ownerName ?? null, awayDstOwner: awaySlot?.ownerName ?? null,
+          weekLocked: lockedWeekNumbers.has(b36Week), gameSettled: settled,
+          shutoutCandidatesWouldGenerateNow: shutoutCandidates,
+          existingEventsForGame: eventRows,
+          existingShutoutEvent: eventRows.find(row => row.event_type === "SHUTOUT") ?? null,
+        };
+      }));
+      return { season, school: input.school, matchCount: results.length, games: results };
     }),
     debugSchoolNameMismatches: adminProcedure.query(async () => {
       const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
