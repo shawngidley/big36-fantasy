@@ -102,6 +102,11 @@ describe("36 Football automatic scoring map", () => {
     const candidates = mapLivePlayToCandidates({ play: { id: 999, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Fumble Recovery (Own)", playText: "fumbled, recovered by Ohio State's own player" }, stats: [{ playId: 999, athleteId: 5, team: "Ohio State", statType: "Fumble", stat: 1 }], roster: [{ id: 5, position: "RB" }], selectedSchoolPositions: [{ schoolName: "Ohio State", position: "RB" }] });
     expect(candidates.filter(candidate => candidate.eventType === "FUMBLE_LOST")).toHaveLength(0);
   });
+  it("does NOT credit a fumble loss when the SAME player recovers his own fumble, even without CFBD's usual 'own player'/'s own' phrasing - real Clemson play: Wesco fumbled and recovered it himself (same jersey number #12 on both sides of the play), which wrongly scored a -3 FUMBLE_LOST against his own team since the play only names the offense's own team abbreviation and the fumbler's exact name again, not either of the phrases the existing self-recovery check looked for", () => {
+    const play = { id: 9401858219341, gameId: 401858219, offense: "Clemson", defense: "Georgia Southern", scoring: false, playType: "Rush", playText: "(05:44) No Huddle-Shotgun #12 B.Wesco Jr. rush left for 1 yard loss to the GS15 fumbled by #12 B.Wesco Jr. at GS16 recovered by CLEM #12 B.Wesco Jr. at (#4 A.Bynum)" };
+    const candidates = mapLivePlayToCandidates({ play, stats: [], roster: [{ id: 12, firstName: "Blake", lastName: "Wesco", position: "WR" }], selectedSchoolPositions: [{ schoolName: "Clemson", position: "WR" }] });
+    expect(candidates.filter(candidate => candidate.eventType === "FUMBLE_LOST")).toHaveLength(0);
+  });
   it("does not double-credit a fumble loss between the stats loop and the playType fallback", () => {
     const candidates = mapLivePlayToCandidates({ play: { id: 62, gameId: 9, offense: "Ohio State", defense: "Opponent", scoring: false, playType: "Fumble Recovery (Opponent)", playText: "fumbled by #5, recovered by Opponent" }, stats: [{ playId: 62, athleteId: 5, team: "Ohio State", statType: "Fumble", stat: 1 }], roster: [{ id: 5, position: "RB" }], selectedSchoolPositions: [{ schoolName: "Ohio State", position: "RB" }] });
     expect(candidates.filter(candidate => candidate.eventType === "FUMBLE_LOST")).toHaveLength(1);

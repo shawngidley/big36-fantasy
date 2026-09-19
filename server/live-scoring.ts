@@ -235,7 +235,25 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   // and scored. Real FAMU play: Coleman's completed pass to Burton, Burton fumbled, FAMU's McKenzie
   // recovered and ran it in - both Coleman and Burton were wrongly credited a passing touchdown
   // while FAMU's real defensive score went completely uncredited.
-  const fumbleChangedPossessionBeforeTouchdown = /fumbled/.test(beforeTouchdown) && /recovered by/.test(beforeTouchdown) && !/(own player|'s own)/.test(beforeTouchdown);
+  // "own player"/"'s own" is CFBD's phrasing for a self-recovery in SOME feeds, but not all - real
+  // Clemson play: "...fumbled by #12 B.Wesco Jr. at GS16 recovered by CLEM #12 B.Wesco Jr. at
+  // (#4 A.Bynum)" names the fumbling team (CLEM, the offense itself) and the EXACT SAME jersey
+  // number as both fumbler and recoverer, with no "own player" wording at all - so the phrase check
+  // alone missed it, and a player recovering his own fumble got wrongly scored as a -3 FUMBLE_LOST
+  // against his own team. Comparing the jersey number named right after "fumbled by" to the one
+  // named right after "recovered by" catches this regardless of CFBD's exact wording: a genuine
+  // turnover is always recovered by a DIFFERENT player (a different jersey number), so this can only
+  // fire on an actual self-recovery, never suppress a real one.
+  // beforeTouchdown is derived from playTextNormalized, which has already stripped every "#" (and
+  // all other punctuation) down to a single space via normalizeText - so "#12" has already become
+  // just "12" by this point, with no "#" left to match against. "fumbled by" is always followed
+  // immediately by the jersey number; "recovered by" is followed by a team abbreviation (letters
+  // only, no digits) before its own jersey number, so \D*? skips past that non-numeric team code to
+  // reach it.
+  const fumblerJerseyNumber = beforeTouchdown.match(/fumbled by\s+(\d+)/)?.[1];
+  const recovererJerseyNumber = beforeTouchdown.match(/recovered by\D*?(\d+)/)?.[1];
+  const recoveredBySameJerseyNumber = Boolean(fumblerJerseyNumber && recovererJerseyNumber && fumblerJerseyNumber === recovererJerseyNumber);
+  const fumbleChangedPossessionBeforeTouchdown = /fumbled/.test(beforeTouchdown) && /recovered by/.test(beforeTouchdown) && !/(own player|'s own)/.test(beforeTouchdown) && !recoveredBySameJerseyNumber;
   const isFumbleLostToOpponent = playType.includes("fumble recovery (opponent)") || playType.includes("fumble return touchdown") || isMuffedReturn || fumbleChangedPossessionBeforeTouchdown;
   const hasOffensiveTouchdownText = /(touchdown|\btd\b)/.test(`${playType} ${playTextNormalized}`);
   // The final /pass/ fallback below must be scoped to the text BEFORE "touchdown" specifically -
