@@ -988,6 +988,24 @@ export const leagueRouter = router({
       const knownKeys = new Set(eventRows.filter(row => row.source_event_key && row.audit_action !== "REVERSAL").map(row => row.source_event_key));
       const reversedKeys = new Set(eventRows.filter(row => row.audit_action === "REVERSAL" && row.source_event_key).map(row => row.source_event_key));
       const originalByKey = new Map(eventRows.filter(row => row.source_event_key && row.audit_action === "ENTRY").map(row => [row.source_event_key!, row]));
+      // Live-detected entries use a synthetic play id (a "9" prepended to the real CFBD play id, see
+      // adaptLiveGameToLegacyPlays) specifically so they never collide with the eventual official
+      // entry's key, which uses the real id straight from CFBD's final /plays feed. That means a
+      // live-detected TOUCHDOWN and its final-data-confirmed counterpart for the SAME real play never
+      // share a source_event_key - so matching on exact key alone (as the insert/correction logic
+      // below does) can never find the live one as "already known" and would insert a brand new
+      // duplicate official entry right next to it instead of replacing it. The main automation avoids
+      // this by tracking still-active live-detected entries per (slot, eventType) and reversing one
+      // the moment a fresh official candidate for that same slot+eventType is confirmed (gameday-
+      // refresh.ts's pendingLiveByGameSlotType) - mirrored here, or every offensive TOUCHDOWN/
+      // EXTRA_POINT/FIELD_GOAL and defensive SACK/TURNOVER/TOUCHDOWN already scored live in this game
+      // would get double-counted the moment this tool ran, not just the two rows it was built to fix.
+      const pendingLiveBySlotEventType = new Map<string, ReconcileEventRow[]>();
+      for (const row of eventRows) {
+        if (row.audit_action !== "ENTRY" || row.recorded_by_open_id !== "cfbd-live-detection" || !row.source_event_key || reversedKeys.has(`${row.source_event_key}:reversal`)) continue;
+        const groupKey = `${row.draft_slot_id}:${row.event_type}`;
+        pendingLiveBySlotEventType.set(groupKey, [...(pendingLiveBySlotEventType.get(groupKey) ?? []), row]);
+      }
       const eligibleSchools = [game.homeTeam, game.awayTeam].filter(school => eligibleGameIdsForSchool(schedule, school).includes(game.id));
       // getRoster is cached day-long, so resolving these sequentially here (rather than
       // Promise.all, which the hot automation path uses for volume) costs nothing meaningful for a
@@ -1045,6 +1063,20 @@ export const leagueRouter = router({
         if (!original) {
           planned.push({ action: "insert", eventType: candidate.eventType, school: candidate.schoolName, position: candidate.position, owner: slot.ownerName, points: score.points, note: candidate.note, key: candidate.sourceEventKey });
           if (!input.dryRun) await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: weekRow.id, draft_slot_id: slot.draftSlotId, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points, note: candidate.note, audit_action: "ENTRY", recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: candidate.sourceEventKey, source_game_id: candidate.sourceGameId, is_provisional: false } });
+          // This "new" official candidate may just be the final-data confirmation of a real play a
+          // live-detected entry already covers under its synthetic key - if one's still active for
+          // this exact (slot, eventType), it's now a confirmed duplicate. Reverse it (FIFO, same as
+          // the main automation) rather than leaving both rows counting toward the total.
+          const pendingGroupKey = `${slot.draftSlotId}:${candidate.eventType}`;
+          const stalePending = pendingLiveBySlotEventType.get(pendingGroupKey)?.shift();
+          if (stalePending) {
+            const staleReversalKey = `${stalePending.source_event_key}:reversal`;
+            if (!reversedKeys.has(staleReversalKey)) {
+              planned.push({ action: "reversal", eventType: stalePending.event_type, school: candidate.schoolName, position: candidate.position, owner: slot.ownerName, points: sourceEventReversalPoints(stalePending.computed_points), note: `superseded by confirmed official play ${candidate.sourceEventKey}`, key: stalePending.source_event_key! });
+              if (!input.dryRun) await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: stalePending.week_id, draft_slot_id: stalePending.draft_slot_id, event_type: stalePending.event_type, stat_value: stalePending.stat_value, yard_distance: stalePending.yard_distance, computed_points: sourceEventReversalPoints(stalePending.computed_points), note: `Superseded by confirmed official play ${candidate.sourceEventKey} (via reconcileGameFromFinalData)`, audit_action: "REVERSAL", correction_of_event_id: stalePending.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: staleReversalKey, source_game_id: game.id, is_provisional: false } });
+              reversedKeys.add(staleReversalKey);
+            }
+          }
         } else if (sourceEventNeedsCorrection(original, { points: score.points, yardDistance: candidate.yardDistance, statValue: candidate.statValue })) {
           planned.push({ action: "correction", eventType: candidate.eventType, school: candidate.schoolName, position: candidate.position, owner: slot.ownerName, points: score.points - original.computed_points, note: `corrects ${original.computed_points} -> ${score.points}`, key: candidate.sourceEventKey });
           if (!input.dryRun) {
