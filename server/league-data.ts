@@ -356,7 +356,32 @@ export async function getDraftSlotByGroup(schoolName: string, position: Position
   return rows[0];
 }
 
-export async function getScoringRulesForEvent(eventType: ScoringEventType) {
+// gameday-refresh's live-detection and final-reconciliation loops call this once per CANDIDATE - on a
+// heavy Saturday that's potentially hundreds of calls per single tick, across dozens of games, every
+// one of them an otherwise-identical uncached Supabase round-trip for one of only a couple dozen
+// distinct event types. That N-per-candidate cost (not any one game's own workload) is almost
+// certainly the dominant reason a tick can run long enough to hit Vercel's 60s function timeout on a
+// full game day. Scoring rules change only when a commissioner edits them from the admin screen, so a
+// short cache (mirroring the getLeagueSnapshot/cachedCfbdGet pattern elsewhere in this codebase) is
+// safe: worst case, a rule edit takes up to 60s to take effect for the automation, which is a better
+// tradeoff than the automation timing out and not running at all.
+const scoringRulesCache = new Map<string, { expiresAt: number; promise: ReturnType<typeof fetchScoringRulesForEvent> }>();
+const SCORING_RULES_CACHE_TTL_MS = 60_000;
+
+export function getScoringRulesForEvent(eventType: ScoringEventType) {
+  const cached = scoringRulesCache.get(eventType);
+  if (cached && cached.expiresAt > Date.now()) return cached.promise;
+  const promise = fetchScoringRulesForEvent(eventType).catch(error => { scoringRulesCache.delete(eventType); throw error; });
+  scoringRulesCache.set(eventType, { expiresAt: Date.now() + SCORING_RULES_CACHE_TTL_MS, promise });
+  return promise;
+}
+
+// Test-only escape hatch, matching resetLeagueSnapshotCacheForTests below.
+export function resetScoringRulesCacheForTests() {
+  scoringRulesCache.clear();
+}
+
+async function fetchScoringRulesForEvent(eventType: ScoringEventType) {
   const rows = await supabaseRest<RuleRow[]>("b36_scoring_rules", { query: { select: "*", event_type: q.eq(eventType), is_active: q.eq(true) } });
   return rows.length
     ? rows.map(rule => ({ id: Number.parseInt(rule.id.replace(/-/g, "").slice(0, 8), 16), eventType: rule.event_type, positionScope: rule.position_scope, minYards: asNumber(rule.min_yards), maxYards: asNumber(rule.max_yards), flatPoints: asNumber(rule.flat_points), pointsPerUnit: asNumber(rule.points_per_unit), isActive: "true" as const }))
