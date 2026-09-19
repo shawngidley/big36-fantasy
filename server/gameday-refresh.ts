@@ -116,6 +116,22 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
   // one - which starts a fresh 60s budget a minute later - rather than getting killed mid-write.
   const deadlineAt = Date.now() + 45_000;
   const pastDeadline = () => Date.now() > deadlineAt;
+  // pastDeadline() alone only stops us from STARTING new work once the budget is spent - it does
+  // nothing once a single await is already in flight. debugRefreshTiming confirmed the pre-loop
+  // stages (schedule sync, snapshot, scoreboard) only take ~9s combined, so a real-world 504 with
+  // the 45s budget in place means one in-flight stage is running long uninterrupted: the first
+  // processed week's getWeekPlays/getWeekPlayStats/roster fan-out (which always starts regardless
+  // of pastDeadline, since the very first week must run) or a slow per-game box-score fetch. This
+  // races any such stage against the time actually left, so a slow CFBD response can't by itself
+  // carry the whole invocation past Vercel's 60s ceiling - we just skip that stage's results for
+  // this tick and let the next tick, a minute later, retry it.
+  function raceAgainstDeadline<T>(promise: Promise<T>, label: string): Promise<T | { timedOut: true; label: string }> {
+    const remainingMs = Math.max(deadlineAt - Date.now(), 0);
+    return Promise.race([
+      promise,
+      new Promise<{ timedOut: true; label: string }>(resolve => setTimeout(() => resolve({ timedOut: true, label }), remainingMs)),
+    ]);
+  }
   try {
     const schedule = await syncFbsPoolAndSchedule(config.season);
     const snapshot = await getLeagueSnapshot();
@@ -237,9 +253,17 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
     const skippedWeeksForTimeBudget: number[] = [];
     for (const [week, games] of weeksDescending) {
       if (pastDeadline()) { skippedWeeksForTimeBudget.push(week); continue; }
-      const [plays, stats] = await Promise.all([getWeekPlays(config.season, week), getWeekPlayStats(config.season, week)]);
       const schools = Array.from(new Set<string>(games.flatMap(game => [game.homeTeam, game.awayTeam]).filter(school => selectedSchoolPositions.some(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(school)))));
-      const rosterEntries: Array<[string, CfbdRosterAthlete[]]> = await Promise.all(schools.map(async school => [school, await getRoster(school, config.season)]));
+      const weekFanout = await raceAgainstDeadline(
+        Promise.all([
+          getWeekPlays(config.season, week),
+          getWeekPlayStats(config.season, week),
+          Promise.all(schools.map(async school => [school, await getRoster(school, config.season)] as [string, CfbdRosterAthlete[]])),
+        ]),
+        `week-${week}-fanout`,
+      );
+      if ("timedOut" in weekFanout) { skippedWeeksForTimeBudget.push(week); continue; }
+      const [plays, stats, rosterEntries] = weekFanout;
       const rosters = new Map<string, CfbdRosterAthlete[]>(rosterEntries);
       const eventRows = await supabaseRest<SourceEvent[]>("b36_scoring_events", { query: { select: "id,source_event_key,source_game_id,audit_action,week_id,draft_slot_id,event_type,stat_value,yard_distance,computed_points,is_provisional,recorded_by_open_id", source_game_id: `in.(${games.map(game => game.id).join(",")})` } });
       const knownKeys = new Set(eventRows.filter(row => row.source_event_key && row.audit_action !== "REVERSAL").map(row => row.source_event_key));
@@ -279,7 +303,14 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
           for (const school of [game.homeTeam, game.awayTeam]) {
             if (!selectedSchoolPositions.some(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(school))) continue;
             let box: Awaited<ReturnType<typeof getGamePlayerStats>>[number] | undefined;
-            try { box = (await getGamePlayerStats(config.season, week, school)).find(entry => entry.id === game.id); } catch (error) { console.warn(`box score unavailable for ${school} game ${game.id}:`, error); }
+            try {
+              // Sequential per-school call inside a per-game loop that can run 100+ times across a
+              // big backlog week - a single slow CFBD response here shouldn't be able to eat the
+              // whole remaining budget uninterrupted, so this is raced the same way as the week-level
+              // fan-out above.
+              const boxResult = await raceAgainstDeadline(getGamePlayerStats(config.season, week, school), `box-score-${school}-${game.id}`);
+              box = "timedOut" in boxResult ? undefined : boxResult.find(entry => entry.id === game.id);
+            } catch (error) { console.warn(`box score unavailable for ${school} game ${game.id}:`, error); }
             const alreadyWrittenBySlot = new Map<LivePosition, number>();
             for (const row of eventRows) {
               if (row.source_game_id !== game.id || row.event_type !== "FUMBLE_LOST" || row.audit_action !== "ENTRY" || !row.source_event_key || row.source_event_key.endsWith(":box") || reversedKeys.has(`${row.source_event_key}:reversal`)) continue;
