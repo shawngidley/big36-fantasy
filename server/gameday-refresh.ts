@@ -195,9 +195,21 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
     // These insert as provisional events; once the game completes, the existing final-reconciliation
     // pass below naturally supersedes them (its keys differ, so old provisional entries get reversed
     // and replaced with the official confirmed ones — no double-counting).
+    //
+    // A real production run on a 14-concurrent-game Saturday showed this loop, sharing the same 45s
+    // deadline as the backlog reconciliation below, can run to completion on its own and consume the
+    // entire budget - every one of skippedWeeksForTimeBudget's weeks got skipped without the final-
+    // reconciliation loop starting at all, so Notre Dame's shutout (sitting in the week 2 backlog)
+    // never even got a chance that tick. On a big gameday, live scoring for today's games will always
+    // have plenty of material to process, so sharing one deadline means the backlog can get starved
+    // indefinitely on exactly the days people are most likely to notice. This gives live detection its
+    // own, smaller budget so backlog reconciliation is guaranteed a real slice of the 45s regardless of
+    // how many games are live right now.
+    const liveDetectionDeadlineAt = Date.now() + 20_000;
+    const pastLiveDetectionDeadline = () => Date.now() > liveDetectionDeadlineAt;
     const liveDebug: Array<Record<string, unknown>> = [];
     for (const game of trulyInProgress) {
-      if (pastDeadline()) { liveDebug.push({ gameId: game.id, homeTeam: game.homeTeam, awayTeam: game.awayTeam, week: game.week, skipped: "time-budget-exceeded" }); continue; }
+      if (pastLiveDetectionDeadline()) { liveDebug.push({ gameId: game.id, homeTeam: game.homeTeam, awayTeam: game.awayTeam, week: game.week, skipped: "time-budget-exceeded" }); continue; }
       const debugEntry: Record<string, unknown> = { gameId: game.id, homeTeam: game.homeTeam, awayTeam: game.awayTeam, week: game.week };
       try {
         const live = await getLivePlays(game.id);
