@@ -1385,6 +1385,43 @@ export const leagueRouter = router({
         return { success: true as const, ...result };
       } catch (error) { asError(error); }
     }),
+    // A direct runLiveRefreshNow call just hit the platform's 60s function timeout - the exact same
+    // code path the once-a-minute cron runs. A killed invocation never reaches runGamedayRefresh's own
+    // try/catch, so last_refresh_status/last_refresh_at only reflect whichever tick last happened to
+    // finish in time, not that every tick succeeds. This times each cheap stage up through computing
+    // the backlog (relevantGames) WITHOUT running the expensive per-game reconciliation loop, so it
+    // can't itself time out, and reports how large the backlog actually is right now.
+    debugRefreshTiming: adminProcedure.mutation(async () => {
+      const timings: Record<string, number> = {};
+      const time = async <T,>(label: string, fn: () => Promise<T>): Promise<T> => {
+        const start = Date.now();
+        try { return await fn(); } finally { timings[label] = Date.now() - start; }
+      };
+      const config = (await supabaseRest<Array<{ season: number; enabled: boolean }>>("b36_automation_config", { query: { select: "season,enabled", id: q.eq(true) } }))[0];
+      if (!config) throw new Error("36 Football automation is not configured.");
+      const schedule = await time("syncFbsPoolAndSchedule", () => syncFbsPoolAndSchedule(config.season));
+      const snapshot = await time("getLeagueSnapshot", () => getLeagueSnapshot());
+      const selectedSchoolPositions = snapshot.owners.flatMap(owner => owner.picks.map(pick => ({ schoolName: pick.schoolName, position: pick.position as LivePosition, draftSlotId: pick.id })));
+      const scoreboard = await time("getLiveScoreboard", () => getLiveScoreboard());
+      const backlog = await time("computeRelevantGames", async () => {
+        const scoreboardStatusById = new Map(scoreboard.filter(game => game.id).map(game => [game.id, game.status ?? null]));
+        const scoreboardGames = scoreboard.filter(game => game.id).map(game => schedule.games.find(source => source.id === game.id)).filter((game): game is NonNullable<typeof game> => Boolean(game));
+        const lockedWeekNumbers = new Set(snapshot.weeks.filter(week => week.status === "FINAL").map(week => week.weekNumber));
+        const draftedGames = scoreboardGames.filter(game => selectedSchoolPositions.some(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(game.homeTeam) || normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(game.awayTeam)));
+        const lockedWeekCompletedIds = draftedGames.filter(game => lockedWeekNumbers.has(game.week) && game.completed).map(game => game.id);
+        const settledGameIds = new Set<number>();
+        if (lockedWeekCompletedIds.length) {
+          const officialRows = await supabaseRest<Array<{ source_game_id: number | null }>>("b36_scoring_events", { query: { select: "source_game_id", source_game_id: `in.(${lockedWeekCompletedIds.join(",")})`, audit_action: "eq.ENTRY", is_provisional: "eq.false" } });
+          officialRows.forEach(row => { if (row.source_game_id) settledGameIds.add(row.source_game_id); });
+        }
+        const relevantGames = draftedGames.filter(game => !settledGameIds.has(game.id));
+        const trulyInProgress = relevantGames.filter(game => scoreboardStatusById.get(game.id) === "in_progress");
+        const byWeek = new Map<number, number>();
+        for (const game of relevantGames) byWeek.set(game.week, (byWeek.get(game.week) ?? 0) + 1);
+        return { draftedGameCount: draftedGames.length, settledGameCount: settledGameIds.size, relevantGameCount: relevantGames.length, trulyInProgressCount: trulyInProgress.length, relevantGamesByWeek: Object.fromEntries(byWeek), relevantGameIds: relevantGames.map(game => game.id) };
+      });
+      return { season: config.season, automationEnabled: config.enabled, teamCount: schedule.teamCount, scheduleGameCount: schedule.gameCount, timingsMs: timings, backlog };
+    }),
     upsertDivision: adminProcedure.input(z.object({ id: uuid.optional(), name: z.string().trim().min(2).max(80), identity: z.string().trim().max(160).nullable().optional(), logoUrl: z.string().url().max(1000).nullable().optional(), logoDataUrl: z.string().max(2_000_000).nullable().optional(), sortOrder: z.number().int().min(1).max(6) })).mutation(async ({ ctx, input }) => {
       // A division's logo can arrive two ways: an already-hosted URL pasted in directly, or a file
       // picked from disk (base64 data URL) that needs decoding and uploading first, exactly like a
