@@ -8,13 +8,14 @@ vi.mock("./supabase", () => ({
   supabaseRestAll: mocks.supabaseRest,
 }));
 
-import { completedScheduleNormalization, getOwnerDraftBoard, getDraftResearchCatalog, getLeagueSnapshot, getScoringRulesForEvent, overallRankAtEvent, publicDraftResearchUnit, resetLeagueSnapshotCacheForTests } from "./league-data";
+import { completedScheduleNormalization, getOwnerDraftBoard, getDraftResearchCatalog, getLeagueSnapshot, getScoringRulesForEvent, overallRankAtEvent, publicDraftResearchUnit, resetLeagueSnapshotCacheForTests, resetScoringRulesCacheForTests } from "./league-data";
 
 describe("Big 36 public live-results snapshot", () => {
-  // getLeagueSnapshot now caches its result for 15s (see league-data.ts) so concurrent real-world
-  // pollers share one Supabase read; reset it here so each test's distinct mock data is actually
-  // read fresh instead of getting a cached snapshot from whichever test ran first.
-  beforeEach(() => { vi.clearAllMocks(); resetLeagueSnapshotCacheForTests(); });
+  // getLeagueSnapshot now caches its result for 15s, and getScoringRulesForEvent for 60s (see
+  // league-data.ts) so concurrent real-world pollers/candidates share one Supabase read; reset both
+  // here so each test's distinct mock data is actually read fresh instead of getting a cached result
+  // left over from whichever test ran first.
+  beforeEach(() => { vi.clearAllMocks(); resetLeagueSnapshotCacheForTests(); resetScoringRulesCacheForTests(); });
 
   it("calculates an affected program's overall rank before and after a scoring update", () => {
     const owners = [{ id: "alpha", teamName: "Alpha" }, { id: "bravo", teamName: "Bravo" }, { id: "charlie", teamName: "Charlie" }];
