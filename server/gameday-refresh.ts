@@ -236,8 +236,16 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
         const weekRow = await ensureWeekRow(resolveB36WeekNumber(game), snapshot.weeks);
         debugEntry.weekRowFound = Boolean(weekRow);
         debugEntry.availableWeekNumbers = snapshot.weeks.map(item => item.weekNumber);
-        let candidateCount = 0, insertedForGame = 0, skippedNoSlot = 0;
+        let candidateCount = 0, insertedForGame = 0, skippedNoSlot = 0, skippedForTimeBudget = 0;
         for (const school of [game.homeTeam, game.awayTeam]) {
+          // getLivePlays is raced above, but everything after it - roster fetch, then a real
+          // Supabase POST per new candidate below - was still completely unguarded. With up to ~14
+          // games in this loop and up to a few dozen candidates per game, that unraced tail is what
+          // actually kept blowing through the live-detection sub-budget (and deep into the backlog's
+          // reserved time) even after getLivePlays itself stopped being the bottleneck. Checked per
+          // school and per candidate, not just per game, since a single game's own candidate count
+          // can be large enough to matter on its own.
+          if (pastLiveDetectionDeadline()) { skippedForTimeBudget += 1; break; }
           // Evaluate BOTH teams' offensive plays, not just drafted schools'. A drafted DEF earns
           // sacks/interceptions on the OPPONENT's offensive plays, so skipping an undrafted opponent
           // here silently dropped every live defensive credit unless both teams happened to be
@@ -250,6 +258,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
           candidateCount += candidates.length;
           for (const candidate of candidates) {
             if (knownLiveKeys.has(candidate.sourceEventKey)) continue;
+            if (pastLiveDetectionDeadline()) { skippedForTimeBudget += 1; break; }
             const slot = selectedSchoolPositions.find(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(candidate.schoolName) && selection.position === candidate.position);
             if (!slot) { skippedNoSlot += 1; continue; }
             // A single candidate's data problem (missing yardage, a rules gap, anything unexpected)
@@ -266,7 +275,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
             }
           }
         }
-        debugEntry.candidateCount = candidateCount; debugEntry.insertedForGame = insertedForGame; debugEntry.skippedNoSlot = skippedNoSlot; debugEntry.alreadyKnownCount = knownLiveKeys.size;
+        debugEntry.candidateCount = candidateCount; debugEntry.insertedForGame = insertedForGame; debugEntry.skippedNoSlot = skippedNoSlot; debugEntry.alreadyKnownCount = knownLiveKeys.size; debugEntry.skippedForTimeBudget = skippedForTimeBudget;
       } catch (error) {
         debugEntry.error = error instanceof Error ? error.message : String(error);
       }
