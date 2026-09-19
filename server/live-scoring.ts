@@ -394,7 +394,18 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   // A pick-six or fumble-return touchdown is reliably flagged by the play mentioning both a
   // turnover (interception, or "(Opponent)" fumble recovery) AND "touchdown" - independent of
   // whether player-level stats exist yet, the same weakness already fixed for sacks/turnovers.
-  if (!specialTeamsPlay && eligibleSelection(defensiveSchool, "DST") && !isInvalidated && (isInterceptionReturn || isFumbleLostToOpponent) && (playType.includes("touchdown") || playTextNormalized.includes("touchdown")) && !candidates.some(candidate => candidate.eventType === "DEFENSIVE_TOUCHDOWN" && candidate.schoolName === defensiveSchool)) {
+  // Requiring play.scoring (an actual home/away score delta on this play, computed independently
+  // of any text) is load-bearing, not redundant: CFBD's live play text for a play under booth
+  // review keeps embedding the ORIGINAL, since-overturned call in a "(Original Play: ...)"
+  // parenthetical even after the ruling is corrected. Real Ole Miss/Charlotte play: an
+  // interception was originally ruled a 76-yard pick-six, then overturned on review to a 38-yard
+  // return only - but the final play text still contains "... TOUCHDOWN, clock 00:04)" from the
+  // reversed original call, which wrongly credited Ole Miss's DST a defensive touchdown that
+  // officially never happened (confirmed against CFBD's own final score: no defensive/special
+  // teams touchdown appears anywhere in Ole Miss's box score for that game). The stat-based branch
+  // two lines above already gates on play.scoring for exactly this reason; this text-only fallback
+  // had the same exposure without the same guard.
+  if (play.scoring && !specialTeamsPlay && eligibleSelection(defensiveSchool, "DST") && !isInvalidated && (isInterceptionReturn || isFumbleLostToOpponent) && (playType.includes("touchdown") || playTextNormalized.includes("touchdown")) && !candidates.some(candidate => candidate.eventType === "DEFENSIVE_TOUCHDOWN" && candidate.schoolName === defensiveSchool)) {
     candidates.push({ sourceEventKey: `${play.id}:DEFENSIVE_TOUCHDOWN:playtype`, sourceGameId: play.gameId, schoolName: defensiveSchool, position: "DST", eventType: "DEFENSIVE_TOUCHDOWN", statValue: 1, yardDistance: extractReturnYards(play.playText) ?? play.yardsGained ?? null, provisional, note: `CFBD play ${play.id} · defensive touchdown (playType match)` });
   }
   // A fumble recovery is reliably flagged on the play's own playType (e.g. "Fumble Recovery
