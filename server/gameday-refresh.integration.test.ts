@@ -88,6 +88,17 @@ describe("36 Football gameday source reconciliation", () => {
     expect(writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST")?.options.body).toMatchObject({ audit_action: "CORRECTION", computed_points: 3, correction_of_event_id: "event-1" });
   });
 
+  it("still reconciles a completed, unsettled drafted-school game that CFBD's live scoreboard no longer returns (real production bug: a real Notre Dame shutout stayed permanently unsettled because getLiveScoreboard's bare /scoreboard call only ever returns today's games - any game whose day had already passed dropped out of draftedGames entirely, forever, since it was sourced from the scoreboard match instead of the full season schedule)", async () => {
+    // The live scoreboard (today's games only) comes back empty - as it would days after this game
+    // actually aired - while getRegularSeasonGames (the full season schedule) still has it, exactly
+    // as CFBD's real season schedule endpoint always does regardless of how long ago a game played.
+    mocks.getLiveScoreboard.mockResolvedValue([]);
+    const writes = arrange([]);
+    mocks.mapLivePlayToCandidates.mockReturnValue([candidate]);
+    await runGamedayRefresh({ force: true });
+    expect(writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST")?.options.body).toMatchObject({ source_event_key: "101:55:qb", audit_action: "ENTRY" });
+  });
+
   it("records a signed positive correction when a negative source event is corrected to zero", async () => {
     const negativeTurnover = { ...original, event_type: "INTERCEPTION_THROWN", computed_points: -3, yard_distance: null };
     const writes = arrange([negativeTurnover]);

@@ -105,12 +105,32 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
   if (!config) throw new Error("36 Football automation is not configured.");
   if (!config.enabled && !options.force) return { skipped: "automation-disabled", insertedEvents: 0, activeGames: 0 };
   if (!options.force && !isCollegeFootballGamedayWindow()) return { skipped: "outside-gameday-window", insertedEvents: 0, activeGames: 0 };
+  // The whole function runs inside Vercel's 60s maxDuration, on a route the cron hits every minute -
+  // a killed invocation never reaches the catch block below, so a tick that runs long doesn't even
+  // get to record last_refresh_status: error, it just silently vanishes. Fixing draftedGames to look
+  // at the full season schedule (see below) means a tick can suddenly find a large backlog of
+  // previously-invisible unsettled games - if a single tick tried to fully reconcile all of them at
+  // once, it would very likely time out again, for a different reason. This budget stops the final-
+  // reconciliation loop with margin to spare (leaving room for the schedule sync and live-detection
+  // pass that already ran), so a tick that runs out of time simply leaves the remainder for the next
+  // one - which starts a fresh 60s budget a minute later - rather than getting killed mid-write.
+  const deadlineAt = Date.now() + 45_000;
+  const pastDeadline = () => Date.now() > deadlineAt;
   try {
     const schedule = await syncFbsPoolAndSchedule(config.season);
     const snapshot = await getLeagueSnapshot();
     const selectedSchoolPositions = snapshot.owners.flatMap(owner => owner.picks.map(pick => ({ schoolName: pick.schoolName, position: pick.position as LivePosition, draftSlotId: pick.id })));
     const scoreboard = await getLiveScoreboard();
     const scoreboardStatusById = new Map(scoreboard.filter(game => game.id).map(game => [game.id, game.status ?? null]));
+    // CFBD's /scoreboard (no week/year param - see getLiveScoreboard) only ever returns TODAY's games.
+    // draftedGames used to be filtered through this same-day scoreboard, which meant any drafted-school
+    // game not fully reconciled before its calendar day ended became permanently invisible to every
+    // future tick, forever - regardless of isCollegeFootballGamedayWindow being true days later. A real
+    // production sweep (debugRefreshTiming) found 76 completed, drafted-school games already stuck this
+    // way (4 in week 1, 68 in week 2, 4 in week 3), including a Notre Dame shutout that never got its
+    // official credit because the game aged off the scoreboard before its final reconciliation tick.
+    // draftedGames is now sourced from the full season schedule instead - the scoreboard is still used
+    // (via scoreboardStatusById above) only to tell which of today's games are actually in progress.
     const scoreboardGames = scoreboard.filter(game => game.id).map(game => schedule.games.find(source => source.id === game.id)).filter((game): game is CfbdGame => Boolean(game));
     // Once a week is marked FINAL by the commissioner, it's permanently locked - no further
     // automatic changes, ever, regardless of later code changes. Without this, a fix to detection
@@ -118,7 +138,11 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
     // is exactly what caused a real, serious regression tonight when a fumble-detection fix changed
     // which candidates got generated for plays across multiple already-settled games.
     const lockedWeekNumbers = new Set(snapshot.weeks.filter(week => week.status === "FINAL").map(week => week.weekNumber));
-    const draftedGames = scoreboardGames.filter(game => selectedSchoolPositions.some(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(game.homeTeam) || normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(game.awayTeam)));
+    // Bound to completed games (any age - that's the actual backlog) plus near-term upcoming ones
+    // (today/tomorrow), rather than the entire rest-of-season schedule. A far-future game has nothing
+    // to reconcile yet and would just add dead weight to every tick until its own week arrives.
+    const nearTermCutoff = Date.now() + 2 * 24 * 60 * 60_000;
+    const draftedGames = schedule.games.filter(game => (game.completed || new Date(game.startDate).getTime() <= nearTermCutoff) && selectedSchoolPositions.some(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(game.homeTeam) || normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(game.awayTeam)));
     // The lock must be per GAME, not per CFBD week number: CFBD's "week 1" spans opening weekend
     // through Labor Day, so locking the whole week number after the Aug 29 slate silently blocked
     // every game the following weekend. A game is settled (and therefore frozen) only when its week
@@ -154,6 +178,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
     // and replaced with the official confirmed ones — no double-counting).
     const liveDebug: Array<Record<string, unknown>> = [];
     for (const game of trulyInProgress) {
+      if (pastDeadline()) { liveDebug.push({ gameId: game.id, homeTeam: game.homeTeam, awayTeam: game.awayTeam, week: game.week, skipped: "time-budget-exceeded" }); continue; }
       const debugEntry: Record<string, unknown> = { gameId: game.id, homeTeam: game.homeTeam, awayTeam: game.awayTeam, week: game.week };
       try {
         const live = await getLivePlays(game.id);
@@ -203,7 +228,15 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
 
     const byWeek = new Map<number, CfbdGame[]>();
     for (const game of relevantGames) byWeek.set(game.week, [...(byWeek.get(game.week) ?? []), game]);
-    for (const [week, games] of Array.from(byWeek.entries())) {
+    // Process the most recent week first. draftedGames now draws on the full season schedule (not
+    // just today's scoreboard), so a week that's been backlogged for a while - e.g. 68 unsettled week
+    // 2 games found in production - can vastly outnumber today's own week's handful of games. Without
+    // this ordering, an old backlog would starve the current week's own reconciliation of its share of
+    // the time budget on the very days people are actually watching the site.
+    const weeksDescending = Array.from(byWeek.entries()).sort(([a], [b]) => b - a);
+    const skippedWeeksForTimeBudget: number[] = [];
+    for (const [week, games] of weeksDescending) {
+      if (pastDeadline()) { skippedWeeksForTimeBudget.push(week); continue; }
       const [plays, stats] = await Promise.all([getWeekPlays(config.season, week), getWeekPlayStats(config.season, week)]);
       const schools = Array.from(new Set<string>(games.flatMap(game => [game.homeTeam, game.awayTeam]).filter(school => selectedSchoolPositions.some(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(school)))));
       const rosterEntries: Array<[string, CfbdRosterAthlete[]]> = await Promise.all(schools.map(async school => [school, await getRoster(school, config.season)]));
@@ -226,6 +259,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
         pendingLiveByGameSlotType.set(groupKey, [...(pendingLiveByGameSlotType.get(groupKey) ?? []), row]);
       }
       for (const game of games) {
+        if (pastDeadline()) { skippedWeeksForTimeBudget.push(week); break; }
         const weekRow = await ensureWeekRow(resolveB36WeekNumber(game), snapshot.weeks);
         const currentCandidateKeys = new Set<string>();
         const gameCandidates = [
@@ -349,8 +383,9 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
         }
       }
     }
-    await writeRefreshStatus({ last_refresh_status: "ok", last_refresh_detail: { active_games: trulyInProgress.length, relevant_games: relevantGames.length, inserted_events: insertedEvents, team_count: schedule.teamCount, live_debug: liveDebug, match_debug: matchDebug } });
-    return { activeGames: trulyInProgress.length, relevantGames: relevantGames.length, insertedEvents, teamCount: schedule.teamCount, liveDebug, matchDebug };
+    const uniqueSkippedWeeks = Array.from(new Set(skippedWeeksForTimeBudget));
+    await writeRefreshStatus({ last_refresh_status: "ok", last_refresh_detail: { active_games: trulyInProgress.length, relevant_games: relevantGames.length, inserted_events: insertedEvents, team_count: schedule.teamCount, live_debug: liveDebug, match_debug: matchDebug, skipped_weeks_for_time_budget: uniqueSkippedWeeks } });
+    return { activeGames: trulyInProgress.length, relevantGames: relevantGames.length, insertedEvents, teamCount: schedule.teamCount, liveDebug, matchDebug, skippedWeeksForTimeBudget: uniqueSkippedWeeks };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown gameday refresh failure";
     await writeRefreshStatus({ last_refresh_status: "error", last_refresh_detail: { message } });
