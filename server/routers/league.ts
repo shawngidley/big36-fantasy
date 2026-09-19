@@ -1418,7 +1418,25 @@ export const leagueRouter = router({
         const trulyInProgress = relevantGames.filter(game => scoreboardStatusById.get(game.id) === "in_progress");
         const byWeek = new Map<number, number>();
         for (const game of relevantGames) byWeek.set(game.week, (byWeek.get(game.week) ?? 0) + 1);
-        return { draftedGameCount: draftedGames.length, settledGameCount: settledGameIds.size, relevantGameCount: relevantGames.length, trulyInProgressCount: trulyInProgress.length, relevantGamesByWeek: Object.fromEntries(byWeek), relevantGameIds: relevantGames.map(game => game.id) };
+        // getLiveScoreboard() hits CFBD's /scoreboard with no week/year - that endpoint only ever
+        // returns TODAY's games. draftedGames/relevantGames above are filtered through scoreboardGames,
+        // so any drafted-school game whose day has already passed is invisible to this computation no
+        // matter how unsettled it still is. This second pass answers the same question directly from
+        // the full season schedule instead, to show exactly what's disappearing.
+        const draftedGamesFromFullSchedule = schedule.games.filter(game => selectedSchoolPositions.some(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(game.homeTeam) || normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(game.awayTeam)));
+        const lockedWeekCompletedIdsFull = draftedGamesFromFullSchedule.filter(game => lockedWeekNumbers.has(game.week) && game.completed).map(game => game.id);
+        const settledGameIdsFull = new Set<number>();
+        if (lockedWeekCompletedIdsFull.length) {
+          const officialRowsFull = await supabaseRest<Array<{ source_game_id: number | null }>>("b36_scoring_events", { query: { select: "source_game_id", source_game_id: `in.(${lockedWeekCompletedIdsFull.join(",")})`, audit_action: "eq.ENTRY", is_provisional: "eq.false" } });
+          officialRowsFull.forEach(row => { if (row.source_game_id) settledGameIdsFull.add(row.source_game_id); });
+        }
+        const relevantGamesFull = draftedGamesFromFullSchedule.filter(game => game.completed && !settledGameIdsFull.has(game.id));
+        const byWeekFull = new Map<number, number>();
+        for (const game of relevantGamesFull) byWeekFull.set(game.week, (byWeekFull.get(game.week) ?? 0) + 1);
+        return {
+          scoreboardLimited: { draftedGameCount: draftedGames.length, settledGameCount: settledGameIds.size, relevantGameCount: relevantGames.length, trulyInProgressCount: trulyInProgress.length, relevantGamesByWeek: Object.fromEntries(byWeek), relevantGameIds: relevantGames.map(game => game.id) },
+          fullScheduleBased: { draftedCompletedGameCount: draftedGamesFromFullSchedule.filter(g => g.completed).length, settledGameCount: settledGameIdsFull.size, unsettledCompletedGameCount: relevantGamesFull.length, unsettledByWeek: Object.fromEntries(byWeekFull), unsettledGameIds: relevantGamesFull.map(game => ({ id: game.id, week: game.week, homeTeam: game.homeTeam, awayTeam: game.awayTeam })) },
+        };
       });
       return { season: config.season, automationEnabled: config.enabled, teamCount: schedule.teamCount, scheduleGameCount: schedule.gameCount, timingsMs: timings, backlog };
     }),
