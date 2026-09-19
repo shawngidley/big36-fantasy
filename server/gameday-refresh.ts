@@ -125,8 +125,8 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
   // races any such stage against the time actually left, so a slow CFBD response can't by itself
   // carry the whole invocation past Vercel's 60s ceiling - we just skip that stage's results for
   // this tick and let the next tick, a minute later, retry it.
-  function raceAgainstDeadline<T>(promise: Promise<T>, label: string): Promise<T | { timedOut: true; label: string }> {
-    const remainingMs = Math.max(deadlineAt - Date.now(), 0);
+  function raceAgainstDeadline<T>(promise: Promise<T>, label: string, deadline: number = deadlineAt): Promise<T | { timedOut: true; label: string }> {
+    const remainingMs = Math.max(deadline - Date.now(), 0);
     let timeoutHandle: ReturnType<typeof setTimeout>;
     const timeoutPromise = new Promise<{ timedOut: true; label: string }>(resolve => {
       timeoutHandle = setTimeout(() => resolve({ timedOut: true, label }), remainingMs);
@@ -135,6 +135,17 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
     // the handler has otherwise finished - a big backlog week can call this 100+ times per tick.
     return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutHandle));
   }
+  // Reserve a fixed slice of the OVERALL 45s budget for backlog reconciliation, anchored to
+  // invocation start rather than to whenever the live-detection loop happens to begin. A real
+  // production run showed live detection alone (for 14 concurrently live games) could consume the
+  // entire 45s deadline, leaving skippedWeeksForTimeBudget as every single week - the backlog loop
+  // never started. Computing this sub-deadline from Date.now() at the top of the live loop instead
+  // of from deadlineAt would make the reserved slice shrink by however long the pre-loop stages
+  // (schedule sync, snapshot, scoreboard - ~9s measured, but not guaranteed) happened to take;
+  // anchoring to deadlineAt keeps the backlog's floor fixed regardless of that variance.
+  const BACKLOG_RESERVED_MS = 25_000;
+  const liveDetectionDeadlineAt = deadlineAt - BACKLOG_RESERVED_MS;
+  const pastLiveDetectionDeadline = () => Date.now() > liveDetectionDeadlineAt;
   try {
     const schedule = await syncFbsPoolAndSchedule(config.season);
     const snapshot = await getLeagueSnapshot();
@@ -202,17 +213,22 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
     // reconciliation loop starting at all, so Notre Dame's shutout (sitting in the week 2 backlog)
     // never even got a chance that tick. On a big gameday, live scoring for today's games will always
     // have plenty of material to process, so sharing one deadline means the backlog can get starved
-    // indefinitely on exactly the days people are most likely to notice. This gives live detection its
-    // own, smaller budget so backlog reconciliation is guaranteed a real slice of the 45s regardless of
-    // how many games are live right now.
-    const liveDetectionDeadlineAt = Date.now() + 20_000;
-    const pastLiveDetectionDeadline = () => Date.now() > liveDetectionDeadlineAt;
+    // indefinitely on exactly the days people are most likely to notice. liveDetectionDeadlineAt
+    // (defined above, anchored to invocation start) gives this loop its own, smaller budget so
+    // backlog reconciliation is guaranteed a real slice of the 45s regardless of how many games are
+    // live right now.
     const liveDebug: Array<Record<string, unknown>> = [];
     for (const game of trulyInProgress) {
       if (pastLiveDetectionDeadline()) { liveDebug.push({ gameId: game.id, homeTeam: game.homeTeam, awayTeam: game.awayTeam, week: game.week, skipped: "time-budget-exceeded" }); continue; }
       const debugEntry: Record<string, unknown> = { gameId: game.id, homeTeam: game.homeTeam, awayTeam: game.awayTeam, week: game.week };
       try {
-        const live = await getLivePlays(game.id);
+        // Raced against the live-detection sub-deadline, not the overall one - a single slow
+        // getLivePlays call is an in-flight await pastLiveDetectionDeadline() can't interrupt on its
+        // own, and with up to ~14 games in this loop, one slow response could otherwise burn most of
+        // the 20s reserved for live detection by itself.
+        const liveResult = await raceAgainstDeadline(getLivePlays(game.id), `live-plays-${game.id}`, liveDetectionDeadlineAt);
+        if ("timedOut" in liveResult) { debugEntry.skipped = "time-budget-exceeded"; liveDebug.push(debugEntry); continue; }
+        const live = liveResult;
         const legacyPlays = adaptLiveGameToLegacyPlays(game.id, live);
         debugEntry.legacyPlayCount = legacyPlays.length;
         const existingRows = await supabaseRest<Array<{ source_event_key: string | null }>>("b36_scoring_events", { query: { select: "source_event_key", source_game_id: `eq.${game.id}`, audit_action: "eq.ENTRY" } });
