@@ -483,3 +483,139 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
     throw error;
   }
 }
+
+export type ReconcileEventRow = { id: string; source_event_key: string | null; audit_action: string; week_id: string; draft_slot_id: string; event_type: string; stat_value: number; yard_distance: number | null; computed_points: number; is_provisional: boolean; recorded_by_open_id: string };
+export type ReconcilePlannedAction = { action: "insert" | "correction" | "reversal" | "confirm-official"; eventType: string; school: string; position: string; owner: string; points: number; note: string; key: string };
+
+// Shared by the admin reconcileGameFromFinalData (one named game) and reconcileWeekFromFinalData
+// (every completed game in a week) endpoints - both exist to clean up a completed game's scoring
+// events after a code fix landed too late for the main automation to ever revisit it (a completed
+// game with any official ENTRY is permanently "settled" and dropped from relevantGames by design,
+// so an ordinary bugfix can't reach its stale rows on its own - see settledGameIds above). This is
+// the same regenerate-every-candidate-from-final-data-and-diff logic the main per-game loop above
+// runs (lines ~328-474), just scoped to one game, run on demand rather than every tick, and
+// reporting every planned action instead of only writing them - dryRun defaults true upstream.
+export async function reconcileGameAgainstFinalData(params: {
+  game: CfbdGame;
+  schedule: CfbdGame[];
+  season: number;
+  weekRowId: string;
+  selectedSchoolPositions: Array<{ schoolName: string; position: LivePosition; draftSlotId: string; ownerName: string }>;
+  dryRun: boolean;
+}): Promise<{ planned: ReconcilePlannedAction[]; boxScoreUnavailableFor: string[] }> {
+  const { game, schedule, season, weekRowId, selectedSchoolPositions, dryRun } = params;
+  const [plays, stats] = await Promise.all([getWeekPlays(season, game.week), getWeekPlayStats(season, game.week)]);
+  const gamePlays = plays.filter(play => play.gameId === game.id);
+  const eventRows = await supabaseRest<ReconcileEventRow[]>("b36_scoring_events", { query: { select: "id,source_event_key,audit_action,week_id,draft_slot_id,event_type,stat_value,yard_distance,computed_points,is_provisional,recorded_by_open_id", source_game_id: `eq.${game.id}` } });
+  const knownKeys = new Set(eventRows.filter(row => row.source_event_key && row.audit_action !== "REVERSAL").map(row => row.source_event_key));
+  const reversedKeys = new Set(eventRows.filter(row => row.audit_action === "REVERSAL" && row.source_event_key).map(row => row.source_event_key));
+  const originalByKey = new Map(eventRows.filter(row => row.source_event_key && row.audit_action === "ENTRY").map(row => [row.source_event_key!, row]));
+  // Live-detected entries use a synthetic play id (a "9" prepended to the real CFBD play id, see
+  // adaptLiveGameToLegacyPlays) specifically so they never collide with the eventual official
+  // entry's key, which uses the real id straight from CFBD's final /plays feed. That means a
+  // live-detected TOUCHDOWN and its final-data-confirmed counterpart for the SAME real play never
+  // share a source_event_key - so matching on exact key alone (as the insert/correction logic
+  // below does) can never find the live one as "already known" and would insert a brand new
+  // duplicate official entry right next to it instead of replacing it. Tracked here exactly like
+  // the main loop's pendingLiveByGameSlotType above, and consulted the same way.
+  const pendingLiveBySlotEventType = new Map<string, ReconcileEventRow[]>();
+  for (const row of eventRows) {
+    if (row.audit_action !== "ENTRY" || row.recorded_by_open_id !== "cfbd-live-detection" || !row.source_event_key || reversedKeys.has(`${row.source_event_key}:reversal`)) continue;
+    const groupKey = `${row.draft_slot_id}:${row.event_type}`;
+    pendingLiveBySlotEventType.set(groupKey, [...(pendingLiveBySlotEventType.get(groupKey) ?? []), row]);
+  }
+  const eligibleSchools = [game.homeTeam, game.awayTeam].filter(school => eligibleGameIdsForSchool(schedule, school).includes(game.id));
+  // getRoster is cached day-long, so resolving these sequentially here (rather than Promise.all,
+  // which the hot automation path uses for volume) costs nothing meaningful for an on-demand,
+  // per-game reconciliation and keeps this straightforward to read.
+  const offensiveCandidatesBySchool = new Map<string, ReturnType<typeof mapLivePlayToCandidates>>();
+  for (const school of eligibleSchools) {
+    const roster = await getRoster(school, season);
+    const schoolPlays = gamePlays.filter((play, index) => play.offense === school && !isSupersededInterceptionPlay(play, gamePlays[index + 1]));
+    offensiveCandidatesBySchool.set(school, schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: stats.filter(stat => String(stat.playId) === String(play.id)), roster, selectedSchoolPositions: selectedSchoolPositions.map(selection => ({ schoolName: selection.schoolName, position: selection.position })), provisional: false })));
+  }
+  let candidates = [
+    ...Array.from(offensiveCandidatesBySchool.values()).flat(),
+    ...finalShutoutCandidates({ game, selectedSchoolPositions: selectedSchoolPositions.map(selection => ({ schoolName: selection.schoolName, position: selection.position })), provisional: false }),
+  ];
+  // Box-score fumbles: same override as the main automation - the box score is authoritative once
+  // the game is over, replacing play-derived fumble candidates for schools it's available for.
+  const boxScoreUnavailableFor: string[] = [];
+  for (const school of [game.homeTeam, game.awayTeam]) {
+    if (!selectedSchoolPositions.some(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(school))) continue;
+    const roster = await getRoster(school, season);
+    const box = (await getGamePlayerStats(season, game.week, school)).find(entry => entry.id === game.id);
+    const alreadyWrittenBySlot = new Map<LivePosition, number>();
+    for (const row of eventRows) {
+      if (row.event_type !== "FUMBLE_LOST" || row.audit_action !== "ENTRY" || !row.source_event_key || row.source_event_key.endsWith(":box") || reversedKeys.has(`${row.source_event_key}:reversal`)) continue;
+      const slot = selectedSchoolPositions.find(selection => selection.draftSlotId === row.draft_slot_id && normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(school));
+      if (slot) alreadyWrittenBySlot.set(slot.position, (alreadyWrittenBySlot.get(slot.position) ?? 0) + row.stat_value);
+    }
+    const fromBox = boxScoreFumbleCandidates({ gameId: game.id, school, box, roster, selectedSchoolPositions, alreadyWrittenBySlot });
+    if (!fromBox.available) { boxScoreUnavailableFor.push(school); continue; }
+    candidates = candidates.filter(candidate => !(candidate.eventType === "FUMBLE_LOST" && candidate.schoolName === school && !knownKeys.has(candidate.sourceEventKey)));
+    candidates.push(...fromBox.candidates);
+  }
+  // Same per-play single-credit collapse the main automation applies, so a unit event that's
+  // already been credited under one key format (an athlete-ID stat key vs a text-based ":unit"
+  // fallback key) doesn't get double-counted here just because the keys genuinely differ.
+  const perPlaySingleCreditTypes = new Set(["SACK", "DEFENSIVE_TURNOVER", "DEFENSIVE_TOUCHDOWN", "BLOCKED_PUNT", "BLOCKED_FIELD_GOAL", "SPECIAL_TEAMS_SAFETY", "KICK_RETURN_TOUCHDOWN", "PUNT_RETURN_TOUCHDOWN", "BLOCKED_KICK_RETURN_TOUCHDOWN", "OTHER_SPECIAL_TEAMS_TOUCHDOWN"]);
+  const alreadyCreditedPlayEventPrefixes = new Set(Array.from(knownKeys).filter((key): key is string => Boolean(key) && perPlaySingleCreditTypes.has(key!.split(":")[1] ?? "")).map(key => key.split(":").slice(0, 2).join(":")));
+  const currentCandidateKeys = new Set<string>();
+  const planned: ReconcilePlannedAction[] = [];
+  for (const candidate of candidates) {
+    if (perPlaySingleCreditTypes.has(candidate.eventType)) {
+      const prefix = candidate.sourceEventKey.split(":").slice(0, 2).join(":");
+      if (alreadyCreditedPlayEventPrefixes.has(prefix) && !knownKeys.has(candidate.sourceEventKey)) continue;
+    }
+    if (candidate.eventType === "FUMBLE_LOST" && !candidate.sourceEventKey.endsWith(":box")) {
+      const boxScoreKeyForThisPosition = `${candidate.sourceGameId}:FUMBLE_LOST:${candidate.position}:box`;
+      if (knownKeys.has(boxScoreKeyForThisPosition)) continue;
+    }
+    const slot = selectedSchoolPositions.find(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(candidate.schoolName) && selection.position === candidate.position);
+    if (!slot) continue;
+    currentCandidateKeys.add(candidate.sourceEventKey);
+    const rules = await getScoringRulesForEvent(candidate.eventType as never);
+    const score = calculateEventScore(rules, { eventType: candidate.eventType as never, position: candidate.position, statValue: candidate.statValue, yardDistance: candidate.yardDistance });
+    const original = originalByKey.get(candidate.sourceEventKey);
+    if (!original) {
+      planned.push({ action: "insert", eventType: candidate.eventType, school: candidate.schoolName, position: candidate.position, owner: slot.ownerName, points: score.points, note: candidate.note, key: candidate.sourceEventKey });
+      if (!dryRun) await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: weekRowId, draft_slot_id: slot.draftSlotId, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points, note: candidate.note, audit_action: "ENTRY", recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: candidate.sourceEventKey, source_game_id: candidate.sourceGameId, is_provisional: false } });
+      // This "new" official candidate may just be the final-data confirmation of a real play a
+      // live-detected entry already covers under its synthetic key - if one's still active for
+      // this exact (slot, eventType), it's now a confirmed duplicate. Reverse it (FIFO, same as
+      // the main automation) rather than leaving both rows counting toward the total.
+      const pendingGroupKey = `${slot.draftSlotId}:${candidate.eventType}`;
+      const stalePending = pendingLiveBySlotEventType.get(pendingGroupKey)?.shift();
+      if (stalePending) {
+        const staleReversalKey = `${stalePending.source_event_key}:reversal`;
+        if (!reversedKeys.has(staleReversalKey)) {
+          planned.push({ action: "reversal", eventType: stalePending.event_type, school: candidate.schoolName, position: candidate.position, owner: slot.ownerName, points: sourceEventReversalPoints(stalePending.computed_points), note: `superseded by confirmed official play ${candidate.sourceEventKey}`, key: stalePending.source_event_key! });
+          if (!dryRun) await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: stalePending.week_id, draft_slot_id: stalePending.draft_slot_id, event_type: stalePending.event_type, stat_value: stalePending.stat_value, yard_distance: stalePending.yard_distance, computed_points: sourceEventReversalPoints(stalePending.computed_points), note: `Superseded by confirmed official play ${candidate.sourceEventKey} (via reconcileGameAgainstFinalData)`, audit_action: "REVERSAL", correction_of_event_id: stalePending.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: staleReversalKey, source_game_id: game.id, is_provisional: false } });
+          reversedKeys.add(staleReversalKey);
+        }
+      }
+    } else if (sourceEventNeedsCorrection(original, { points: score.points, yardDistance: candidate.yardDistance, statValue: candidate.statValue })) {
+      planned.push({ action: "correction", eventType: candidate.eventType, school: candidate.schoolName, position: candidate.position, owner: slot.ownerName, points: score.points - original.computed_points, note: `corrects ${original.computed_points} -> ${score.points}`, key: candidate.sourceEventKey });
+      if (!dryRun) {
+        await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: original.week_id, draft_slot_id: original.draft_slot_id, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points - original.computed_points, note: `Official CFBD final correction updated source event ${candidate.sourceEventKey} (via reconcileGameAgainstFinalData)`, audit_action: "CORRECTION", correction_of_event_id: original.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: `${candidate.sourceEventKey}:correction:${score.points}:${candidate.yardDistance ?? "none"}:${candidate.statValue}`, source_game_id: candidate.sourceGameId, is_provisional: false } });
+        await supabaseRest("b36_scoring_events", { method: "PATCH", query: { id: `eq.${original.id}` }, body: { is_provisional: false } });
+      }
+    } else if (original.is_provisional) {
+      planned.push({ action: "confirm-official", eventType: candidate.eventType, school: candidate.schoolName, position: candidate.position, owner: slot.ownerName, points: original.computed_points, note: "matches final data, already correct - just marking official", key: candidate.sourceEventKey });
+      if (!dryRun) await supabaseRest("b36_scoring_events", { method: "PATCH", query: { id: `eq.${original.id}` }, body: { is_provisional: false } });
+    }
+  }
+  // The reversal step this tool exists for: any PROVISIONAL entry from an earlier (possibly buggy)
+  // tick that final data no longer confirms. Never touches an already-official row - a wrong
+  // official entry needs the correction path above (which requires a fresh matching candidate) or
+  // a manual reverseScoreEvent, not a blanket reversal.
+  for (const original of eventRows.filter(row => row.audit_action === "ENTRY" && row.is_provisional && row.source_event_key && !currentCandidateKeys.has(row.source_event_key))) {
+    const reversalKey = `${original.source_event_key}:reversal`;
+    if (reversedKeys.has(reversalKey)) continue;
+    const slot = selectedSchoolPositions.find(selection => selection.draftSlotId === original.draft_slot_id);
+    planned.push({ action: "reversal", eventType: original.event_type, school: slot?.schoolName ?? "Unknown", position: slot?.position ?? "?", owner: slot?.ownerName ?? "Unknown", points: sourceEventReversalPoints(original.computed_points), note: `no longer confirmed by final data - ${original.recorded_by_open_id} entry is stale`, key: original.source_event_key! });
+    if (!dryRun) await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: original.week_id, draft_slot_id: original.draft_slot_id, event_type: original.event_type, stat_value: original.stat_value, yard_distance: original.yard_distance, computed_points: sourceEventReversalPoints(original.computed_points), note: `Reconciled against final CFBD data via reconcileGameAgainstFinalData, reversed source event ${original.source_event_key}`, audit_action: "REVERSAL", correction_of_event_id: original.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: reversalKey, source_game_id: game.id, is_provisional: false } });
+  }
+  return { planned, boxScoreUnavailableFor };
+}
