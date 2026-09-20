@@ -355,6 +355,27 @@ export const leagueRouter = router({
     return { id: row.id, body: row.body, createdAt: row.created_at, ownerId: owner.id, teamName: owner.teamName, logoUrl: owner.logoUrl ?? null };
   }),
   admin: router({
+    // One-off diagnostic: the whole "reconcile against final data" effort so far checks our numbers
+    // against CFBD's own final feed, not against stats.ncaa.org (the site the real external audit
+    // actually reads from) - CFBD is just what's reachable. Before building anything more on top of
+    // that, this settles whether stats.ncaa.org can even be reached from a real deployed server at
+    // all. Two earlier signals already point toward "no": this sandbox's own outbound proxy refused
+    // to open a connection to it, and separately Anthropic's own WebFetch tooling (different
+    // infrastructure entirely) got a 403 back from the real site - a 403 from a general-purpose
+    // fetcher is evidence of anti-bot protection on NCAA's side, not an artifact of this sandbox. This
+    // endpoint tries the fetch from production itself, which is the one thing neither earlier signal
+    // could confirm. Defaults to the site's homepage since that needs no prior knowledge of NCAA's
+    // box-score URL scheme; pass a specific box-score URL once/if basic reachability is confirmed.
+    debugTestNcaaFetch: adminProcedure.input(z.object({ url: z.string().url().optional() })).query(async ({ input }) => {
+      const url = input.url ?? "https://stats.ncaa.org/";
+      try {
+        const response = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" } });
+        const text = await response.text();
+        return { url, status: response.status, ok: response.ok, contentType: response.headers.get("content-type"), bodyLength: text.length, bodyPreview: text.slice(0, 800) };
+      } catch (error) {
+        return { url, error: error instanceof Error ? error.message : String(error) };
+      }
+    }),
     deleteDivisionMessage: adminProcedure.input(z.object({ messageId: z.string() })).mutation(async ({ input }) => {
       await supabaseRest("b36_messages", { method: "DELETE", query: { id: q.eq(input.messageId) } });
       return { success: true as const };
