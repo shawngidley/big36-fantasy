@@ -1032,12 +1032,22 @@ export const leagueRouter = router({
       const allGames = schedule.filter(game => game.completed && resolveB36WeekNumber(game) === input.week && [game.homeTeam, game.awayTeam].some(team => selectedSchoolPositions.some(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(team)))).sort((a, b) => a.id - b.id);
       const games = allGames.slice(input.offset, input.offset + input.limit);
       const results: Array<{ gameId: number; game: string; boxScoreUnavailableFor: string[]; planned: Array<{ action: string; eventType: string; school: string; position: string; owner: string; points: number; note: string; key: string }>; netPointChange: number }> = [];
+      // One game's data (e.g. a defensive-touchdown play CFBD's text can't be parsed for a return
+      // distance, tripping calculateEventScore's "no active rule matches" guard) throwing used to 500
+      // the whole chunk and stop the week-wide reconciliation cold - recreating, one level up, the
+      // exact "can't go one at a time" problem this whole tool exists to solve. A single bad game is
+      // now isolated and reported, so the rest of the week's games still get checked in the same call.
+      const errors: Array<{ gameId: number; game: string; error: string }> = [];
       for (const game of games) {
-        const { planned, boxScoreUnavailableFor } = await reconcileGameAgainstFinalData({ game, schedule, season, weekRowId: weekRow.id, selectedSchoolPositions, dryRun: input.dryRun });
-        if (planned.length) results.push({ gameId: game.id, game: `${game.awayTeam} at ${game.homeTeam}`, boxScoreUnavailableFor, planned, netPointChange: planned.reduce((sum, item) => sum + item.points, 0) });
+        try {
+          const { planned, boxScoreUnavailableFor } = await reconcileGameAgainstFinalData({ game, schedule, season, weekRowId: weekRow.id, selectedSchoolPositions, dryRun: input.dryRun });
+          if (planned.length) results.push({ gameId: game.id, game: `${game.awayTeam} at ${game.homeTeam}`, boxScoreUnavailableFor, planned, netPointChange: planned.reduce((sum, item) => sum + item.points, 0) });
+        } catch (error) {
+          errors.push({ gameId: game.id, game: `${game.awayTeam} at ${game.homeTeam}`, error: error instanceof Error ? error.message : String(error) });
+        }
       }
       const nextOffset = input.offset + games.length < allGames.length ? input.offset + games.length : null;
-      return { week: input.week, dryRun: input.dryRun, gamesTotal: allGames.length, offset: input.offset, limit: input.limit, gamesChecked: games.length, nextOffset, gamesWithChanges: results.length, totalNetPointChange: results.reduce((sum, result) => sum + result.netPointChange, 0), results };
+      return { week: input.week, dryRun: input.dryRun, gamesTotal: allGames.length, offset: input.offset, limit: input.limit, gamesChecked: games.length, nextOffset, gamesWithChanges: results.length, gamesWithErrors: errors.length, totalNetPointChange: results.reduce((sum, result) => sum + result.netPointChange, 0), results, errors };
     }),
     // Season-wide audit + insert-only apply, covering a real CALENDAR date range rather than a
     // CFBD week number (CFBD's "week 1" spans Aug 29 through Labor Day, so a week-number filter
