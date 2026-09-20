@@ -994,7 +994,13 @@ export const leagueRouter = router({
     // before applying. A residual mismatch against the external audit AFTER running this for real is
     // the useful signal - it means the discrepancy isn't one this system's own data can resolve (e.g.
     // CFBD's official feed itself disagrees with the external source), not a bug still to fix.
-    reconcileWeekFromFinalData: adminProcedure.input(z.object({ week: z.number().int().min(1), dryRun: z.boolean().default(true) })).mutation(async ({ input }) => {
+    // offset/limit let a full week be run in chunks - Vercel's 60s function timeout can't cover a
+    // whole week of games in one sequential pass (each game does per-school getRoster and box-score
+    // calls), confirmed in production: a real week-2 dryRun call 504'd. Games are sorted by id first
+    // so chunk boundaries are stable across calls (CFBD's own game.id numbering, not schedule order,
+    // which could reshuffle between requests). gamesTotal/nextOffset tell the caller whether more
+    // chunks remain, so a client can loop `offset: nextOffset` until nextOffset is null.
+    reconcileWeekFromFinalData: adminProcedure.input(z.object({ week: z.number().int().min(1), dryRun: z.boolean().default(true), offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(50).default(10) })).mutation(async ({ input }) => {
       const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
       const season = automationRows[0]?.season;
       if (!season) throw new Error("No season configured.");
@@ -1002,13 +1008,15 @@ export const leagueRouter = router({
       const selectedSchoolPositions = snapshot.owners.flatMap(owner => owner.picks.map(pick => ({ schoolName: pick.schoolName, position: pick.position as LivePosition, draftSlotId: pick.id, ownerName: owner.teamName })));
       const weekRow = snapshot.weeks.find(week => week.weekNumber === input.week);
       if (!weekRow) throw new Error(`No scoring week row for b36 week ${input.week}.`);
-      const games = schedule.filter(game => game.completed && resolveB36WeekNumber(game) === input.week && [game.homeTeam, game.awayTeam].some(team => selectedSchoolPositions.some(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(team))));
+      const allGames = schedule.filter(game => game.completed && resolveB36WeekNumber(game) === input.week && [game.homeTeam, game.awayTeam].some(team => selectedSchoolPositions.some(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(team)))).sort((a, b) => a.id - b.id);
+      const games = allGames.slice(input.offset, input.offset + input.limit);
       const results: Array<{ gameId: number; game: string; boxScoreUnavailableFor: string[]; planned: Array<{ action: string; eventType: string; school: string; position: string; owner: string; points: number; note: string; key: string }>; netPointChange: number }> = [];
       for (const game of games) {
         const { planned, boxScoreUnavailableFor } = await reconcileGameAgainstFinalData({ game, schedule, season, weekRowId: weekRow.id, selectedSchoolPositions, dryRun: input.dryRun });
         if (planned.length) results.push({ gameId: game.id, game: `${game.awayTeam} at ${game.homeTeam}`, boxScoreUnavailableFor, planned, netPointChange: planned.reduce((sum, item) => sum + item.points, 0) });
       }
-      return { week: input.week, dryRun: input.dryRun, gamesChecked: games.length, gamesWithChanges: results.length, totalNetPointChange: results.reduce((sum, result) => sum + result.netPointChange, 0), results };
+      const nextOffset = input.offset + games.length < allGames.length ? input.offset + games.length : null;
+      return { week: input.week, dryRun: input.dryRun, gamesTotal: allGames.length, offset: input.offset, limit: input.limit, gamesChecked: games.length, nextOffset, gamesWithChanges: results.length, totalNetPointChange: results.reduce((sum, result) => sum + result.netPointChange, 0), results };
     }),
     // Season-wide audit + insert-only apply, covering a real CALENDAR date range rather than a
     // CFBD week number (CFBD's "week 1" spans Aug 29 through Labor Day, so a week-number filter
