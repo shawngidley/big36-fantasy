@@ -178,7 +178,20 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   const explicitTouchdownPositions = athletePositionsFor(type => type.includes("touchdown"));
   const passingTouchdownPositions = athletePositionsFor(type => type.includes("passing touchdown"));
   const rushingTouchdownPositions = athletePositionsFor(type => type.includes("rushing touchdown"));
-  const isTwoPoint = /two[ -]?point/.test(`${playType} ${playTextNormalized}`);
+  // CFBD's final-data feed sometimes condenses a touchdown AND its own conversion attempt into one
+  // line with no literal "touchdown" word at all - playType alone ("Rushing Touchdown"/"Passing
+  // Touchdown") is the only signal, e.g. "Charles Robinson 8 Yd pass from Jackson Gutierrez
+  // (Two-Point Run Conversion Failed)" or "Jackson Gutierrez 49 Yd Run (Jackson Gutierrez Pass to Vic
+  // Listorti for Two-Point Conversion)" - both real Navy plays. A bare text search for "two point"
+  // matched the trailing conversion clause and set isTwoPoint true for the WHOLE play, which
+  // suppressed passingTouchdown/rushingTouchdown below and dropped the touchdown itself - the
+  // touchdown-vs-conversion split logic a few lines down (beforeTouchdown/afterTouchdown) only works
+  // when the literal word "touchdown" appears in playText to split on, which these condensed lines
+  // never contain. When playType (or playText) already declares this play a touchdown, a "two point"
+  // mention elsewhere in the same text describes the SEPARATE conversion attempt, not this play's own
+  // type, so it must not disable touchdown detection for it.
+  const playAlreadyDeclaresTouchdown = playType.includes("touchdown") || playTextNormalized.includes("touchdown");
+  const isTwoPoint = !playAlreadyDeclaresTouchdown && /two[ -]?point/.test(`${playType} ${playTextNormalized}`);
   // CFBD often concatenates a scoring play with LATER, unrelated sub-events into one text blob -
   // e.g. a touchdown followed by a penalized PAT retry that itself ends in "NO PLAY". The touchdown
   // itself is only actually nullified when the invalidation phrase directly follows it (same

@@ -295,6 +295,14 @@ describe("36 Football automatic scoring map", () => {
     const twoPoint = candidates.find(candidate => candidate.eventType === "TWO_POINT_CONVERSION");
     expect(twoPoint?.position).toBe("TE");
   });
+  it("credits a touchdown from CFBD's condensed final-data line even when its own trailing conversion clause mentions 'two-point', instead of letting that phrase suppress the touchdown entirely - real Navy/Florida Atlantic plays that reconcileWeekFromFinalData showed missing 6 and 10 points respectively against the external NCAA audit", () => {
+    const roster = [{ id: 1, firstName: "Jackson", lastName: "Gutierrez", position: "QB" }, { id: 2, firstName: "Charles", lastName: "Robinson", position: "WR" }];
+    const failedTwoPointAfterPassTd = mapLivePlayToCandidates({ play: { id: 401862703728, gameId: 401862703, offense: "Navy", defense: "Florida Atlantic", scoring: true, playType: "Passing Touchdown", playText: "Charles Robinson 8 Yd pass from Jackson Gutierrez (Two-Point Run Conversion Failed)" }, stats: [], roster, selectedSchoolPositions: [{ schoolName: "Navy", position: "QB" }, { schoolName: "Navy", position: "WR" }] });
+    expect(failedTwoPointAfterPassTd.some(candidate => candidate.eventType === "TOUCHDOWN" && candidate.position === "QB")).toBe(true);
+    expect(failedTwoPointAfterPassTd.some(candidate => candidate.eventType === "TOUCHDOWN" && candidate.position === "WR")).toBe(true);
+    const successfulTwoPointAfterRushTd = mapLivePlayToCandidates({ play: { id: 401862703803, gameId: 401862703, offense: "Navy", defense: "Florida Atlantic", scoring: true, playType: "Rushing Touchdown", playText: "Jackson Gutierrez 49 Yd Run (Jackson Gutierrez Pass to Vic Listorti for Two-Point Conversion)" }, stats: [], roster, selectedSchoolPositions: [{ schoolName: "Navy", position: "QB" }] });
+    expect(successfulTwoPointAfterRushTd.some(candidate => candidate.eventType === "TOUCHDOWN" && candidate.position === "QB")).toBe(true);
+  });
 
   it("does not credit a field goal nullified by penalty, even though CFBD's text still says GOOD before the penalty note - real Georgia/Tennessee State play where a made 38-yard FG got wrongly credited despite 'nullified by penalty ... NO PLAY' appearing right in the text, since field goal detection never checked isInvalidated at all", () => {
     const play = { id: 401856658277, gameId: 401856658, offense: "Georgia", defense: "Tennessee State", scoring: false, playType: "Field Goal Good", playText: "(07:46) #91 P.Woodring field goal attempt from 38 yards nullified by penaltyGOOD (H: #90 D.Miller, LS: #51 W.Snellings), clock 07:45 PENALTY UGA Equipment Violation 5 yards from TSU20 to TSU25. NO PLAY" };
