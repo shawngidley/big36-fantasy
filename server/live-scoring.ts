@@ -190,7 +190,17 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   // never contain. When playType (or playText) already declares this play a touchdown, a "two point"
   // mention elsewhere in the same text describes the SEPARATE conversion attempt, not this play's own
   // type, so it must not disable touchdown detection for it.
-  const playAlreadyDeclaresTouchdown = playType.includes("touchdown") || playTextNormalized.includes("touchdown");
+  //
+  // The playTextNormalized.includes("touchdown") branch is deliberately the weaker, overridable
+  // signal here: this feed demonstrably concatenates a scoring play's text onto LATER, unrelated
+  // plays (see the "kick attempt"/"pat attempt" scoping a few lines down), so a genuinely standalone
+  // two-point-attempt play could inherit a stray "touchdown" mention from a PRECEDING play's leaked
+  // text even though playType correctly and unambiguously identifies this play as its own two-point
+  // attempt. playType is CFBD's own structured classification of THIS play, not a free-text blob that
+  // can carry over another play's wording, so it must win outright whenever it explicitly says this
+  // play is a two-point attempt - no text-based "touchdown" mention should be able to override that.
+  const playTypeDeclaresTwoPoint = /two[ -]?point conversion/.test(playType) || /two[ -]?point (pass|rush)/.test(playType);
+  const playAlreadyDeclaresTouchdown = !playTypeDeclaresTwoPoint && (playType.includes("touchdown") || playTextNormalized.includes("touchdown"));
   const isTwoPoint = !playAlreadyDeclaresTouchdown && /two[ -]?point/.test(`${playType} ${playTextNormalized}`);
   // CFBD often concatenates a scoring play with LATER, unrelated sub-events into one text blob -
   // e.g. a touchdown followed by a penalized PAT retry that itself ends in "NO PLAY". The touchdown

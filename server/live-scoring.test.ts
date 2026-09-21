@@ -303,6 +303,15 @@ describe("36 Football automatic scoring map", () => {
     const successfulTwoPointAfterRushTd = mapLivePlayToCandidates({ play: { id: 401862703803, gameId: 401862703, offense: "Navy", defense: "Florida Atlantic", scoring: true, playType: "Rushing Touchdown", playText: "Jackson Gutierrez 49 Yd Run (Jackson Gutierrez Pass to Vic Listorti for Two-Point Conversion)" }, stats: [], roster, selectedSchoolPositions: [{ schoolName: "Navy", position: "QB" }] });
     expect(successfulTwoPointAfterRushTd.some(candidate => candidate.eventType === "TOUCHDOWN" && candidate.position === "QB")).toBe(true);
   });
+  it("does not double-credit a phantom touchdown on a standalone two-point conversion whose own text is contaminated by a leaked 'touchdown' mention from a preceding, unrelated play - the inverse of the Navy bug above: TWO_POINT_CONVERSION crediting itself never depended on isTwoPoint, but isTwoPoint wrongly flipping false here would stop it from suppressing passingTouchdown/rushingTouchdown below, crediting a touchdown that never happened on this play. playType is CFBD's own structured classification of THIS play and must win over a stray text mention this feed is known to concatenate in from elsewhere", () => {
+    const roster = [{ id: 1, firstName: "Jackson", lastName: "Gutierrez", position: "QB" }, { id: 2, firstName: "Vic", lastName: "Listorti", position: "WR" }];
+    // This playText is deliberately built to still contain "touchdown" - simulating CFBD's demonstrated
+    // habit of concatenating a scoring play's text onto a later, unrelated play - even though playType
+    // correctly identifies this specific play as its own, separate two-point conversion attempt.
+    const candidates = mapLivePlayToCandidates({ play: { id: 401862703804, gameId: 401862703, offense: "Navy", defense: "Florida Atlantic", scoring: true, playType: "Two Point Pass", playText: "Jackson Gutierrez 49 Yd Run for a touchdown Jackson Gutierrez Pass to Vic Listorti for Two-Point Conversion" }, stats: [], roster, selectedSchoolPositions: [{ schoolName: "Navy", position: "QB" }, { schoolName: "Navy", position: "WR" }] });
+    expect(candidates.some(candidate => candidate.eventType === "TWO_POINT_CONVERSION")).toBe(true);
+    expect(candidates.some(candidate => candidate.eventType === "TOUCHDOWN")).toBe(false);
+  });
 
   it("does not credit a field goal nullified by penalty, even though CFBD's text still says GOOD before the penalty note - real Georgia/Tennessee State play where a made 38-yard FG got wrongly credited despite 'nullified by penalty ... NO PLAY' appearing right in the text, since field goal detection never checked isInvalidated at all", () => {
     const play = { id: 401856658277, gameId: 401856658, offense: "Georgia", defense: "Tennessee State", scoring: false, playType: "Field Goal Good", playText: "(07:46) #91 P.Woodring field goal attempt from 38 yards nullified by penaltyGOOD (H: #90 D.Miller, LS: #51 W.Snellings), clock 07:45 PENALTY UGA Equipment Violation 5 yards from TSU20 to TSU25. NO PLAY" };
