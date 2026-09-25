@@ -45,7 +45,17 @@ export function normalizeSchoolForComparison(value: string) { return value.trim(
 function positionByAthlete(roster: CfbdRosterAthlete[]) { return new Map(roster.map(athlete => [String(athlete.id), positionForRosterValue(athlete.position)])); }
 
 const offensivePositions: LivePosition[] = ["QB", "RB", "WR", "TE"];
-const normalizeText = (value: string | null | undefined) => String(value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+// Stripping every non-ASCII character outright (the original behavior here) doesn't just drop
+// punctuation - it deletes the letter entirely for any accented name, e.g. "Öhrström" became
+// "hrstr m" (each accented letter replaced by a bare separator, splitting the surname across a
+// stray space). Real SMU/UC Davis plays: two of TE Öhrström's touchdowns went completely uncredited
+// because the roster's own name for him didn't collapse to the same mangled string CFBD's play text
+// produced (whichever of the two spells it with the diaeresis and whichever doesn't, "hrstr m" from
+// one side never matches the other's normalized form). Unicode-normalizing to NFD and stripping only
+// COMBINING marks first transliterates "Öhrström" to "Ohrstrom" before the ASCII-only filter runs,
+// so both the accented and plain-ASCII spellings of the same name now normalize identically and
+// match each other regardless of which source (roster vs. CFBD's play-by-play text) uses the accent.
+const normalizeText = (value: string | null | undefined) => String(value ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
 // CFBD abbreviates a play-by-play first name to just enough letters to disambiguate teammates who
 // share an initial - e.g. Miami's WR "Malachi Toney" appears as "Ma. Toney" because DB "Monroe

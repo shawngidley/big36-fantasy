@@ -329,6 +329,13 @@ describe("36 Football automatic scoring map", () => {
     expect(candidates.some(candidate => candidate.eventType === "TWO_POINT_CONVERSION" && candidate.position === "QB")).toBe(true);
   });
 
+  it("matches a player's name across an accented and a plain-ASCII spelling of the same letter - real SMU TE Öhrström had two touchdowns go completely uncredited because normalizeText deleted his accented letters outright instead of transliterating them, so his roster name and CFBD's play text collapsed to two different, non-matching strings", () => {
+    const roster = [{ id: 1, firstName: "Kevin", lastName: "Jennings", position: "QB" }, { id: 2, firstName: "T. Melin", lastName: "Ohrstrom", position: "TE" }];
+    const play = { id: 401858223199, gameId: 401858223, offense: "SMU", defense: "UC Davis", scoring: true, playType: "Passing Touchdown", playText: "(12:32) No Huddle #7 K.Jennings pass complete short right to #18 T.Melin Öhrström caught at UCD00, for 2 yards to the UCD00 TOUCHDOWN, clock 12:33 #99 N.Reed kick attempt good (H: #43 W.McSparron, LS: #48 M.Tribbett)" };
+    const candidates = mapLivePlayToCandidates({ play, stats: [], roster, selectedSchoolPositions: [{ schoolName: "SMU", position: "TE" }] });
+    expect(candidates.some(candidate => candidate.eventType === "TOUCHDOWN" && candidate.position === "TE")).toBe(true);
+  });
+
   it("does not credit a field goal nullified by penalty, even though CFBD's text still says GOOD before the penalty note - real Georgia/Tennessee State play where a made 38-yard FG got wrongly credited despite 'nullified by penalty ... NO PLAY' appearing right in the text, since field goal detection never checked isInvalidated at all", () => {
     const play = { id: 401856658277, gameId: 401856658, offense: "Georgia", defense: "Tennessee State", scoring: false, playType: "Field Goal Good", playText: "(07:46) #91 P.Woodring field goal attempt from 38 yards nullified by penaltyGOOD (H: #90 D.Miller, LS: #51 W.Snellings), clock 07:45 PENALTY UGA Equipment Violation 5 yards from TSU20 to TSU25. NO PLAY" };
     const candidates = mapLivePlayToCandidates({ play, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Georgia", position: "K" }] });
