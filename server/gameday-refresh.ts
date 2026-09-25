@@ -618,7 +618,18 @@ export async function reconcileGameAgainstFinalData(params: {
       const effectivePoints = currentEffectivePoints(original, eventRows);
       planned.push({ action: "correction", eventType: candidate.eventType, school: candidate.schoolName, position: candidate.position, owner: slot.ownerName, points: score.points - effectivePoints, note: `corrects ${effectivePoints} -> ${score.points}`, key: candidate.sourceEventKey });
       if (!dryRun) {
-        await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: original.week_id, draft_slot_id: original.draft_slot_id, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points - effectivePoints, note: `Official CFBD final correction updated source event ${candidate.sourceEventKey} (via reconcileGameAgainstFinalData)`, audit_action: "CORRECTION", correction_of_event_id: original.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: `${candidate.sourceEventKey}:correction:${score.points}:${candidate.yardDistance ?? "none"}:${candidate.statValue}`, source_game_id: candidate.sourceGameId, is_provisional: false } });
+        // The correction key is deterministic (sourceEventKey + target points/yardage/statValue), so a
+        // correction that already ran once - most often because points now match (the effective total
+        // already reflects an earlier correction) but stat_value or yard_distance still differs from the
+        // original ENTRY's own stored value, which sourceEventNeedsCorrection also checks - produces the
+        // exact same key on every subsequent run and hits b36_scoring_events_source_event_key_unique.
+        // The main automation loop already guards this with the same knownKeys check; this path never
+        // had it. Confirmed live: applying Old Dominion QB post-fix 500'd on this exact collision.
+        const correctionKey = `${candidate.sourceEventKey}:correction:${score.points}:${candidate.yardDistance ?? "none"}:${candidate.statValue}`;
+        if (!knownKeys.has(correctionKey)) {
+          await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: original.week_id, draft_slot_id: original.draft_slot_id, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points - effectivePoints, note: `Official CFBD final correction updated source event ${candidate.sourceEventKey} (via reconcileGameAgainstFinalData)`, audit_action: "CORRECTION", correction_of_event_id: original.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: correctionKey, source_game_id: candidate.sourceGameId, is_provisional: false } });
+          knownKeys.add(correctionKey);
+        }
         await supabaseRest("b36_scoring_events", { method: "PATCH", query: { id: `eq.${original.id}` }, body: { is_provisional: false } });
       }
     } else if (original.is_provisional) {

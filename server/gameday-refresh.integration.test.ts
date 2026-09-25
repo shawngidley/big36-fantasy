@@ -14,7 +14,7 @@ vi.mock("./league-scoring", () => ({ calculateEventScore: mocks.calculateEventSc
 vi.mock("./live-scoring", () => ({ eligibleGameIdsForSchool: mocks.eligibleGameIdsForSchool, boxScoreFumbleCandidates: () => ({ available: false, candidates: [] }), finalShutoutCandidates: mocks.finalShutoutCandidates, isSupersededInterceptionPlay: mocks.isSupersededInterceptionPlay, normalizeSchoolForComparison: (value: string) => value.trim().toLowerCase().replace(/\s+/g, " "), mapLivePlayToCandidates: mocks.mapLivePlayToCandidates }));
 vi.mock("./supabase", () => ({ supabaseRest: mocks.supabaseRest }));
 
-import { isCollegeFootballGamedayWindow, resolveB36WeekNumber, runGamedayRefresh } from "./gameday-refresh";
+import { isCollegeFootballGamedayWindow, reconcileGameAgainstFinalData, resolveB36WeekNumber, runGamedayRefresh } from "./gameday-refresh";
 
 const game = { id: 101, season: 2026, week: 1, seasonType: "regular", startDate: "2026-09-05T16:00:00Z", completed: true, homeTeam: "Ohio State", awayTeam: "Texas", homeClassification: "fbs", awayClassification: "fbs", homePoints: 21, awayPoints: 14 };
 const candidate = { sourceEventKey: "101:55:qb", sourceGameId: 101, schoolName: "Ohio State", position: "QB", eventType: "TOUCHDOWN", statValue: 1, yardDistance: 35, note: "Passing touchdown" };
@@ -300,6 +300,57 @@ describe("36 Football gameday source reconciliation", () => {
 
     const duplicateInsert = writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST" && (write.options.body as { source_event_key?: string })?.source_event_key === "101660:FUMBLE_LOST:WR");
     expect(duplicateInsert).toBeUndefined();
+  });
+});
+
+describe("reconcileGameAgainstFinalData", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getWeekPlays.mockResolvedValue([{ id: 55, gameId: 101, offense: "Ohio State" }]);
+    mocks.getWeekPlayStats.mockResolvedValue([]);
+    mocks.getRoster.mockResolvedValue([]);
+    mocks.eligibleGameIdsForSchool.mockReturnValue([101]);
+    mocks.finalShutoutCandidates.mockReturnValue([]);
+    mocks.isSupersededInterceptionPlay.mockReturnValue(false);
+    mocks.getScoringRulesForEvent.mockResolvedValue([]);
+  });
+
+  const selectedSchoolPositions = [{ schoolName: "Ohio State", position: "QB" as const, draftSlotId: "slot-qb", ownerName: "Owner" }];
+
+  it("does not re-attempt a same-key correction insert once it already landed - previously crashed the admin apply endpoint with a real b36_scoring_events_source_event_key_unique violation", async () => {
+    // Reproduces the exact bug hit applying this fix in production: Old Dominion QB's fumbles were
+    // already correctly adjusted to -6 via one ENTRY (-3) plus one CORRECTION (-3). The reconciler's
+    // currentEffectivePoints fix correctly computes the effective total as -6, matching the fresh
+    // candidate's points - but the ORIGINAL entry's own stat_value (1, from when it was first live-
+    // detected) still doesn't match the box score's authoritative stat_value (2), so
+    // sourceEventNeedsCorrection still (correctly) fires on that mismatch alone. The correction key is
+    // deterministic from sourceEventKey + target points/yardDistance/statValue, so this recomputes to
+    // the SAME key as the correction already stored from the run that first fixed this - and without a
+    // knownKeys guard, POSTing it again hits the unique constraint and 500s the whole apply.
+    const entryRow = { id: "event-1", source_event_key: "101:FUMBLE_LOST:QB:box", source_game_id: 101, audit_action: "ENTRY", week_id: "week-1", draft_slot_id: "slot-qb", event_type: "FUMBLE_LOST", stat_value: 1, yard_distance: null, computed_points: -3, is_provisional: false, recorded_by_open_id: "cfbd-live-refresh", correction_of_event_id: null };
+    const existingCorrectionRow = { id: "correction-1", source_event_key: "101:FUMBLE_LOST:QB:box:correction:-6:none:2", source_game_id: 101, audit_action: "CORRECTION", week_id: "week-1", draft_slot_id: "slot-qb", event_type: "FUMBLE_LOST", stat_value: 2, yard_distance: null, computed_points: -3, is_provisional: false, recorded_by_open_id: "cfbd-final-reconciliation", correction_of_event_id: "event-1" };
+    const writes = arrange([entryRow, existingCorrectionRow]);
+    const fumbleCandidate = { sourceEventKey: "101:FUMBLE_LOST:QB:box", sourceGameId: 101, schoolName: "Ohio State", position: "QB", eventType: "FUMBLE_LOST", statValue: 2, yardDistance: null, note: "CFBD box score - fumbles lost" };
+    mocks.mapLivePlayToCandidates.mockReturnValue([fumbleCandidate]);
+    mocks.calculateEventScore.mockReturnValue({ points: -6 }); // matches the effective total already reached (-3 entry + -3 correction)
+
+    const result = await reconcileGameAgainstFinalData({ game, schedule: [game], season: 2026, weekRowId: "week-1", selectedSchoolPositions, dryRun: false });
+
+    expect(writes.filter(write => write.table === "b36_scoring_events" && write.options.method === "POST")).toHaveLength(0);
+    expect(result.planned).toContainEqual(expect.objectContaining({ action: "correction", eventType: "FUMBLE_LOST", note: "corrects -6 -> -6" }));
+  });
+
+  it("does insert a fresh correction when the effective total genuinely differs from the new candidate", async () => {
+    const entryRow = { id: "event-1", source_event_key: "101:FUMBLE_LOST:QB:box", source_game_id: 101, audit_action: "ENTRY", week_id: "week-1", draft_slot_id: "slot-qb", event_type: "FUMBLE_LOST", stat_value: 1, yard_distance: null, computed_points: -3, is_provisional: false, recorded_by_open_id: "cfbd-live-refresh", correction_of_event_id: null };
+    const writes = arrange([entryRow]);
+    const fumbleCandidate = { sourceEventKey: "101:FUMBLE_LOST:QB:box", sourceGameId: 101, schoolName: "Ohio State", position: "QB", eventType: "FUMBLE_LOST", statValue: 2, yardDistance: null, note: "CFBD box score - fumbles lost" };
+    mocks.mapLivePlayToCandidates.mockReturnValue([fumbleCandidate]);
+    mocks.calculateEventScore.mockReturnValue({ points: -6 });
+
+    await reconcileGameAgainstFinalData({ game, schedule: [game], season: 2026, weekRowId: "week-1", selectedSchoolPositions, dryRun: false });
+
+    const correctionWrite = writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST" && (write.options.body as Record<string, unknown>).audit_action === "CORRECTION");
+    expect(correctionWrite?.options.body).toMatchObject({ computed_points: -3, source_event_key: "101:FUMBLE_LOST:QB:box:correction:-6:none:2" });
   });
 });
 
