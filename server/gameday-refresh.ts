@@ -5,7 +5,7 @@ import { boxScoreFumbleCandidates, eligibleGameIdsForSchool, finalShutoutCandida
 import { supabaseRest } from "./supabase";
 
 type AutomationConfig = { season: number; enabled: boolean; last_refresh_at: string | null; schedule_cron_task_uid: string | null };
-type SourceEvent = { id: string; source_event_key: string | null; source_game_id: number | null; audit_action: string; week_id: string; draft_slot_id: string; event_type: string; stat_value: number; yard_distance: number | null; computed_points: number; is_provisional: boolean; recorded_by_open_id: string };
+type SourceEvent = { id: string; source_event_key: string | null; source_game_id: number | null; audit_action: string; week_id: string; draft_slot_id: string; event_type: string; stat_value: number; yard_distance: number | null; computed_points: number; is_provisional: boolean; recorded_by_open_id: string; correction_of_event_id: string | null };
 
 export function sourceEventNeedsCorrection(original: Pick<SourceEvent, "computed_points" | "yard_distance" | "stat_value">, next: { points: number; yardDistance: number | null; statValue: number }) {
   return original.computed_points !== next.points || original.yard_distance !== next.yardDistance || original.stat_value !== next.statValue;
@@ -13,6 +13,24 @@ export function sourceEventNeedsCorrection(original: Pick<SourceEvent, "computed
 
 export function sourceEventReversalPoints(originalPoints: number) {
   return -originalPoints;
+}
+
+// A CORRECTION row's computed_points is a DELTA layered on top of whatever total already existed
+// for that source event, not a replacement absolute value - so once an ENTRY has received one or
+// more corrections, the "current truth" for it is the ENTRY's own computed_points PLUS every
+// CORRECTION chained to it via correction_of_event_id, never the ENTRY's raw stored value alone.
+// Comparing a fresh candidate against just the raw ENTRY value mistakes an already-correctly-
+// adjusted total for a brand new discrepancy and plans a redundant, doubled-up correction on top
+// of one that already landed - confirmed with real data: Old Dominion QB fumbles were already
+// correctly adjusted to -6 via one ENTRY (-3) + one CORRECTION (-3), but reconciliation kept
+// comparing fresh candidates against the ENTRY's own -3 and proposing a further -3 "correction".
+export function currentEffectivePoints(
+  original: { id: string; computed_points: number },
+  eventRows: Array<{ audit_action: string; correction_of_event_id: string | null; computed_points: number }>,
+) {
+  return original.computed_points + eventRows
+    .filter(row => row.audit_action === "CORRECTION" && row.correction_of_event_id === original.id)
+    .reduce((sum, row) => sum + row.computed_points, 0);
 }
 
 const sourceGameValues = (game: CfbdGame) => ({ cfbd_game_id: game.id, season: game.season, week_number: game.week, season_type: game.seasonType, start_date: game.startDate, completed: game.completed, home_team: game.homeTeam, away_team: game.awayTeam, home_classification: game.homeClassification ?? null, away_classification: game.awayClassification ?? null, home_points: game.homePoints ?? null, away_points: game.awayPoints ?? null, updated_at: new Date().toISOString() });
@@ -305,7 +323,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
       if ("timedOut" in weekFanout) { skippedWeeksForTimeBudget.push(week); continue; }
       const [plays, stats, rosterEntries] = weekFanout;
       const rosters = new Map<string, CfbdRosterAthlete[]>(rosterEntries);
-      const eventRows = await supabaseRest<SourceEvent[]>("b36_scoring_events", { query: { select: "id,source_event_key,source_game_id,audit_action,week_id,draft_slot_id,event_type,stat_value,yard_distance,computed_points,is_provisional,recorded_by_open_id", source_game_id: `in.(${games.map(game => game.id).join(",")})` } });
+      const eventRows = await supabaseRest<SourceEvent[]>("b36_scoring_events", { query: { select: "id,source_event_key,source_game_id,audit_action,week_id,draft_slot_id,event_type,stat_value,yard_distance,computed_points,is_provisional,recorded_by_open_id,correction_of_event_id", source_game_id: `in.(${games.map(game => game.id).join(",")})` } });
       const knownKeys = new Set(eventRows.filter(row => row.source_event_key && row.audit_action !== "REVERSAL").map(row => row.source_event_key));
       const reversedKeys = new Set(eventRows.filter(row => row.audit_action === "REVERSAL" && row.source_event_key).map(row => row.source_event_key));
       const originalByKey = new Map(eventRows.filter(row => row.source_event_key && row.audit_action === "ENTRY").map(row => [row.source_event_key!, row]));
@@ -431,10 +449,11 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
                   reversedKeys.add(staleReversalKey); insertedEvents += 1;
                 }
               }
-            } else if (game.completed && sourceEventNeedsCorrection(original, { points: score.points, yardDistance: candidate.yardDistance, statValue: candidate.statValue })) {
+            } else if (game.completed && sourceEventNeedsCorrection({ ...original, computed_points: currentEffectivePoints(original, eventRows) }, { points: score.points, yardDistance: candidate.yardDistance, statValue: candidate.statValue })) {
+              const effectivePoints = currentEffectivePoints(original, eventRows);
               const correctionKey = `${candidate.sourceEventKey}:correction:${score.points}:${candidate.yardDistance ?? "none"}:${candidate.statValue}`;
               if (!knownKeys.has(correctionKey)) {
-                await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: original.week_id, draft_slot_id: original.draft_slot_id, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points - original.computed_points, note: `Official CFBD final correction updated source event ${candidate.sourceEventKey}`, audit_action: "CORRECTION", correction_of_event_id: original.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: correctionKey, source_game_id: candidate.sourceGameId, is_provisional: false } });
+                await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: original.week_id, draft_slot_id: original.draft_slot_id, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points - effectivePoints, note: `Official CFBD final correction updated source event ${candidate.sourceEventKey}`, audit_action: "CORRECTION", correction_of_event_id: original.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: correctionKey, source_game_id: candidate.sourceGameId, is_provisional: false } });
                 knownKeys.add(correctionKey); insertedEvents += 1;
               }
               // Don't confirm the original entry official while this game's box score is still
@@ -460,7 +479,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
           for (const original of originalEvents.filter(event => !currentCandidateKeys.has(event.source_event_key!))) {
             const reversalKey = `${original.source_event_key}:reversal`;
             if (reversedKeys.has(reversalKey)) continue;
-            await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: original.week_id, draft_slot_id: original.draft_slot_id, event_type: original.event_type, stat_value: original.stat_value, yard_distance: original.yard_distance, computed_points: sourceEventReversalPoints(original.computed_points), note: `Official CFBD final correction reversed source event ${original.source_event_key}`, audit_action: "REVERSAL", correction_of_event_id: original.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: reversalKey, source_game_id: game.id, is_provisional: false } });
+            await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: original.week_id, draft_slot_id: original.draft_slot_id, event_type: original.event_type, stat_value: original.stat_value, yard_distance: original.yard_distance, computed_points: sourceEventReversalPoints(currentEffectivePoints(original, eventRows)), note: `Official CFBD final correction reversed source event ${original.source_event_key}`, audit_action: "REVERSAL", correction_of_event_id: original.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: reversalKey, source_game_id: game.id, is_provisional: false } });
             reversedKeys.add(reversalKey); insertedEvents += 1;
           }
           // Same reasoning as the correction path above: don't flip a previously live-detected entry
@@ -484,7 +503,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
   }
 }
 
-export type ReconcileEventRow = { id: string; source_event_key: string | null; audit_action: string; week_id: string; draft_slot_id: string; event_type: string; stat_value: number; yard_distance: number | null; computed_points: number; is_provisional: boolean; recorded_by_open_id: string };
+export type ReconcileEventRow = { id: string; source_event_key: string | null; audit_action: string; week_id: string; draft_slot_id: string; event_type: string; stat_value: number; yard_distance: number | null; computed_points: number; is_provisional: boolean; recorded_by_open_id: string; correction_of_event_id: string | null };
 export type ReconcilePlannedAction = { action: "insert" | "correction" | "reversal" | "confirm-official"; eventType: string; school: string; position: string; owner: string; points: number; note: string; key: string };
 
 // Shared by the admin reconcileGameFromFinalData (one named game) and reconcileWeekFromFinalData
@@ -506,7 +525,7 @@ export async function reconcileGameAgainstFinalData(params: {
   const { game, schedule, season, weekRowId, selectedSchoolPositions, dryRun } = params;
   const [plays, stats] = await Promise.all([getWeekPlays(season, game.week), getWeekPlayStats(season, game.week)]);
   const gamePlays = plays.filter(play => play.gameId === game.id);
-  const eventRows = await supabaseRest<ReconcileEventRow[]>("b36_scoring_events", { query: { select: "id,source_event_key,audit_action,week_id,draft_slot_id,event_type,stat_value,yard_distance,computed_points,is_provisional,recorded_by_open_id", source_game_id: `eq.${game.id}` } });
+  const eventRows = await supabaseRest<ReconcileEventRow[]>("b36_scoring_events", { query: { select: "id,source_event_key,audit_action,week_id,draft_slot_id,event_type,stat_value,yard_distance,computed_points,is_provisional,recorded_by_open_id,correction_of_event_id", source_game_id: `eq.${game.id}` } });
   const knownKeys = new Set(eventRows.filter(row => row.source_event_key && row.audit_action !== "REVERSAL").map(row => row.source_event_key));
   const reversedKeys = new Set(eventRows.filter(row => row.audit_action === "REVERSAL" && row.source_event_key).map(row => row.source_event_key));
   const originalByKey = new Map(eventRows.filter(row => row.source_event_key && row.audit_action === "ENTRY").map(row => [row.source_event_key!, row]));
@@ -595,14 +614,15 @@ export async function reconcileGameAgainstFinalData(params: {
           reversedKeys.add(staleReversalKey);
         }
       }
-    } else if (sourceEventNeedsCorrection(original, { points: score.points, yardDistance: candidate.yardDistance, statValue: candidate.statValue })) {
-      planned.push({ action: "correction", eventType: candidate.eventType, school: candidate.schoolName, position: candidate.position, owner: slot.ownerName, points: score.points - original.computed_points, note: `corrects ${original.computed_points} -> ${score.points}`, key: candidate.sourceEventKey });
+    } else if (sourceEventNeedsCorrection({ ...original, computed_points: currentEffectivePoints(original, eventRows) }, { points: score.points, yardDistance: candidate.yardDistance, statValue: candidate.statValue })) {
+      const effectivePoints = currentEffectivePoints(original, eventRows);
+      planned.push({ action: "correction", eventType: candidate.eventType, school: candidate.schoolName, position: candidate.position, owner: slot.ownerName, points: score.points - effectivePoints, note: `corrects ${effectivePoints} -> ${score.points}`, key: candidate.sourceEventKey });
       if (!dryRun) {
-        await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: original.week_id, draft_slot_id: original.draft_slot_id, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points - original.computed_points, note: `Official CFBD final correction updated source event ${candidate.sourceEventKey} (via reconcileGameAgainstFinalData)`, audit_action: "CORRECTION", correction_of_event_id: original.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: `${candidate.sourceEventKey}:correction:${score.points}:${candidate.yardDistance ?? "none"}:${candidate.statValue}`, source_game_id: candidate.sourceGameId, is_provisional: false } });
+        await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: original.week_id, draft_slot_id: original.draft_slot_id, event_type: candidate.eventType, stat_value: candidate.statValue, yard_distance: candidate.yardDistance, computed_points: score.points - effectivePoints, note: `Official CFBD final correction updated source event ${candidate.sourceEventKey} (via reconcileGameAgainstFinalData)`, audit_action: "CORRECTION", correction_of_event_id: original.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: `${candidate.sourceEventKey}:correction:${score.points}:${candidate.yardDistance ?? "none"}:${candidate.statValue}`, source_game_id: candidate.sourceGameId, is_provisional: false } });
         await supabaseRest("b36_scoring_events", { method: "PATCH", query: { id: `eq.${original.id}` }, body: { is_provisional: false } });
       }
     } else if (original.is_provisional) {
-      planned.push({ action: "confirm-official", eventType: candidate.eventType, school: candidate.schoolName, position: candidate.position, owner: slot.ownerName, points: original.computed_points, note: "matches final data, already correct - just marking official", key: candidate.sourceEventKey });
+      planned.push({ action: "confirm-official", eventType: candidate.eventType, school: candidate.schoolName, position: candidate.position, owner: slot.ownerName, points: currentEffectivePoints(original, eventRows), note: "matches final data, already correct - just marking official", key: candidate.sourceEventKey });
       if (!dryRun) await supabaseRest("b36_scoring_events", { method: "PATCH", query: { id: `eq.${original.id}` }, body: { is_provisional: false } });
     }
   }
@@ -614,8 +634,8 @@ export async function reconcileGameAgainstFinalData(params: {
     const reversalKey = `${original.source_event_key}:reversal`;
     if (reversedKeys.has(reversalKey)) continue;
     const slot = selectedSchoolPositions.find(selection => selection.draftSlotId === original.draft_slot_id);
-    planned.push({ action: "reversal", eventType: original.event_type, school: slot?.schoolName ?? "Unknown", position: slot?.position ?? "?", owner: slot?.ownerName ?? "Unknown", points: sourceEventReversalPoints(original.computed_points), note: `no longer confirmed by final data - ${original.recorded_by_open_id} entry is stale`, key: original.source_event_key! });
-    if (!dryRun) await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: original.week_id, draft_slot_id: original.draft_slot_id, event_type: original.event_type, stat_value: original.stat_value, yard_distance: original.yard_distance, computed_points: sourceEventReversalPoints(original.computed_points), note: `Reconciled against final CFBD data via reconcileGameAgainstFinalData, reversed source event ${original.source_event_key}`, audit_action: "REVERSAL", correction_of_event_id: original.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: reversalKey, source_game_id: game.id, is_provisional: false } });
+    planned.push({ action: "reversal", eventType: original.event_type, school: slot?.schoolName ?? "Unknown", position: slot?.position ?? "?", owner: slot?.ownerName ?? "Unknown", points: sourceEventReversalPoints(currentEffectivePoints(original, eventRows)), note: `no longer confirmed by final data - ${original.recorded_by_open_id} entry is stale`, key: original.source_event_key! });
+    if (!dryRun) await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: original.week_id, draft_slot_id: original.draft_slot_id, event_type: original.event_type, stat_value: original.stat_value, yard_distance: original.yard_distance, computed_points: sourceEventReversalPoints(currentEffectivePoints(original, eventRows)), note: `Reconciled against final CFBD data via reconcileGameAgainstFinalData, reversed source event ${original.source_event_key}`, audit_action: "REVERSAL", correction_of_event_id: original.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: reversalKey, source_game_id: game.id, is_provisional: false } });
   }
   return { planned, boxScoreUnavailableFor };
 }
