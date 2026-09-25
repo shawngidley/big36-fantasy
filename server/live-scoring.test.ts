@@ -313,6 +313,14 @@ describe("36 Football automatic scoring map", () => {
     expect(candidates.some(candidate => candidate.eventType === "TOUCHDOWN")).toBe(false);
   });
 
+  it("credits a fumble lost even when CFBD spells it 'fumble by' instead of 'fumbled by', and even though playType wrongly says 'Fumble Recovery (Own)' - real Old Dominion/Virginia Tech play where a text-format variant this feed also uses left the QB's fumble lost, and the defense's own touchdown, uncredited", () => {
+    const play = { id: 401858221174, gameId: 401858221, offense: "Old Dominion", defense: "Virginia Tech", scoring: true, playType: "Fumble Recovery (Own)", playText: "(02:29) Shotgun #10 Q.Henicle sacked for loss of 6 yards to the ODU14 (#37 M.Williams), fumble by #10 Q.Henicle recovered by Hokies #1 T.Flowers at ODU14 #1 T.Flowers return 14 yards to the ODU00 TOUCHDOWN, clock 02:29 #17 J.Love kick attempt good (H: #95 N.Totten, LS: #96 C.Epling)" };
+    const roster = [{ id: 1, firstName: "Quinton", lastName: "Henicle", position: "QB" }];
+    const candidates = mapLivePlayToCandidates({ play, stats: [], roster, selectedSchoolPositions: [{ schoolName: "Old Dominion", position: "QB" }, { schoolName: "Virginia Tech", position: "DST" }] });
+    expect(candidates.some(candidate => candidate.eventType === "FUMBLE_LOST" && candidate.schoolName === "Old Dominion" && candidate.position === "QB")).toBe(true);
+    expect(candidates.some(candidate => candidate.eventType === "DEFENSIVE_TOUCHDOWN" && candidate.schoolName === "Virginia Tech")).toBe(true);
+  });
+
   it("does not credit a field goal nullified by penalty, even though CFBD's text still says GOOD before the penalty note - real Georgia/Tennessee State play where a made 38-yard FG got wrongly credited despite 'nullified by penalty ... NO PLAY' appearing right in the text, since field goal detection never checked isInvalidated at all", () => {
     const play = { id: 401856658277, gameId: 401856658, offense: "Georgia", defense: "Tennessee State", scoring: false, playType: "Field Goal Good", playText: "(07:46) #91 P.Woodring field goal attempt from 38 yards nullified by penaltyGOOD (H: #90 D.Miller, LS: #51 W.Snellings), clock 07:45 PENALTY UGA Equipment Violation 5 yards from TSU20 to TSU25. NO PLAY" };
     const candidates = mapLivePlayToCandidates({ play, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Georgia", position: "K" }] });

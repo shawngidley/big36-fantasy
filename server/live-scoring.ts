@@ -269,14 +269,20 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   // fire on an actual self-recovery, never suppress a real one.
   // beforeTouchdown is derived from playTextNormalized, which has already stripped every "#" (and
   // all other punctuation) down to a single space via normalizeText - so "#12" has already become
-  // just "12" by this point, with no "#" left to match against. "fumbled by" is always followed
-  // immediately by the jersey number; "recovered by" is followed by a team abbreviation (letters
-  // only, no digits) before its own jersey number, so \D*? skips past that non-numeric team code to
-  // reach it.
-  const fumblerJerseyNumber = beforeTouchdown.match(/fumbled by\s+(\d+)/)?.[1];
+  // just "12" by this point, with no "#" left to match against. "fumbled by" is USUALLY followed
+  // immediately by the jersey number, but CFBD's final-data feed also renders this same event as
+  // "fumble by" (no "d") - real Old Dominion/Virginia Tech play 401858221174: "...fumble by #10
+  // Q.Henicle recovered by Hokies #1 T.Flowers... TOUCHDOWN" is a genuine fumble recovered by the
+  // OPPONENT and returned for a defensive score, but the literal "fumbled" (and "fumbled by") checks
+  // below never matched "fumble by", so this play was invisible to both the FUMBLE_LOST credit for
+  // Henicle and the DEFENSIVE_TOUCHDOWN/DEFENSIVE_TURNOVER credit for Virginia Tech - on top of
+  // playType itself wrongly saying "Fumble Recovery (Own)" for a fumble the text clearly shows
+  // recovered by the other team. "recovered by" is followed by a team abbreviation (letters only, no
+  // digits) before its own jersey number, so \D*? skips past that non-numeric team code to reach it.
+  const fumblerJerseyNumber = beforeTouchdown.match(/fumbled? by\s+(\d+)/)?.[1];
   const recovererJerseyNumber = beforeTouchdown.match(/recovered by\D*?(\d+)/)?.[1];
   const recoveredBySameJerseyNumber = Boolean(fumblerJerseyNumber && recovererJerseyNumber && fumblerJerseyNumber === recovererJerseyNumber);
-  const fumbleChangedPossessionBeforeTouchdown = /fumbled/.test(beforeTouchdown) && /recovered by/.test(beforeTouchdown) && !/(own player|'s own)/.test(beforeTouchdown) && !recoveredBySameJerseyNumber;
+  const fumbleChangedPossessionBeforeTouchdown = /fumble/.test(beforeTouchdown) && /recovered by/.test(beforeTouchdown) && !/(own player|'s own)/.test(beforeTouchdown) && !recoveredBySameJerseyNumber;
   const isFumbleLostToOpponent = playType.includes("fumble recovery (opponent)") || playType.includes("fumble return touchdown") || isMuffedReturn || fumbleChangedPossessionBeforeTouchdown;
   const hasOffensiveTouchdownText = /(touchdown|\btd\b)/.test(`${playType} ${playTextNormalized}`);
   // The final /pass/ fallback below must be scoped to the text BEFORE "touchdown" specifically -
@@ -361,8 +367,10 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
     // offensive position appears anywhere" always favored the QB (first in position order) even
     // when it was the receiver who fumbled after the catch. Checking specifically the text after
     // "fumbled by" identifies the real fumbler; only falls back to the broader (less precise) check
-    // when that phrase isn't present in the text at all.
-    const fumblerSegment = playTextNormalized.split("fumbled by")[1] ?? "";
+    // when that phrase isn't present in the text at all. Splits on the same "fumbled? by" variant
+    // fumbleChangedPossessionBeforeTouchdown now matches, since CFBD also renders this as "fumble by"
+    // (no "d") in some final-data text.
+    const fumblerSegment = playTextNormalized.split(/fumbled? by/)[1] ?? "";
     const fumblerMentionedPositions = fumblerSegment ? positionsMentionedInText(fumblerSegment, roster, positions) : new Set<LivePosition>();
     const fumblingPosition = offensivePositions.find(position => fumblerMentionedPositions.has(position)) ?? offensivePositions.find(position => mentionedPositions.has(position));
     if (fumblingPosition && eligibleSelection(schoolName, fumblingPosition)) candidates.push({ sourceEventKey: `${play.id}:FUMBLE_LOST:${fumblingPosition}`, sourceGameId: play.gameId, schoolName, position: fumblingPosition, eventType: "FUMBLE_LOST", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · fumble lost (playType match)` });
