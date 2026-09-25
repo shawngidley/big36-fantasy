@@ -321,6 +321,14 @@ describe("36 Football automatic scoring map", () => {
     expect(candidates.some(candidate => candidate.eventType === "DEFENSIVE_TOUCHDOWN" && candidate.schoolName === "Virginia Tech")).toBe(true);
   });
 
+  it("credits both the touchdown and its two-point conversion when a penalized retry sequence puts 'NO PLAY' and 'failed' between them - real Old Dominion/Virginia Tech play where a 76-yard TD run was followed, in the same play block, by two penalized/voided two-point pass attempts before the conversion was actually run in successfully", () => {
+    const roster = [{ id: 10, firstName: "Quinton", lastName: "Henicle", position: "QB" }];
+    const play = { id: 401858221773, gameId: 401858221, offense: "Old Dominion", defense: "Virginia Tech", scoring: true, playType: "Rushing Touchdown", playText: "(07:49) Shotgun #10 Q.Henicle rush left for 76 yards gain to the Hokies00 TOUCHDOWN, clock 07:49, 1ST DOWN #10 Q.Henicle pass attempt failed #10 Q.Henicle pass attempt failed PENALTY #10 Q.Henicle pass attempt failed PENALTY Hokies Pass Interference (#7 S.Covil) 1 yard from Hokies03 to Hokies02. NO PLAY #10 Q.Henicle pass attempt failed PENALTY Hokies Pass Interference (#7 S.Covil) 2 yards from Hokies03 to Hokies01. NO PLAY #10 Q.Henicle rush attempt Successful" };
+    const candidates = mapLivePlayToCandidates({ play, stats: [], roster, selectedSchoolPositions: [{ schoolName: "Old Dominion", position: "QB" }] });
+    expect(candidates.some(candidate => candidate.eventType === "TOUCHDOWN" && candidate.position === "QB")).toBe(true);
+    expect(candidates.some(candidate => candidate.eventType === "TWO_POINT_CONVERSION" && candidate.position === "QB")).toBe(true);
+  });
+
   it("does not credit a field goal nullified by penalty, even though CFBD's text still says GOOD before the penalty note - real Georgia/Tennessee State play where a made 38-yard FG got wrongly credited despite 'nullified by penalty ... NO PLAY' appearing right in the text, since field goal detection never checked isInvalidated at all", () => {
     const play = { id: 401856658277, gameId: 401856658, offense: "Georgia", defense: "Tennessee State", scoring: false, playType: "Field Goal Good", playText: "(07:46) #91 P.Woodring field goal attempt from 38 yards nullified by penaltyGOOD (H: #90 D.Miller, LS: #51 W.Snellings), clock 07:45 PENALTY UGA Equipment Violation 5 yards from TSU20 to TSU25. NO PLAY" };
     const candidates = mapLivePlayToCandidates({ play, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Georgia", position: "K" }] });

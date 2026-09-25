@@ -220,7 +220,14 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   // clause - got credited instead, since TE was the drafted position and QB wasn't.
   const mentionedPositionsBeforeTouchdown = positionsMentionedInText(beforeTouchdown, roster, positions);
   const afterTouchdown = afterTouchdownParts.join("touchdown");
-  const relevantAfterTouchdown = afterTouchdown.split(/kick attempt|pat attempt|point attempt/)[0] ?? "";
+  // Also cut at "pass attempt"/"rush attempt" - CFBD's other vocabulary for a two-point conversion
+  // attempt (see twoPointMentioned below) - not just "kick attempt"/"pat attempt"/"point attempt".
+  // Real Old Dominion/Virginia Tech play: a 76-yard rushing touchdown was followed, in the SAME play
+  // block, by two penalized (and correctly voided) two-point pass attempts each ending in "NO PLAY",
+  // before the conversion was finally successfully run in. Without this cutoff, "NO PLAY" from those
+  // nullified RETRY attempts bled back into isInvalidated below and wrongly voided the touchdown
+  // itself, which had already legitimately happened and was never in question.
+  const relevantAfterTouchdown = afterTouchdown.split(/kick attempt|pat attempt|point attempt|pass attempt|rush attempt/)[0] ?? "";
   const invalidationScopedText = playTextNormalized.includes("touchdown") ? `${beforeTouchdown} touchdown ${relevantAfterTouchdown}` : playTextNormalized;
   const overturnedIndex = playTextNormalized.search(/overturned/);
   // "Overturned" is uniquely context-dependent, unlike the other invalidation words: CFBD's text
@@ -325,7 +332,19 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   // rather than the phrase "two point conversion" - real Kansas State play: after Johnson's TD, "#0
   // L.Cure rush attempt Successful" is a made two-point conversion that went entirely undetected.
   const twoPointMentioned = /two.point conversion/.test(playType) || /two.point conversion/.test(playTextNormalized) || /two point (pass|rush)/.test(playType) || /\b(rush|pass) attempt (successful|failed)\b/.test(playTextNormalized);
-  const twoPointFailed = /(failed|fail|no good|incomplete|unsuccessful)/.test(playTextNormalized);
+  // CFBD replays a penalized two-point attempt as its own "[Player] rush/pass attempt Failed" clause,
+  // immediately followed by another retry, when a flag (offsetting or declined) voids the previous
+  // snap - real Old Dominion/Virginia Tech play had TWO penalized, voided pass attempts (each ending
+  // "NO PLAY") before the conversion was actually run in successfully. A bare search for "failed"
+  // anywhere in the text found those two earlier, voided attempts and wrongly called the whole
+  // conversion failed even though it succeeded on the very next, legitimate try. When the text
+  // contains at least one explicit "attempt successful/failed" marker, only the LAST one - the actual
+  // final outcome, since every earlier one was a nullified retry - decides success or failure; the
+  // broader word search remains as a fallback for text that never uses this "attempt" phrasing at all
+  // (e.g. "two-point conversion failed").
+  const attemptOutcomes = Array.from(playTextNormalized.matchAll(/\b(?:rush|pass) attempt (successful|failed)\b/g));
+  const lastAttemptOutcome = attemptOutcomes.length > 0 ? attemptOutcomes[attemptOutcomes.length - 1][1] : null;
+  const twoPointFailed = lastAttemptOutcome ? lastAttemptOutcome === "failed" : /(failed|fail|no good|incomplete|unsuccessful)/.test(playTextNormalized);
   const successfulTwoPoint = twoPointMentioned && !twoPointFailed && !isInvalidated;
   // When this play ALSO contains a touchdown (the combined case above), the two-point attempt's own
   // scorer is named in the text after "touchdown" - scoping to just that portion avoids crediting the
