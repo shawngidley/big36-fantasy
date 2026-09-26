@@ -14,6 +14,7 @@ import { runGamedayRefresh } from "../gameday-refresh";
 import { syncFbsPoolAndSchedule } from "../gameday-refresh";
 import { adaptLiveGameToLegacyPlays } from "../gameday-refresh";
 import { resolveB36WeekNumber, sourceEventNeedsCorrection, sourceEventReversalPoints, reconcileGameAgainstFinalData } from "../gameday-refresh";
+import { parseExternalAuditReport, planExternalAuditAdjustments } from "../external-audit";
 import { boxScoreFumbleCandidates, eligibleGameIdsForSchool, finalShutoutCandidates, indexPlayStatsByPlayId, isSupersededInterceptionPlay, mapLivePlayToCandidates, matchBoxAthleteToRoster, normalizeSchoolForComparison, statsForPlay, type LivePosition, type PlayStatsIndex } from "../live-scoring";
 import { decodeRegistrationLogo, hashRegistrationPin, normalizeRegistrationEmail, normalizeRegistrationPhone, verifyRegistrationPin } from "../registration";
 import { storagePut } from "../storage";
@@ -1725,6 +1726,55 @@ export const leagueRouter = router({
       else await supabaseRest("b36_scoring_rules", { method: "POST", body: values });
       await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "SAVE_SCORING_RULE", entity_type: "b36_scoring_rules", entity_id: input.id ?? null } });
       return { success: true as const };
+    }),
+    // Apply the weekly external NCAA audit to the ledger. The report (see server/external-audit.ts)
+    // is the league's source of truth once a week's games are final; CFBD is only the live feed.
+    // For every group in the report: current site total for that b36 week (fresh, paginated read -
+    // not the 15s-cached snapshot, so a dry run right after an apply reflects the apply) minus the
+    // NCAA total is the correction. Each nonzero difference becomes ONE official ledger row of type
+    // NCAA_AUDIT_ADJUSTMENT carrying the audit's play-by-play as its note, tied to the group's game
+    // (source_game_id) so the gameday loop's settledGameIds treats that game as done and stops
+    // reconciling it against CFBD. Re-running the same report is a no-op by construction: every
+    // corrected group is already at zero difference. dryRun (default) reports the full plan and
+    // writes nothing. Groups are independent: one failed insert is reported, not fatal to the rest.
+    applyExternalAudit: adminProcedure.input(z.object({ week: z.number().int().min(0), reportText: z.string().min(20).max(2_000_000), dryRun: z.boolean().default(true), source: z.string().trim().min(1).max(120).default("NCAA audit") })).mutation(async ({ ctx, input }) => {
+      const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
+      const season = automationRows[0]?.season;
+      if (!season) throw new Error("No season configured.");
+      const [schedule, snapshot] = await Promise.all([getRegularSeasonGames(season), getLeagueSnapshot()]);
+      const weekRow = snapshot.weeks.find(week => week.weekNumber === input.week);
+      if (!weekRow) throw new Error(`No scoring week row for b36 week ${input.week}.`);
+      const report = parseExternalAuditReport(input.reportText);
+      if (!report.groups.length) throw new Error("No group lines found in the report text - is this the full audit output?");
+      const key = (school: string, position: string) => `${normalizeSchoolForComparison(school)}::${position}`;
+      const slots = snapshot.owners.flatMap(owner => owner.picks.map(pick => ({ draftSlotId: pick.id, schoolName: pick.schoolName, position: pick.position as LivePosition, ownerName: owner.teamName })));
+      const slotByKey = new Map(slots.map(slot => [key(slot.schoolName, slot.position), slot]));
+      // Fresh per-slot totals for this week, past PostgREST's 1000-row cap.
+      const slotIds = slots.map(slot => slot.draftSlotId);
+      const rows = slotIds.length ? await supabaseRestAll<{ draft_slot_id: string; computed_points: number }>("b36_scoring_events", { query: { select: "draft_slot_id,computed_points", draft_slot_id: `in.(${slotIds.join(",")})`, week_id: `eq.${weekRow.id}`, order: "id.asc" } }) : [];
+      const currentBySlot = new Map<string, number>();
+      for (const row of rows) currentBySlot.set(row.draft_slot_id, (currentBySlot.get(row.draft_slot_id) ?? 0) + Number(row.computed_points));
+      const currentByGroup = new Map<string, number>();
+      for (const slot of slots) currentByGroup.set(key(slot.schoolName, slot.position), Number((currentBySlot.get(slot.draftSlotId) ?? 0).toFixed(2)));
+      const plan = planExternalAuditAdjustments(report, currentByGroup, key);
+      const weekGames = schedule.filter(game => resolveB36WeekNumber(game) === input.week);
+      const gameForSchool = (school: string) => weekGames.find(game => normalizeSchoolForComparison(game.homeTeam) === normalizeSchoolForComparison(school) || normalizeSchoolForComparison(game.awayTeam) === normalizeSchoolForComparison(school));
+      const results: Array<{ school: string; position: string; owner: string; expectedPoints: number; currentPoints: number | null; delta: number; status: string; note?: string; error?: string }> = [];
+      for (const row of plan) {
+        if (row.status !== "adjust") { results.push({ school: row.school, position: row.position, owner: row.owner, expectedPoints: row.expectedPoints, currentPoints: row.currentPoints, delta: row.delta, status: row.status }); continue; }
+        const slot = slotByKey.get(key(row.school, row.position))!;
+        const game = gameForSchool(row.school);
+        const note = `${input.source}${report.pulledAt ? ` (pulled ${report.pulledAt})` : ""}: site ${row.currentPoints} -> NCAA ${row.expectedPoints}. ${row.how.join("; ")}`.slice(0, 1000);
+        if (input.dryRun) { results.push({ school: row.school, position: row.position, owner: row.owner, expectedPoints: row.expectedPoints, currentPoints: row.currentPoints, delta: row.delta, status: "would-adjust", note }); continue; }
+        try {
+          await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: weekRow.id, draft_slot_id: slot.draftSlotId, event_type: "NCAA_AUDIT_ADJUSTMENT", stat_value: 1, yard_distance: null, computed_points: row.delta, note, audit_action: "ENTRY", recorded_by_open_id: ctx.user.openId, source_event_key: `ncaa-audit:${input.week}:${slot.draftSlotId}:${row.currentPoints}->${row.expectedPoints}`, source_game_id: game?.id ?? null, is_provisional: false } });
+          results.push({ school: row.school, position: row.position, owner: row.owner, expectedPoints: row.expectedPoints, currentPoints: row.currentPoints, delta: row.delta, status: "adjusted", note });
+        } catch (error) {
+          results.push({ school: row.school, position: row.position, owner: row.owner, expectedPoints: row.expectedPoints, currentPoints: row.currentPoints, delta: row.delta, status: "error", note, error: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      const count = (status: string) => results.filter(result => result.status === status).length;
+      return { week: input.week, dryRun: input.dryRun, source: input.source, pulledAt: report.pulledAt, groupsInReport: report.groups.length, matches: count("match"), wouldAdjust: count("would-adjust"), adjusted: count("adjusted"), errors: count("error"), unknownGroups: count("unknown-group"), netPointChange: results.filter(result => result.status === "would-adjust" || result.status === "adjusted").reduce((sum, result) => sum + result.delta, 0), results };
     }),
     recordScoreEvent: adminProcedure.input(z.object({ weekId: uuid, schoolName: z.string().trim().min(2).max(120), position: positionSchema, eventType: eventTypeSchema, statValue: z.number().min(-10000).max(10000), yardDistance: z.number().int().min(0).max(109).nullable(), note: z.string().trim().max(1000).nullable() })).mutation(async ({ ctx, input }) => {
       try {

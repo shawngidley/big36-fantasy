@@ -1,0 +1,434 @@
+36football — Week 2 audit
+
+36Football data pulled 2026-09-20 00:27 (saved as site_snapshots/week_2_20260920_0027.json)
+Games scored by NCAA Audit this week: 68   Flagged (not counted): 0
+Groups compared: 215   MATCH: 159   MISMATCH: 56   No game: 1   Owned groups: 216
+
+MISMATCHES
+----------
+
+Group                  Owner                                 NCAA Audit  36Football  Diff  How (NCAA Audit)
+---------------------  ------------------------------------  ----------  ----------  ----  ----------------------------------------
+Alabama - QB           Beer Academy                                   1          -3    +4  Russell INT (-3)
+                                                                                           Russell fumble lost (-3)
+                                                                                           Russell INT (-3)
+                                                                                           Russell 2-pt pass to Brooks (4)
+                                                                                           Russell 5-yd TD pass to Scott (6)
+Arkansas State - K     Homestar State                                10          11    -1  Andel PAT (1)
+                                                                                           Andel PAT (1)
+                                                                                           Andel PAT (1)
+                                                                                           Andel PAT (1)
+                                                                                           Andel PAT (1)
+                                                                                           Andel 25-yd FG (3)
+                                                                                           Andel PAT (1)
+                                                                                           Andel PAT (1)
+Auburn - QB            Yogurt State University                       20          22    -2  Brown 22-yd TD pass to Echols (8)
+                                                                                           Brown 8-yd TD pass to Spencer (6)
+                                                                                           Brown 5-yd TD rec (6)
+                                                                                           Ti'a fumble, out of bounds (0)
+Auburn - WR            Libertalia University                         12          20    -8  Spencer 8-yd TD rec (6)
+                                                                                           Neptune 5-yd TD pass to Brown (6)
+Baylor - QB            Col. Sandurz Military Academy                 25          17    +8  Bennett 33-yd TD pass to McGowan (10)
+                                                                                           Bennett 22-yd TD pass to Miller (8)
+                                                                                           Bennett 17-yd TD run (8)
+                                                                                           Bennett INT (-3)
+                                                                                           Bennett INT (-3)
+                                                                                           Bennett 13-yd TD pass to McGowan (8)
+                                                                                           Griffin INT (-3)
+Delaware - K           South Harmon Institute of Technology          17          16    +1  Smack 37-yd FG (6)
+                                                                                           Smack PAT (1)
+                                                                                           Smack PAT (1)
+                                                                                           Smack 40-yd FG (9)
+Delaware - QB          2026 36football champion                       4           1    +3  Minicucci INT (-3)
+                                                                                           Streeter fumble, recovered by DEL (0)
+                                                                                           Minicucci 43-yd TD pass to Lofton (10)
+                                                                                           Minicucci 2-pt pass failed (0)
+                                                                                           Minicucci INT (-3)
+Florida Atlantic - WR  Moon of Vega Community College                40          37    +3  Messer 76-yd TD rec (12)
+                                                                                           Messer 36-yd TD rec (10)
+                                                                                           Valsin 30-yd TD rec (10)
+                                                                                           Valsin fumble, recovered by FAU (0)
+                                                                                           Henry 13-yd TD rec (8)
+Fresno State - DST     Watson School of Massage Therapy               4           7    -3  Sack - intentional grounding (Cobb) (1)
+                                                                                           INT (Harris) (3)
+Fresno State - RB      Findlay U                                     32          42   -10  Luke 18-yd TD rec (8)
+                                                                                           Donelson 11-yd TD run (8)
+                                                                                           Donelson 5-yd TD run (6)
+                                                                                           Donelson 56-yd TD run (10)
+Georgia - DST          University of Bad Decisions                   35          53   -18  Fumble recovery (Boyd) (3)
+                                                                                           Sack (Harris Jr.) (1)
+                                                                                           INT (Jones) (3)
+                                                                                           Fumble recovery (Tisdale Jr.) (3)
+                                                                                           0-yd defensive return TD [review] (9)
+                                                                                           INT (Stewart) (3)
+                                                                                           Special-teams return TD (12)
+                                                                                           Sack (Lonon Jr.) (1)
+Georgia Tech - K       CreefDogg U                                    9           8    +1  Birr 30-yd FG (6)
+                                                                                           Birr PAT (1)
+                                                                                           Birr PAT (1)
+                                                                                           Birr PAT (1)
+Kansas - RB            THE Ohio State University                      0          -3    +3  Edwards fumble, recovered by KU (0)
+LSU - DST              Moon of Vega Community College                17          20    -3  Sack (Geralds) (1)
+                                                                                           Sack (Umanmielen) (1)
+                                                                                           Fumble recovery (Finley) (3)
+                                                                                           Sack (Umanmielen) (1)
+                                                                                           Sack (Geralds) (1)
+                                                                                           Sack (Ross) (1)
+                                                                                           INT (Pickett) (3)
+                                                                                           Sack (Spears) (1)
+                                                                                           Fumble recovery (Mickens) (3)
+                                                                                           Sack (Jimcoily) (1)
+                                                                                           Sack (Umanmielen) (1)
+LSU - QB               Quarterback university                        27          20    +7  Leavitt 5-yd TD run (6)
+                                                                                           Leavitt INT (-3)
+                                                                                           Leavitt INT (-3)
+                                                                                           Leavitt INT (-3)
+                                                                                           Leavitt 9-yd TD run (6)
+                                                                                           Leavitt 2-pt pass to Thomas (4)
+                                                                                           Leavitt 5-yd TD run (6)
+                                                                                           Leavitt 10-yd TD pass to Green (8)
+                                                                                           Clark 7-yd TD run (6)
+LSU - WR               Mount Union                                   -3           0    -3  Wilson III fumble lost (-3)
+Louisville - RB        Papa Pump                                     26          23    +3  Davis fumble, recovered by LOU (0)
+                                                                                           Jennings 15-yd TD run (8)
+                                                                                           Davis 3-yd TD run (6)
+                                                                                           Jennings 2-yd TD rec (6)
+                                                                                           Davis 4-yd TD run (6)
+Maryland - DST         Daddydoo Home School                           8           5    +3  Sack (LeBlanc) (1)
+                                                                                           Sack (Elee) (1)
+                                                                                           Fumble recovery (Osborne) (3)
+                                                                                           Sack (LeBlanc) (1)
+                                                                                           Sack (Stewart) (1)
+                                                                                           Sack (Holmes) (1)
+Miami (OH) - DST       CreefDogg U                                   16          28   -12  Sack (Dikos) (1)
+                                                                                           Special-teams return TD (12)
+                                                                                           Blocked kick (3)
+Miami - DST            University Of Druidia                          2           5    -3  Sack (Lightfoot) (1)
+                                                                                           Sack (Scroggins III) (1)
+Miami - K              Moon of Vega Community College                11          12    -1  Weinberg PAT (1)
+                                                                                           Weinberg PAT (1)
+                                                                                           Weinberg PAT (1)
+                                                                                           Weinberg PAT (1)
+                                                                                           Weinberg PAT (1)
+                                                                                           Olsen PAT (1)
+                                                                                           Rocha PAT (1)
+                                                                                           Rocha PAT (1)
+                                                                                           Rocha PAT (1)
+                                                                                           Rocha PAT (1)
+                                                                                           Rocha PAT (1)
+Michigan - DST         Papa Pump                                     10           9    +1  Sack (Daley) (1)
+                                                                                           Fumble recovery (Livingstone) (3)
+                                                                                           Sack (Daley) (1)
+                                                                                           Sack (Taylor) (1)
+                                                                                           INT (Hill) (3)
+                                                                                           Sack (Marshall) (1)
+Michigan - RB          MegaMaid A&M                                   6           3    +3  Hiter fumble, recovered by UOM (0)
+                                                                                           Marshall 1-yd TD run (6)
+Minnesota - DST        Brigham's Bitchin Beard Jr College            16           4   +12  0-yd defensive return TD (9)
+                                                                                           Sack (Gerlach) (1)
+                                                                                           Fumble recovery (Taylor) (3)
+                                                                                           Blocked FG (Parrish) (3)
+Missouri - RB          Homestar State                                17          14    +3  Roberts fumble lost (-3)
+                                                                                           Roberts 64-yd TD run (12)
+                                                                                           Edwards 10-yd TD run (8)
+                                                                                           Roberts fumble, out of bounds (0)
+Navy - QB              Buckeye State University                      39          32    +7  Woodson 48-yd TD run (10)
+                                                                                           Woodson INT (-3)
+                                                                                           Gutierrez 64-yd TD pass to Collins (12)
+                                                                                           Gutierrez 8-yd TD pass to Robinson (6)
+                                                                                           Gutierrez 2-pt run failed (0)
+                                                                                           Gutierrez 49-yd TD run (10)
+                                                                                           Gutierrez 2-pt pass to Listorti (4)
+Ohio State - DST       THE Ohio State University                      8          14    -6  Fumble recovery (Brown) (3)
+                                                                                           INT (McClain) (3)
+                                                                                           Sack (Pettijohn) (1)
+                                                                                           Sack (Jackson Jr.) (1)
+Ohio State - QB        Drop out U                                     5           8    -3  Sayin 19-yd TD pass to Smith (8)
+                                                                                           Sayin INT (-3)
+Oklahoma - DST         Faber College                                  2           8    -6  Sack (Wein) (1)
+                                                                                           Sack (Powers III) (1)
+Old Dominion - QB      University of Bad Decisions                   16           0   +16  Henicle fumble lost (-3)
+                                                                                           Henicle fumble lost (-3)
+                                                                                           Henicle fumble, recovered by ODU (0)
+                                                                                           Henicle 7-yd TD pass to Haughton Jr. (6)
+                                                                                           Henicle 76-yd TD run (12)
+                                                                                           Henicle 2-pt run (4)
+Oregon - DST           Beer Academy                                  21          24    -3  96-yd defensive return TD (15)
+                                                                                           INT (Jackson) (3)
+                                                                                           INT (Uiagalelei) (3)
+Pittsburgh - DST       Col. Sandurz Military Academy                 10          15    -5  Safety (6)
+                                                                                           Sack (Lovelace) (1)
+                                                                                           Sack (Ward) (1)
+                                                                                           Sack (Sanford) (1)
+                                                                                           Sack (Ward) (1)
+Rutgers - RB           Shamanoosh U                                   6           3    +3  Raymond 4-yd TD rec (6)
+SMU - DST              2026 36football champion                       8          11    -3  Sack (Wyrick) (1)
+                                                                                           INT (Lee) (3)
+                                                                                           Fumble recovery (Streets) (3)
+                                                                                           Sack (Harris) (1)
+SMU - QB               THE Ohio State University                     52          58    -6  Jennings 52-yd TD pass to McFall (10)
+                                                                                           Jennings 2-yd TD pass to Öhrström (6)
+                                                                                           Jennings 2-yd TD pass to Pittman Jr. (6)
+                                                                                           Jennings 14-yd TD pass to Öhrström (8)
+                                                                                           Jennings 44-yd TD pass to Smith (10)
+                                                                                           Hawkins 8-yd TD pass to Turner (6)
+                                                                                           Hawkins 3-yd TD pass to Miles II (6)
+SMU - TE               THE Ohio State University                     48          24   +24  Öhrström 2-yd TD rec (12)
+                                                                                           Pittman Jr. 2-yd TD rec (12)
+                                                                                           Öhrström 14-yd TD rec (12)
+                                                                                           Turner 8-yd TD rec (12)
+SMU - WR               Brigham's Bitchin Beard Jr College            26          32    -6  McFall 52-yd TD rec (10)
+                                                                                           Smith 44-yd TD rec (10)
+                                                                                           Cooper fumble, recovered by SMU (0)
+                                                                                           Miles II 3-yd TD rec (6)
+Tennessee - DST        Spangler State                                25          31    -6  Sack (Dye) (1)
+                                                                                           41-yd defensive return TD (12)
+                                                                                           INT (Lane) (3)
+                                                                                           Blocked punt (Baker) (3)
+                                                                                           INT (Telander) (3)
+                                                                                           Sack (Telander) (1)
+                                                                                           Sack (Dye) (1)
+                                                                                           Sack (Norman) (1)
+Texas - DST            MegaMaid A&M                                   5           2    +3  Sack (Jackson) (1)
+                                                                                           Sack (Simmons) (1)
+                                                                                           INT (Littleton) (3)
+Texas - WR             South Harmon Institute of Technology           6           3    +3  V fumble, recovered by TEX (0)
+                                                                                           Wingo 3-yd TD rec (6)
+Texas A&M - DST        Marcus College                                37          43    -6  Fumble recovery (Butler Jr.) (3)
+                                                                                           Sack (Jones) (1)
+                                                                                           55-yd defensive return TD (12)
+                                                                                           INT (Jones) (3)
+                                                                                           Fumble recovery (Brown) (3)
+                                                                                           45-yd defensive return TD (12)
+                                                                                           INT (Humphrey) (3)
+Texas A&M - WR         Rootstown Rovers                              24          21    +3  Horton 4-yd TD rec (6)
+                                                                                           Horton 13-yd TD rec (8)
+                                                                                           Craver 33-yd TD rec (10)
+Texas State - QB       Faber College                                  8          11    -3  Jackson INT (-3)
+                                                                                           Jackson 6-yd TD run (6)
+                                                                                           Jackson fumble, recovered by TXST (0)
+                                                                                           Jackson INT (-3)
+                                                                                           Jackson 13-yd TD pass to Dawn Jr. (8)
+Texas Tech - DST       Nebraska State University                      5           4    +1  Sack (Holmes Jr.) (1)
+                                                                                           INT (Boyd) (3)
+                                                                                           Sack (Roberts) (1)
+Texas Tech - QB        Spangler State                                19          22    -3  Castellanos 7-yd TD run (6)
+                                                                                           Hammond fumble lost (-3)
+                                                                                           Hammond 32-yd TD pass to Eakin (10)
+                                                                                           Castellanos 8-yd TD pass to Ludwig (6)
+Texas Tech - RB        University of Bad Decisions                   16          13    +3  Dickey fumble, recovered by TTU (0)
+                                                                                           Dickey 1-yd TD run (6)
+                                                                                           Williams 38-yd TD run (10)
+UCF - QB               Rootstown Rovers                               8          16    -8  Barnett III fumble, recovered by UCF (0)
+                                                                                           Barnett III fumble, recovered by UCF (0)
+                                                                                           Barnett III 19-yd TD pass to Charles (8)
+USC - QB               K-State                                       35          40    -5  Maiava INT (-3)
+                                                                                           Maiava 5-yd TD pass to Bowman (6)
+                                                                                           Maiava 9-yd TD pass to Bowman (6)
+                                                                                           Maiava 19-yd TD pass to Dixon-Wyatt (8)
+                                                                                           Maiava 21-yd TD pass to Mosley (8)
+                                                                                           Maiava 44-yd TD pass to Williams (10)
+USC - RB               Drop out U                                     8          16    -8  Miller 12-yd TD run (8)
+USC - WR               Lone Starr State University                   26          23    +3  Mosley fumble, recovered by USC (0)
+                                                                                           Dixon-Wyatt 19-yd TD rec (8)
+                                                                                           Mosley 21-yd TD rec (8)
+                                                                                           Williams 44-yd TD rec (10)
+UTEP - WR              Wazzu                                         20          13    +7  Thomas 83-yd TD rec (12)
+                                                                                           Nash fumble, recovered by UTEP (0)
+                                                                                           Cheeks 13-yd TD rec (8)
+UTSA - WR              Homestar State                                20          10   +10  Amador II 44-yd TD pass to Anderson (10)
+                                                                                           Anderson 44-yd TD rec (10)
+Utah - DST             South Harmon Institute of Technology           7          10    -3  Sack (Moe) (1)
+                                                                                           INT (Bennee) (3)
+                                                                                           Sack (Hall) (1)
+                                                                                           Sack (Tilmon) (1)
+                                                                                           Sack (Elliss) (1)
+Utah - QB              O state                                       21          18    +3  Dampier INT (-3)
+                                                                                           Dampier 7-yd TD run (6)
+                                                                                           Dampier 7-yd TD pass to Parker (6)
+                                                                                           Dampier 1-yd TD pass to Bennee (6)
+                                                                                           Dampier 2-yd TD run (6)
+                                                                                           Ficklin fumble, recovered by UTA (0)
+Vanderbilt - QB        Findlay U                                     11          16    -5  Curtis fumble, recovered by Vandy (0)
+                                                                                           Berlowitz fumble lost (-3)
+                                                                                           Curtis 1-yd TD run (6)
+                                                                                           Curtis 19-yd TD pass to Taylor (8)
+Virginia Tech - DST    Granny U                                      25          13   +12  Sack (Stevens) (1)
+                                                                                           Fumble recovery (Henicle) (3)
+                                                                                           Wylie fumble on return, no penalty (0)
+                                                                                           14-yd defensive return TD (9)
+                                                                                           Sack (Williams) (1)
+                                                                                           Fumble recovery (Henicle) (3)
+                                                                                           Fumble recovery (Old Dominion) (3)
+                                                                                           Sack (Chambers) (1)
+                                                                                           Sack (Harris) (1)
+                                                                                           Sack (Spencer) (1)
+                                                                                           Sack (Harris) (1)
+                                                                                           Sack (Williams) (1)
+
+MATCHES
+-------
+
+Group                   Owner                                 NCAA Audit  36Football
+----------------------  ------------------------------------  ----------  ----------  -----
+Alabama - DST           O state                                       25          25  MATCH
+Alabama - K             Findlay U                                     22          22  MATCH
+Alabama - RB            2026 36football champion                      18          18  MATCH
+Alabama - WR            K-State                                       10          10  MATCH
+Arkansas - TE           Wazzu                                          0           0  MATCH
+BYU - DST               Quarterback university                         6           6  MATCH
+BYU - RB                South Harmon Institute of Technology           0           0  MATCH
+BYU - TE                Brigham's Bitchin Beard Jr College             0           0  MATCH
+Baylor - WR             Beer Academy                                  26          26  MATCH
+Boise State - RB        University Of Druidia                          8           8  MATCH
+Boise State - TE        Papa Pump                                      0           0  MATCH
+Boston College - K      Newbury Black Knights                         17          17  MATCH
+California - QB         University Of Druidia                         14          14  MATCH
+California - TE         Moon of Vega Community College                 0           0  MATCH
+Cincinnati - WR         Spangler State                                 6           6  MATCH
+Clemson - K             K-State                                       37          37  MATCH
+Clemson - WR            Newbury Black Knights                          8           8  MATCH
+Colorado - WR           Papa Pump                                     44          44  MATCH
+Colorado State - TE     Daddydoo Home School                           0           0  MATCH
+Duke - RB               Gidley College                                18          18  MATCH
+Duke - TE               O state                                        0           0  MATCH
+Duke - WR               Marcus College                                 8           8  MATCH
+Eastern Michigan - RB   Newbury Black Knights                          0           0  MATCH
+Eastern Michigan - TE   Shamanoosh U                                   0           0  MATCH
+Florida - DST           Lone Starr State University                   32          32  MATCH
+Florida - K             Beer Academy                                  10          10  MATCH
+Florida - RB            Nebraska State University                     18          18  MATCH
+Florida Atlantic - K    Shamanoosh U                                  17          17  MATCH
+Florida Atlantic - QB   Moon of Vega Community College                46          46  MATCH
+Georgia - K             Rootstown Rovers                              10          10  MATCH
+Georgia - QB            Papa Pump                                     47          47  MATCH
+Georgia - RB            CreefDogg U                                   14          14  MATCH
+Georgia - TE            Drop out U                                    12          12  MATCH
+Georgia Southern - WR   Daddydoo Home School                          10          10  MATCH
+Georgia Tech - RB       Brigham's Bitchin Beard Jr College            12          12  MATCH
+Hawai'i - K             Marcus College                                23          23  MATCH
+Hawai'i - QB            CreefDogg U                                   -3          -3  MATCH
+Hawai'i - WR            Watson School of Massage Therapy               6           6  MATCH
+Houston - QB            Marcus College                                52          52  MATCH
+Houston - RB            Lone Starr State University                   32          32  MATCH
+Houston - TE            Libertalia University                         12          12  MATCH
+Houston - WR            MegaMaid A&M                                  22          22  MATCH
+Illinois - K            Spangler State                                24          24  MATCH
+Indiana - DST           Yogurt State University                       32          32  MATCH
+Indiana - K             Faber College                                  7           7  MATCH
+Indiana - QB            Watson School of Massage Therapy              52          52  MATCH
+Indiana - TE            Beer Academy                                   0           0  MATCH
+Indiana - WR            Col. Sandurz Military Academy                 49          49  MATCH
+Iowa - DST              K-State                                        0           0  MATCH
+Iowa - K                Watson School of Massage Therapy              25          25  MATCH
+Iowa - TE               Yogurt State University                        0           0  MATCH
+Iowa State - K          Daddydoo Home School                          16          16  MATCH
+Iowa State - TE         Col. Sandurz Military Academy                 12          12  MATCH
+Jacksonville State - K  O state                                        9           9  MATCH
+James Madison - RB      Buckeye State University                      48          48  MATCH
+Kansas - TE             Granny U                                       0           0  MATCH
+Kansas State - TE       Lone Starr State University                    0           0  MATCH
+Kennesaw State - DST    Newbury Black Knights                          6           6  MATCH
+Kent State - K          Granny U                                       4           4  MATCH
+Kentucky - TE           Newbury Black Knights                         12          12  MATCH
+LSU - K                 Drop out U                                    13          13  MATCH
+LSU - TE                2026 36football champion                      16          16  MATCH
+Liberty - RB            K-State                                        8           8  MATCH
+Louisiana Tech - DST    Findlay U                                     32          32  MATCH
+Louisiana Tech - RB     Quarterback university                         0           0  MATCH
+Louisville - TE         Homestar State                                12          12  MATCH
+Louisville - WR         Nebraska State University                     12          12  MATCH
+Maryland - K            Mount Union                                    8           8  MATCH
+Maryland - TE           Gidley College                                 0           0  MATCH
+Memphis - RB            Watson School of Massage Therapy              12          12  MATCH
+Miami - QB              Nebraska State University                     52          52  MATCH
+Miami - RB              Four Corners                                  40          40  MATCH
+Miami - TE              South Harmon Institute of Technology           0           0  MATCH
+Miami - WR              University Of Druidia                         49          49  MATCH
+Michigan - K            Four Corners                                  11          11  MATCH
+Michigan State - TE     K-State                                        0           0  MATCH
+Mississippi State - QB  Newbury Black Knights                         23          23  MATCH
+Mississippi State - TE  Quarterback university                         0           0  MATCH
+NC State - QB           Four Corners                                  38          38  MATCH
+NC State - WR           Faber College                                 -3          -3  MATCH
+Nebraska - WR           THE Ohio State University                     34          34  MATCH
+Nevada - K              Col. Sandurz Military Academy                  1           1  MATCH
+New Mexico - TE         University of Bad Decisions                   12          12  MATCH
+North Carolina - K      University of Bad Decisions                    5           5  MATCH
+North Texas - QB        Wazzu                                         24          24  MATCH
+North Texas - WR        Drop out U                                     0           0  MATCH
+Notre Dame - DST        Libertalia University                         40          40  MATCH
+Notre Dame - QB         Gidley College                                32          32  MATCH
+Notre Dame - RB         Moon of Vega Community College                12          12  MATCH
+Notre Dame - TE         Marcus College                                12          12  MATCH
+Notre Dame - WR         Gidley College                                26          26  MATCH
+Ohio - RB               Col. Sandurz Military Academy                  6           6  MATCH
+Ohio - WR               Findlay U                                      6           6  MATCH
+Ohio State - K          Gidley College                                20          20  MATCH
+Ohio State - RB         Mount Union                                    6           6  MATCH
+Ohio State - TE         Nebraska State University                      0           0  MATCH
+Ohio State - WR         Buckeye State University                       8           8  MATCH
+Oklahoma - K            Yogurt State University                        7           7  MATCH
+Oklahoma - QB           Mount Union                                    5           5  MATCH
+Oklahoma - TE           Rootstown Rovers                               0           0  MATCH
+Oklahoma State - QB     Lone Starr State University                   18          18  MATCH
+Oklahoma State - RB     Marcus College                                 6           6  MATCH
+Oklahoma State - WR     Shamanoosh U                                  10          10  MATCH
+Ole Miss - DST          Mount Union                                    7           7  MATCH
+Ole Miss - K            Libertalia University                         26          26  MATCH
+Ole Miss - QB           Daddydoo Home School                          17          17  MATCH
+Ole Miss - RB           Rootstown Rovers                              12          12  MATCH
+Ole Miss - WR           2026 36football champion                      14          14  MATCH
+Oregon - QB             Brigham's Bitchin Beard Jr College            20          20  MATCH
+Oregon - RB             Spangler State                                 3           3  MATCH
+Oregon - TE             Faber College                                  0           0  MATCH
+Oregon - WR             CreefDogg U                                   20          20  MATCH
+Penn State - DST        Rootstown Rovers                               7           7  MATCH
+Penn State - K          Nebraska State University                     15          15  MATCH
+Penn State - RB         Daddydoo Home School                           0           0  MATCH
+Penn State - TE         Mount Union                                   24          24  MATCH
+Pittsburgh - WR         University of Bad Decisions                    0           0  MATCH
+San Diego State - DST   Buckeye State University                       5           5  MATCH
+San Diego State - K     Wazzu                                         10          10  MATCH
+South Carolina - DST    Shamanoosh U                                  28          28  MATCH
+South Carolina - QB     South Harmon Institute of Technology           7           7  MATCH
+South Florida - DST     Wazzu                                          4           4  MATCH
+South Florida - K       Lone Starr State University                    4           4  MATCH
+South Florida - WR      O state                                       16          16  MATCH
+Tennessee - QB          Libertalia University                         16          16  MATCH
+Tennessee - RB          Yogurt State University                       26          26  MATCH
+Texas - K               Brigham's Bitchin Beard Jr College             9           9  MATCH
+Texas - QB              Shamanoosh U                                   3           3  MATCH
+Texas - RB              Faber College                                  9           9  MATCH
+Texas - TE              University Of Druidia                          0           0  MATCH
+Texas A&M - K           THE Ohio State University                     15          15  MATCH
+Texas A&M - QB          MegaMaid A&M                                  21          21  MATCH
+Texas State - WR        Yogurt State University                        8           8  MATCH
+Texas Tech - K          University Of Druidia                          5           5  MATCH
+Texas Tech - TE         Four Corners                                  12          12  MATCH
+Texas Tech - WR         Quarterback university                        10          10  MATCH
+Toledo - DST            Homestar State                                19          19  MATCH
+Toledo - TE             CreefDogg U                                    0           0  MATCH
+Toledo - WR             Granny U                                      25          25  MATCH
+Tulane - K              Buckeye State University                       4           4  MATCH
+Tulsa - K               2026 36football champion                      11          11  MATCH
+Tulsa - TE              Spangler State                                 0           0  MATCH
+UCF - TE                MegaMaid A&M                                   0           0  MATCH
+UConn - RB              Beer Academy                                   0           0  MATCH
+UConn - TE              Findlay U                                      0           0  MATCH
+UNLV - DST              Drop out U                                     1           1  MATCH
+USC - DST               Four Corners                                  13          13  MATCH
+USC - K                 MegaMaid A&M                                   7           7  MATCH
+USC - TE                Buckeye State University                      24          24  MATCH
+UTSA - QB               Homestar State                                 6           6  MATCH
+Virginia - DST          Gidley College                                23          23  MATCH
+Virginia - K            Papa Pump                                     14          14  MATCH
+Virginia - RB           O state                                        6           6  MATCH
+Virginia Tech - TE      Watson School of Massage Therapy              24          24  MATCH
+Washington - QB         Granny U                                       0           0  MATCH
+Washington State - RB   Wazzu                                         -3          -3  MATCH
+West Virginia - RB      Libertalia University                         11          11  MATCH
+Western Kentucky - K    Quarterback university                         2           2  MATCH
+Western Michigan - RB   Granny U                                      20          20  MATCH
+
+36FOOTBALL SHOWS POINTS, GAME NOT SCORED BY NCAA AUDIT YET

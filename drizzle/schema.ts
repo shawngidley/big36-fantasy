@@ -24,6 +24,10 @@ export const scoringEventTypes = [
   "DEFENSIVE_SAFETY",
   "SHUTOUT",
   "DEFENSIVE_TOUCHDOWN",
+  // A whole-group correction to the official NCAA total from the weekly external audit - the
+  // difference between what the live feed produced and what NCAA says, written as one ledger row
+  // with the audit's play-by-play as its note. Not a play type; never produced by live scoring.
+  "NCAA_AUDIT_ADJUSTMENT",
 ] as const;
 export type ScoringEventType = (typeof scoringEventTypes)[number];
 
