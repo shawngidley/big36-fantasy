@@ -11,7 +11,12 @@ vi.mock("./cfbd", () => ({
 }));
 vi.mock("./league-data", () => ({ getLeagueSnapshot: mocks.getLeagueSnapshot, getScoringRulesForEvent: mocks.getScoringRulesForEvent }));
 vi.mock("./league-scoring", () => ({ calculateEventScore: mocks.calculateEventScore }));
-vi.mock("./live-scoring", () => ({ eligibleGameIdsForSchool: mocks.eligibleGameIdsForSchool, boxScoreFumbleCandidates: mocks.boxScoreFumbleCandidates, finalShutoutCandidates: mocks.finalShutoutCandidates, isSupersededInterceptionPlay: mocks.isSupersededInterceptionPlay, normalizeSchoolForComparison: (value: string) => value.trim().toLowerCase().replace(/\s+/g, " "), mapLivePlayToCandidates: mocks.mapLivePlayToCandidates }));
+vi.mock("./live-scoring", async (importOriginal) => {
+  // indexPlayStatsByPlayId/statsForPlay are pure and tiny; use the real ones so these tests exercise
+  // the actual stats-lookup path rather than a stub of it.
+  const actual = await importOriginal<typeof import("./live-scoring")>();
+  return { eligibleGameIdsForSchool: mocks.eligibleGameIdsForSchool, boxScoreFumbleCandidates: mocks.boxScoreFumbleCandidates, finalShutoutCandidates: mocks.finalShutoutCandidates, isSupersededInterceptionPlay: mocks.isSupersededInterceptionPlay, normalizeSchoolForComparison: (value: string) => value.trim().toLowerCase().replace(/\s+/g, " "), mapLivePlayToCandidates: mocks.mapLivePlayToCandidates, indexPlayStatsByPlayId: actual.indexPlayStatsByPlayId, statsForPlay: actual.statsForPlay };
+});
 vi.mock("./supabase", () => ({ supabaseRest: mocks.supabaseRest }));
 
 import { isCollegeFootballGamedayWindow, reconcileGameAgainstFinalData, resolveB36WeekNumber, runGamedayRefresh } from "./gameday-refresh";

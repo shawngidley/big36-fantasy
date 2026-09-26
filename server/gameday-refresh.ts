@@ -1,7 +1,7 @@
 import { getFbsTeams, getGamePlayerStats, getLivePlays, getLiveScoreboard, getRegularSeasonGames, getRoster, getWeekPlays, getWeekPlayStats, type CfbdGame, type CfbdLiveGame, type CfbdPlay, type CfbdRosterAthlete } from "./cfbd";
 import { getLeagueSnapshot, getScoringRulesForEvent } from "./league-data";
 import { calculateEventScore } from "./league-scoring";
-import { boxScoreFumbleCandidates, eligibleGameIdsForSchool, finalShutoutCandidates, isSupersededInterceptionPlay, mapLivePlayToCandidates, normalizeSchoolForComparison, type LivePosition } from "./live-scoring";
+import { boxScoreFumbleCandidates, eligibleGameIdsForSchool, finalShutoutCandidates, indexPlayStatsByPlayId, isSupersededInterceptionPlay, mapLivePlayToCandidates, normalizeSchoolForComparison, statsForPlay, type LivePosition } from "./live-scoring";
 import { supabaseRest } from "./supabase";
 
 type AutomationConfig = { season: number; enabled: boolean; last_refresh_at: string | null; schedule_cron_task_uid: string | null };
@@ -322,6 +322,10 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
       );
       if ("timedOut" in weekFanout) { skippedWeeksForTimeBudget.push(week); continue; }
       const [plays, stats, rosterEntries] = weekFanout;
+      // Indexed once per week: this loop runs mapLivePlayToCandidates for every play of every game
+      // below, and a per-play full scan of the week's stats array was costing ~20s of CPU per tick
+      // (see indexPlayStatsByPlayId) - a large share of the very time budget pastDeadline() guards.
+      const statsByPlayId = indexPlayStatsByPlayId(stats);
       const rosters = new Map<string, CfbdRosterAthlete[]>(rosterEntries);
       const eventRows = await supabaseRest<SourceEvent[]>("b36_scoring_events", { query: { select: "id,source_event_key,source_game_id,audit_action,week_id,draft_slot_id,event_type,stat_value,yard_distance,computed_points,is_provisional,recorded_by_open_id,correction_of_event_id", source_game_id: `in.(${games.map(game => game.id).join(",")})` } });
       const knownKeys = new Set(eventRows.filter(row => row.source_event_key && row.audit_action !== "REVERSAL").map(row => row.source_event_key));
@@ -349,7 +353,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
             const roster = rosters.get(school) ?? [];
             const eligibleIds = eligibleGameIdsForSchool(schedule.games, school);
             if (!eligibleIds.includes(game.id)) return [];
-            return plays.filter((play, index) => play.gameId === game.id && play.offense === school && !isSupersededInterceptionPlay(play, plays[index + 1])).flatMap(play => mapLivePlayToCandidates({ play, stats: stats.filter(stat => String(stat.playId) === String(play.id)), roster, selectedSchoolPositions: selectedSchoolPositions.map(selection => ({ schoolName: selection.schoolName, position: selection.position })), provisional: !game.completed }));
+            return plays.filter((play, index) => play.gameId === game.id && play.offense === school && !isSupersededInterceptionPlay(play, plays[index + 1])).flatMap(play => mapLivePlayToCandidates({ play, stats: statsForPlay(statsByPlayId, play), roster, selectedSchoolPositions: selectedSchoolPositions.map(selection => ({ schoolName: selection.schoolName, position: selection.position })), provisional: !game.completed }));
           }),
           ...finalShutoutCandidates({ game, selectedSchoolPositions: selectedSchoolPositions.map(selection => ({ schoolName: selection.schoolName, position: selection.position })), provisional: !game.completed }),
         ];
@@ -537,6 +541,10 @@ export async function reconcileGameAgainstFinalData(params: {
   const { game, schedule, season, weekRowId, selectedSchoolPositions, dryRun } = params;
   const [plays, stats] = await Promise.all([getWeekPlays(season, game.week), getWeekPlayStats(season, game.week)]);
   const gamePlays = plays.filter(play => play.gameId === game.id);
+  // Indexed once here rather than scanning the whole week's stats per play - that scan was ~0.8s of
+  // CPU per game (see indexPlayStatsByPlayId), which is most of why reconcileWeekFromFinalData could
+  // only fit a handful of games per 60s call.
+  const statsByPlayId = indexPlayStatsByPlayId(stats);
   const eventRows = await supabaseRest<ReconcileEventRow[]>("b36_scoring_events", { query: { select: "id,source_event_key,audit_action,week_id,draft_slot_id,event_type,stat_value,yard_distance,computed_points,is_provisional,recorded_by_open_id,correction_of_event_id", source_game_id: `eq.${game.id}` } });
   const knownKeys = new Set(eventRows.filter(row => row.source_event_key && row.audit_action !== "REVERSAL").map(row => row.source_event_key));
   const reversedKeys = new Set(eventRows.filter(row => row.audit_action === "REVERSAL" && row.source_event_key).map(row => row.source_event_key));
@@ -563,7 +571,7 @@ export async function reconcileGameAgainstFinalData(params: {
   for (const school of eligibleSchools) {
     const roster = await getRoster(school, season);
     const schoolPlays = gamePlays.filter((play, index) => play.offense === school && !isSupersededInterceptionPlay(play, gamePlays[index + 1]));
-    offensiveCandidatesBySchool.set(school, schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: stats.filter(stat => String(stat.playId) === String(play.id)), roster, selectedSchoolPositions: selectedSchoolPositions.map(selection => ({ schoolName: selection.schoolName, position: selection.position })), provisional: false })));
+    offensiveCandidatesBySchool.set(school, schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: statsForPlay(statsByPlayId, play), roster, selectedSchoolPositions: selectedSchoolPositions.map(selection => ({ schoolName: selection.schoolName, position: selection.position })), provisional: false })));
   }
   let candidates = [
     ...Array.from(offensiveCandidatesBySchool.values()).flat(),

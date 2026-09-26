@@ -11,6 +11,31 @@ const positionForRosterValue = (position: string | null | undefined): LivePositi
   return mapping[position.toUpperCase()] ?? null;
 };
 
+// CFBD's /plays/stats for a whole week is tens of thousands of rows (several per play, across every
+// FBS game), and every scoring loop in this codebase used to look up a play's stats with
+// `stats.filter(stat => String(stat.playId) === String(play.id))` - a full scan of that array, with
+// two String() allocations per row, once PER PLAY. Measured at realistic week-2 scale (10,400 plays /
+// 41,600 stat rows / 28 relevant games): ~22 seconds of pure CPU per pass on a fast machine, and
+// Vercel's function CPU is slower. That single line was the dominant cost behind the main gameday
+// loop needing time-budget cutoffs, reconcileWeekFromFinalData only fitting 2-5 games per call, and
+// fullScoringAudit 504ing even after its I/O was batched. Building this index once per fetched
+// stats array turns every per-play lookup into O(1) - the same 28-game pass takes ~6ms.
+// Keys are String(playId) on purpose: /plays ids are numbers, /plays/stats ids can come back as
+// either, and the old filter's String()-both-sides matching is preserved exactly.
+export type PlayStatsIndex = Map<string, CfbdPlayStat[]>;
+export function indexPlayStatsByPlayId(stats: CfbdPlayStat[]): PlayStatsIndex {
+  const index: PlayStatsIndex = new Map();
+  for (const stat of stats) {
+    const key = String(stat.playId);
+    const bucket = index.get(key);
+    if (bucket) bucket.push(stat); else index.set(key, [stat]);
+  }
+  return index;
+}
+export function statsForPlay(index: PlayStatsIndex, play: { id: number | string }): CfbdPlayStat[] {
+  return index.get(String(play.id)) ?? [];
+}
+
 export function eligibleGameIdsForSchool(games: CfbdGame[], schoolName: string) {
   const normalizedSchool = normalizeSchoolForComparison(schoolName);
   return games.filter(game => game.seasonType.toLowerCase() === "regular" && (normalizeSchoolForComparison(game.homeTeam) === normalizedSchool || normalizeSchoolForComparison(game.awayTeam) === normalizedSchool)).sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime() || a.id - b.id).slice(0, 12).map(game => game.id);

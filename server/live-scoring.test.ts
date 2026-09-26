@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { eligibleGameIdsForSchool, finalShutoutCandidates, gameCountsForSchool, hasMadePat, isSupersededInterceptionPlay, mapLivePlayToCandidates, specialTeamsTouchdownType } from "./live-scoring";
+import { eligibleGameIdsForSchool, finalShutoutCandidates, gameCountsForSchool, hasMadePat, indexPlayStatsByPlayId, isSupersededInterceptionPlay, mapLivePlayToCandidates, specialTeamsTouchdownType, statsForPlay } from "./live-scoring";
 
 describe("36 Football automatic scoring map", () => {
   const games = Array.from({ length: 13 }, (_, index) => ({ id: index + 1, season: 2026, week: index + 1, seasonType: "regular", startDate: `2026-0${Math.min(index + 8, 9)}-${String(index + 1).padStart(2, "0")}T17:00:00Z`, completed: true, homeTeam: "Ohio State", awayTeam: "Opponent" }));
@@ -425,4 +425,37 @@ it("attaches the actual CFBD play description to every candidate's note, for aud
   const candidates = mapLivePlayToCandidates({ play, stats: [], roster: [], selectedSchoolPositions: [{ schoolName: "Ohio State", position: "K" }] });
   expect(candidates.length).toBeGreaterThan(0);
   for (const candidate of candidates) expect(candidate.note).toContain("A.Birr field goal attempt from 36 yards GOOD");
+});
+
+describe("indexPlayStatsByPlayId / statsForPlay", () => {
+  // Every scoring loop used to look a play's stats up with
+  // `stats.filter(stat => String(stat.playId) === String(play.id))` - correct, but a full scan of the
+  // whole week's stats (tens of thousands of rows) once PER PLAY. Measured at real week-2 scale that
+  // was ~22s of CPU per pass and the dominant reason fullScoringAudit kept 504ing after its I/O was
+  // fixed. The index must return exactly what that filter did, including the mixed-type case the
+  // String()-both-sides comparison existed for: /plays ids are numbers, /plays/stats playIds can be
+  // numbers OR strings for the same play.
+  const stats = [
+    { playId: 401856790707, athleteId: 1, team: "UCF", statType: "Completion", stat: 1 },
+    { playId: "401856790707", athleteId: 2, team: "UCF", statType: "Reception", stat: 1 },
+    { playId: 401856790708, athleteId: 3, team: "UCF", statType: "Rush", stat: 1 },
+    { playId: "999", athleteId: 4, team: "Other", statType: "Rush", stat: 1 },
+  ];
+  const oldFilter = (play: { id: number | string }) => stats.filter(stat => String(stat.playId) === String(play.id));
+
+  it("returns exactly the rows the per-play filter returned, for numeric and string play ids alike", () => {
+    const index = indexPlayStatsByPlayId(stats);
+    for (const play of [{ id: 401856790707 }, { id: "401856790707" }, { id: 401856790708 }, { id: 999 }, { id: 12345 }]) {
+      expect(statsForPlay(index, play)).toEqual(oldFilter(play));
+    }
+  });
+
+  it("groups a play's number-keyed and string-keyed stat rows together under one lookup", () => {
+    const index = indexPlayStatsByPlayId(stats);
+    expect(statsForPlay(index, { id: 401856790707 }).map(stat => stat.athleteId)).toEqual([1, 2]);
+  });
+
+  it("returns an empty array, not undefined, for a play with no stats", () => {
+    expect(statsForPlay(indexPlayStatsByPlayId(stats), { id: 1 })).toEqual([]);
+  });
 });

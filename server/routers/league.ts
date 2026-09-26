@@ -14,7 +14,7 @@ import { runGamedayRefresh } from "../gameday-refresh";
 import { syncFbsPoolAndSchedule } from "../gameday-refresh";
 import { adaptLiveGameToLegacyPlays } from "../gameday-refresh";
 import { resolveB36WeekNumber, sourceEventNeedsCorrection, sourceEventReversalPoints, reconcileGameAgainstFinalData } from "../gameday-refresh";
-import { boxScoreFumbleCandidates, eligibleGameIdsForSchool, finalShutoutCandidates, isSupersededInterceptionPlay, mapLivePlayToCandidates, matchBoxAthleteToRoster, normalizeSchoolForComparison, type LivePosition } from "../live-scoring";
+import { boxScoreFumbleCandidates, eligibleGameIdsForSchool, finalShutoutCandidates, indexPlayStatsByPlayId, isSupersededInterceptionPlay, mapLivePlayToCandidates, matchBoxAthleteToRoster, normalizeSchoolForComparison, statsForPlay, type LivePosition, type PlayStatsIndex } from "../live-scoring";
 import { decodeRegistrationLogo, hashRegistrationPin, normalizeRegistrationEmail, normalizeRegistrationPhone, verifyRegistrationPin } from "../registration";
 import { storagePut } from "../storage";
 import { notifyOwnerWhenUpcomingPickSafely, sendDraftSms } from "../draft-alerts";
@@ -579,13 +579,13 @@ export const leagueRouter = router({
       const specialTeamsEventTypes = new Set(["KICK_RETURN_TOUCHDOWN", "PUNT_RETURN_TOUCHDOWN", "BLOCKED_KICK_RETURN_TOUCHDOWN", "OTHER_SPECIAL_TEAMS_TOUCHDOWN", "BLOCKED_FIELD_GOAL", "BLOCKED_PUNT"]);
       const weekNumbers = Array.from(new Set(games.map(game => game.week)));
       const playsByWeek = new Map<number, Awaited<ReturnType<typeof getWeekPlays>>>();
-      const statsByWeek = new Map<number, Awaited<ReturnType<typeof getWeekPlayStats>>>();
-      for (const week of weekNumbers) { playsByWeek.set(week, await getWeekPlays(season, week)); statsByWeek.set(week, await getWeekPlayStats(season, week)); }
+      const statsByWeek = new Map<number, PlayStatsIndex>();
+      for (const week of weekNumbers) { playsByWeek.set(week, await getWeekPlays(season, week)); statsByWeek.set(week, indexPlayStatsByPlayId(await getWeekPlayStats(season, week))); }
       const rosterCache = new Map<string, Awaited<ReturnType<typeof getRoster>>>();
       const missing: Array<{ gameId: number; game: string; owner: string; school: string; position: string; eventType: string; points: number; note: string; key: string }> = [];
       for (const game of games) {
         const plays = (playsByWeek.get(game.week) ?? []).filter(play => play.gameId === game.id);
-        const stats = statsByWeek.get(game.week) ?? [];
+        const statsByPlayId = statsByWeek.get(game.week) ?? new Map();
         const activeKeys = new Set<string>();
         const rows = await supabaseRest<Array<{ id: string; source_event_key: string | null; audit_action: string; correction_of_event_id: string | null }>>("b36_scoring_events", { query: { select: "id,source_event_key,audit_action,correction_of_event_id", source_game_id: q.eq(game.id) } });
         const reversedIds = new Set(rows.filter(row => row.audit_action === "REVERSAL" && row.correction_of_event_id).map(row => row.correction_of_event_id));
@@ -594,7 +594,7 @@ export const leagueRouter = router({
           let roster = rosterCache.get(school);
           if (!roster) { roster = await getRoster(school, season); rosterCache.set(school, roster); }
           const schoolPlays = plays.filter((play, index) => play.offense === school && !isSupersededInterceptionPlay(play, plays[index + 1]));
-          const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: stats.filter(stat => String(stat.playId) === String(play.id)), roster: roster!, selectedSchoolPositions: selected, provisional: false }));
+          const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: statsForPlay(statsByPlayId, play), roster: roster!, selectedSchoolPositions: selected, provisional: false }));
           for (const candidate of candidates) {
             if (!specialTeamsEventTypes.has(candidate.eventType)) continue;
             if (!draftedSchools.has(candidate.schoolName)) continue;
@@ -906,8 +906,9 @@ export const leagueRouter = router({
       const selectedSchoolPositions = league.owners.flatMap(owner => owner.picks.map(pick => ({ schoolName: pick.schoolName, position: pick.position as never })));
       const roster = await getRoster(input.school, season);
       const gamePlays = plays.filter(play => play.gameId === input.gameId);
+      const statsByPlayId = indexPlayStatsByPlayId(stats);
       const schoolPlays = gamePlays.filter((play, index) => play.offense === input.school && !isSupersededInterceptionPlay(play, gamePlays[index + 1]));
-      const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: stats.filter(stat => String(stat.playId) === String(play.id)), roster, selectedSchoolPositions, provisional: false }));
+      const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: statsForPlay(statsByPlayId, play), roster, selectedSchoolPositions, provisional: false }));
       const storedEvents = await supabaseRest<Array<Record<string, unknown>>>("b36_scoring_events", { query: { select: "*", source_game_id: `eq.${input.gameId}`, order: "created_at.asc" } });
       return { totalGamePlays: gamePlays.length, schoolPlays: schoolPlays.length, defensivePlays: gamePlays.filter(play => play.defense === input.school).length, statsForGame: stats.filter(stat => gamePlays.some(play => play.id === stat.playId)).length, candidates, storedEvents };
     }),
@@ -1073,8 +1074,8 @@ export const leagueRouter = router({
       });
       const weekNumbers = Array.from(new Set(games.map(game => game.week)));
       const playsByWeek = new Map<number, Awaited<ReturnType<typeof getWeekPlays>>>();
-      const statsByWeek = new Map<number, Awaited<ReturnType<typeof getWeekPlayStats>>>();
-      for (const week of weekNumbers) { playsByWeek.set(week, await getWeekPlays(season, week)); statsByWeek.set(week, await getWeekPlayStats(season, week)); }
+      const statsByWeek = new Map<number, PlayStatsIndex>();
+      for (const week of weekNumbers) { playsByWeek.set(week, await getWeekPlays(season, week)); statsByWeek.set(week, indexPlayStatsByPlayId(await getWeekPlayStats(season, week))); }
       const weekRows = await supabaseRest<Array<{ id: string; week_number: number }>>("b36_scoring_weeks", { query: { select: "id,week_number" } });
 
       type Row = { gameId: number; game: string; date: string; owner: string; school: string; position: string; eventType: string; points: number; note: string; key: string; classification: "missing" | "already-present" };
@@ -1085,13 +1086,13 @@ export const leagueRouter = router({
 
       for (const game of games) {
         const plays = (playsByWeek.get(game.week) ?? []).filter(play => play.gameId === game.id);
-        const stats = statsByWeek.get(game.week) ?? [];
+        const statsByPlayId = statsByWeek.get(game.week) ?? new Map();
         const officialBySlot = new Map<string, { points: number; keys: Set<string>; entries: Array<{ eventType: string; points: number; key: string; note: string }> }>();
         for (const school of [game.homeTeam, game.awayTeam]) {
           let roster = rosterCache.get(school);
           if (!roster) { roster = await getRoster(school, season); rosterCache.set(school, roster); }
           const schoolPlays = plays.filter((play, index) => play.offense === school && !isSupersededInterceptionPlay(play, plays[index + 1]));
-          const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: stats.filter(stat => String(stat.playId) === String(play.id)), roster: roster!, selectedSchoolPositions: selected, provisional: false }));
+          const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: statsForPlay(statsByPlayId, play), roster: roster!, selectedSchoolPositions: selected, provisional: false }));
           // Fumbles lost from the box score, authoritative over any play-derived fumble candidate for a school where it's available.
           if (draftedSchools.has(school)) {
             const cacheKey = `${game.week}:${school}`;
@@ -1182,14 +1183,29 @@ export const leagueRouter = router({
       for (const row of missing) netByOwner.set(row.owner, (netByOwner.get(row.owner) ?? 0) + row.points);
       return { season, startDate: input.startDate, endDate: input.endDate, dryRun: input.dryRun, gamesChecked: games.length, missing, alreadyPresentCount: alreadyPresent.length, extra, inserted, netPointsByOwner: Array.from(netByOwner.entries()).map(([owner, points]) => ({ owner, points })) };
     }),
-    fullScoringAudit: adminProcedure.input(z.object({ week: z.number() })).query(async ({ input }) => {
+    // offset/limit mirror reconcileWeekFromFinalData: games are sorted by CFBD id so page boundaries
+    // are stable across calls, and nextOffset tells a client whether to keep looping. The default
+    // limit covers a whole normal week in one call now that the per-play stats scan is indexed (see
+    // below), but the escape hatch means this endpoint can never 504 its way into being unusable
+    // again - a client just loops `offset: nextOffset` until it comes back null, with no code change.
+    fullScoringAudit: adminProcedure.input(z.object({ week: z.number(), offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(50).default(50) })).query(async ({ input }) => {
       const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
       const season = automationRows[0]?.season;
       if (!season) throw new Error("No season configured.");
       const [schedule, plays, stats, league] = await Promise.all([getRegularSeasonGames(season), getWeekPlays(season, input.week), getWeekPlayStats(season, input.week), getLeagueSnapshot()]);
+      // The third and, as it turned out, dominant cause of this endpoint's 504s - after the Supabase
+      // per-slot N+1 and the sequential roster fetches were both fixed, it STILL timed out. Measured
+      // at real week-2 scale, the per-play full scan of the week's stats array this replaces was
+      // ~22s of CPU on its own (see indexPlayStatsByPlayId).
+      const statsByPlayId = indexPlayStatsByPlayId(stats);
       const selectedSchoolPositions = league.owners.flatMap(owner => owner.picks.map(pick => ({ schoolName: pick.schoolName, position: pick.position as never, draftSlotId: pick.id, teamName: owner.teamName })));
       const draftedSchools = new Set(selectedSchoolPositions.map(s => s.schoolName));
-      const relevantGames = schedule.filter(game => game.week === input.week && game.completed && (draftedSchools.has(game.homeTeam) || draftedSchools.has(game.awayTeam)));
+      const allRelevantGames = schedule.filter(game => game.week === input.week && game.completed && (draftedSchools.has(game.homeTeam) || draftedSchools.has(game.awayTeam))).sort((a, b) => a.id - b.id);
+      // Each drafted slot's official total comes entirely from its school's one game this week
+      // (both sides of that game are processed together below), so paginating by game partitions
+      // the slot comparison cleanly - no slot's total is split across pages.
+      const relevantGames = allRelevantGames.slice(input.offset, input.offset + input.limit);
+      const nextOffset = input.offset + relevantGames.length < allRelevantGames.length ? input.offset + relevantGames.length : null;
 
       // Compute the official point total per drafted (school, position) by checking BOTH sides of
       // every relevant game - offense credit from the school's own plays, defense credit from the
@@ -1224,7 +1240,7 @@ export const leagueRouter = router({
           // audit to under-report USC's DEF total against non-drafted San José State).
           const roster = rosterBySchool.get(school) ?? [];
           const schoolPlays = gamePlays.filter((play, index) => play.offense === school && !isSupersededInterceptionPlay(play, gamePlays[index + 1]));
-          const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: stats.filter(stat => String(stat.playId) === String(play.id)), roster, selectedSchoolPositions, provisional: false }));
+          const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: statsForPlay(statsByPlayId, play), roster, selectedSchoolPositions, provisional: false }));
           for (const candidate of candidates) {
             const rules = await getScoringRulesForEvent(candidate.eventType as never);
             const score = calculateEventScore(rules, { eventType: candidate.eventType as never, position: candidate.position, statValue: candidate.statValue, yardDistance: candidate.yardDistance });
@@ -1259,7 +1275,7 @@ export const leagueRouter = router({
         const official = officialTotals.get(`${slot.schoolName}:${slot.position}`) ?? 0;
         if (Math.abs(official - storedNet) > 0.01) results.push({ owner: slot.teamName, school: slot.schoolName, position: slot.position, officialPoints: official, storedPoints: storedNet, difference: Math.round((official - storedNet) * 100) / 100 });
       }
-      return { checkedSlots: relevantSlots.length, gamesChecked: relevantGames.length, mismatches: results, gameTeamNames: relevantGames.map(game => ({ gameId: game.id, homeTeam: game.homeTeam, awayTeam: game.awayTeam, playCount: plays.filter(play => play.gameId === game.id).length })) };
+      return { week: input.week, offset: input.offset, limit: input.limit, gamesTotal: allRelevantGames.length, nextOffset, checkedSlots: relevantSlots.length, gamesChecked: relevantGames.length, mismatches: results, gameTeamNames: relevantGames.map(game => ({ gameId: game.id, homeTeam: game.homeTeam, awayTeam: game.awayTeam, playCount: plays.filter(play => play.gameId === game.id).length })) };
     }),
     findLikelyDuplicateScoring: adminProcedure.query(async () => {
       // Targets the exact failure mode found tonight: a manual restoration entry for something
@@ -1285,6 +1301,7 @@ export const leagueRouter = router({
       const season = automationRows[0]?.season;
       if (!season) throw new Error("No season configured.");
       const [plays, stats, league] = await Promise.all([getWeekPlays(season, input.week), getWeekPlayStats(season, input.week), getLeagueSnapshot()]);
+      const statsByPlayId = indexPlayStatsByPlayId(stats);
       const selectedSchoolPositions = league.owners.flatMap(owner => owner.picks.map(pick => ({ schoolName: pick.schoolName, position: pick.position as never, draftSlotId: pick.id, teamName: owner.teamName })));
       const results: Array<Record<string, unknown>> = [];
       for (const gameId of input.gameIds) {
@@ -1294,7 +1311,7 @@ export const leagueRouter = router({
         for (const school of schoolsInGame) {
           const roster = await getRoster(school, season);
           const schoolPlays = gamePlays.filter((play, index) => play.offense === school && !isSupersededInterceptionPlay(play, gamePlays[index + 1]));
-          const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: stats.filter(stat => String(stat.playId) === String(play.id)), roster, selectedSchoolPositions, provisional: false }));
+          const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: statsForPlay(statsByPlayId, play), roster, selectedSchoolPositions, provisional: false }));
           for (const position of ["DST", "K"] as const) {
             const slot = selectedSchoolPositions.find(s => s.schoolName === school && s.position === position);
             if (!slot) continue;

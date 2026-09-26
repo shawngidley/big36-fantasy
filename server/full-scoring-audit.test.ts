@@ -29,15 +29,21 @@ vi.mock("./cfbd", () => ({
 }));
 vi.mock("./league-data", () => ({ getLeagueSnapshot: mocks.getLeagueSnapshot, getScoringRulesForEvent: mocks.getScoringRulesForEvent }));
 vi.mock("./league-scoring", () => ({ calculateEventScore: mocks.calculateEventScore }));
-vi.mock("./live-scoring", () => ({
-  mapLivePlayToCandidates: mocks.mapLivePlayToCandidates,
-  isSupersededInterceptionPlay: mocks.isSupersededInterceptionPlay,
-  normalizeSchoolForComparison: (value: string) => value.trim().toLowerCase().replace(/\s+/g, " "),
-  boxScoreFumbleCandidates: vi.fn(),
-  finalShutoutCandidates: vi.fn(() => []),
-  eligibleGameIdsForSchool: vi.fn(() => []),
-  matchBoxAthleteToRoster: vi.fn(),
-}));
+vi.mock("./live-scoring", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./live-scoring")>();
+  return {
+    mapLivePlayToCandidates: mocks.mapLivePlayToCandidates,
+    isSupersededInterceptionPlay: mocks.isSupersededInterceptionPlay,
+    normalizeSchoolForComparison: (value: string) => value.trim().toLowerCase().replace(/\s+/g, " "),
+    boxScoreFumbleCandidates: vi.fn(),
+    finalShutoutCandidates: vi.fn(() => []),
+    eligibleGameIdsForSchool: vi.fn(() => []),
+    matchBoxAthleteToRoster: vi.fn(),
+    // Pure helpers - use the real ones so the audit's stats-lookup path is actually exercised.
+    indexPlayStatsByPlayId: actual.indexPlayStatsByPlayId,
+    statsForPlay: actual.statsForPlay,
+  };
+});
 vi.mock("./supabase", () => ({
   q: { eq: (value: unknown) => `eq.${String(value)}`, isNull: "is.null" },
   supabaseRest: mocks.supabaseRest,
@@ -161,6 +167,54 @@ describe("league.admin.fullScoringAudit", () => {
     expect(result.mismatches).toContainEqual(expect.objectContaining({ owner: "Owner B", school: "School Y", position: "RB", officialPoints: 6, storedPoints: 3, difference: 3 }));
     // slot-3 (DST): official 0 (no candidates map to it), stored 0 (no rows) -> no mismatch.
     expect(result.mismatches.find((m: { position: string }) => m.position === "DST")).toBeUndefined();
+  });
+
+  it("paginates by game with a stable id order and a nextOffset chain, checking only the page's slots on each call", async () => {
+    // A second relevant game (higher id) with a third drafted school on it. With limit 1 the first
+    // call must cover only game 101's slots and report nextOffset 1; the second call covers only game
+    // 202's slot and reports nextOffset null. Slot totals never straddle pages because each slot's
+    // school plays exactly one game a week and both sides of a game are processed together.
+    const game2 = { ...game, id: 202, homeTeam: "School Z", awayTeam: "School W" };
+    mocks.getRegularSeasonGames.mockResolvedValue([game2, game]); // deliberately out of id order
+    mocks.getWeekPlays.mockResolvedValue([{ id: 1, gameId: 101, offense: "School X" }, { id: 2, gameId: 101, offense: "School Y" }, { id: 3, gameId: 202, offense: "School Z" }]);
+    mocks.getLeagueSnapshot.mockResolvedValue({
+      owners: [
+        { teamName: "Owner A", picks: [{ id: "slot-1", schoolName: "School X", position: "QB" }] },
+        { teamName: "Owner B", picks: [{ id: "slot-2", schoolName: "School Y", position: "RB" }] },
+        { teamName: "Owner D", picks: [{ id: "slot-4", schoolName: "School Z", position: "QB" }] },
+      ],
+    });
+    mocks.mapLivePlayToCandidates.mockImplementation(({ play }: { play: { offense: string } }) => {
+      if (play.offense === "School X") return [{ sourceEventKey: "1:qb", sourceGameId: 101, schoolName: "School X", position: "QB", eventType: "TOUCHDOWN", statValue: 1, yardDistance: 10, note: "" }];
+      if (play.offense === "School Z") return [{ sourceEventKey: "3:qb", sourceGameId: 202, schoolName: "School Z", position: "QB", eventType: "TOUCHDOWN", statValue: 1, yardDistance: 10, note: "" }];
+      return [];
+    });
+    const eventsTable = fakeScoringEventsTable([
+      { computed_points: 9, week_id: "week-2-id", draft_slot_id: "slot-1" },
+      { computed_points: 3, week_id: "week-2-id", draft_slot_id: "slot-4" }, // School Z QB stale: official 9, stored 3
+    ]);
+    mocks.supabaseRest.mockImplementation(async (table: string, options: { query?: Record<string, string> } = {}) => {
+      if (table === "b36_automation_config") return [{ season: 2026 }];
+      if (table === "b36_scoring_weeks") return [{ id: "week-2-id" }];
+      if (table === "b36_scoring_events") return eventsTable(options.query);
+      return [];
+    });
+    const caller = appRouter.createCaller(adminContext());
+
+    const page1 = await caller.league.admin.fullScoringAudit({ week: 2, offset: 0, limit: 1 });
+    expect(page1.gamesTotal).toBe(2);
+    expect(page1.gamesChecked).toBe(1);
+    expect(page1.gameTeamNames.map(g => g.gameId)).toEqual([101]); // lowest id first, regardless of schedule order
+    expect(page1.checkedSlots).toBe(2); // slot-1 and slot-2 only
+    expect(page1.nextOffset).toBe(1);
+    // School X QB: official 9 vs stored 9. School Y RB: no candidates and no rows, 0 vs 0. Clean page.
+    expect(page1.mismatches).toEqual([]);
+
+    const page2 = await caller.league.admin.fullScoringAudit({ week: 2, offset: page1.nextOffset!, limit: 1 });
+    expect(page2.gameTeamNames.map(g => g.gameId)).toEqual([202]);
+    expect(page2.checkedSlots).toBe(1); // slot-4 only
+    expect(page2.nextOffset).toBeNull();
+    expect(page2.mismatches).toEqual([expect.objectContaining({ owner: "Owner D", school: "School Z", position: "QB", officialPoints: 9, storedPoints: 3, difference: 6 })]);
   });
 
   it("falls back to a slot's full (all-weeks) history when the requested week's row doesn't exist yet, matching the original per-slot fallback", async () => {
