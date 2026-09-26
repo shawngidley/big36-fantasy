@@ -382,10 +382,14 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
               else box = boxResult.find(entry => entry.id === game.id);
             } catch (error) { console.warn(`box score unavailable for ${school} game ${game.id}:`, error); }
             const alreadyWrittenBySlot = new Map<LivePosition, number>();
+            const alreadyWrittenKeysBySlot = new Map<LivePosition, string[]>();
             for (const row of eventRows) {
               if (row.source_game_id !== game.id || row.event_type !== "FUMBLE_LOST" || row.audit_action !== "ENTRY" || !row.source_event_key || row.source_event_key.endsWith(":box") || reversedKeys.has(`${row.source_event_key}:reversal`)) continue;
               const slot = selectedSchoolPositions.find(selection => selection.draftSlotId === row.draft_slot_id && normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(school));
-              if (slot) alreadyWrittenBySlot.set(slot.position, (alreadyWrittenBySlot.get(slot.position) ?? 0) + row.stat_value);
+              if (slot) {
+                alreadyWrittenBySlot.set(slot.position, (alreadyWrittenBySlot.get(slot.position) ?? 0) + row.stat_value);
+                alreadyWrittenKeysBySlot.set(slot.position, [...(alreadyWrittenKeysBySlot.get(slot.position) ?? []), row.source_event_key]);
+              }
             }
             const fromBox = boxScoreFumbleCandidates({ gameId: game.id, school, box, roster: rosters.get(school) ?? [], selectedSchoolPositions, alreadyWrittenBySlot });
             if (!fromBox.available) continue;
@@ -394,6 +398,14 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
               if (candidate.eventType === "FUMBLE_LOST" && candidate.schoolName === school && !knownKeys.has(candidate.sourceEventKey)) gameCandidates.splice(index, 1);
             }
             gameCandidates.push(...fromBox.candidates);
+            // A slot the box confirms can have nothing left to add as a new candidate (shortfall <= 0
+            // inside boxScoreFumbleCandidates) without that meaning the existing entry is stale - it
+            // means the box confirms it exactly as already recorded. Without this, a real, box-
+            // confirmed fumble with no shortfall would fall out of gameCandidates entirely (replaced by
+            // nothing) and get wrongly reversed below as "no longer confirmed by final data".
+            for (const position of fromBox.confirmedPositions) {
+              for (const key of alreadyWrittenKeysBySlot.get(position) ?? []) currentCandidateKeys.add(key);
+            }
           }
         }
         gameCandidates.forEach(candidate => currentCandidateKeys.add(candidate.sourceEventKey));
@@ -560,27 +572,40 @@ export async function reconcileGameAgainstFinalData(params: {
   // Box-score fumbles: same override as the main automation - the box score is authoritative once
   // the game is over, replacing play-derived fumble candidates for schools it's available for.
   const boxScoreUnavailableFor: string[] = [];
+  // Fumbles-lost keys the box score confirms as still valid even though they produced no NEW
+  // candidate (shortfall <= 0 - the box's authoritative total is already fully accounted for by
+  // these existing ENTRY rows). Merged into currentCandidateKeys below once it exists, so the
+  // "no longer confirmed by final data" reversal sweep doesn't treat a real, box-confirmed fumble
+  // as stale just because nothing new represents it in `candidates`.
+  const boxConfirmedExistingKeys = new Set<string>();
   for (const school of [game.homeTeam, game.awayTeam]) {
     if (!selectedSchoolPositions.some(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(school))) continue;
     const roster = await getRoster(school, season);
     const box = (await getGamePlayerStats(season, game.week, school)).find(entry => entry.id === game.id);
     const alreadyWrittenBySlot = new Map<LivePosition, number>();
+    const alreadyWrittenKeysBySlot = new Map<LivePosition, string[]>();
     for (const row of eventRows) {
       if (row.event_type !== "FUMBLE_LOST" || row.audit_action !== "ENTRY" || !row.source_event_key || row.source_event_key.endsWith(":box") || reversedKeys.has(`${row.source_event_key}:reversal`)) continue;
       const slot = selectedSchoolPositions.find(selection => selection.draftSlotId === row.draft_slot_id && normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(school));
-      if (slot) alreadyWrittenBySlot.set(slot.position, (alreadyWrittenBySlot.get(slot.position) ?? 0) + row.stat_value);
+      if (slot) {
+        alreadyWrittenBySlot.set(slot.position, (alreadyWrittenBySlot.get(slot.position) ?? 0) + row.stat_value);
+        alreadyWrittenKeysBySlot.set(slot.position, [...(alreadyWrittenKeysBySlot.get(slot.position) ?? []), row.source_event_key]);
+      }
     }
     const fromBox = boxScoreFumbleCandidates({ gameId: game.id, school, box, roster, selectedSchoolPositions, alreadyWrittenBySlot });
     if (!fromBox.available) { boxScoreUnavailableFor.push(school); continue; }
     candidates = candidates.filter(candidate => !(candidate.eventType === "FUMBLE_LOST" && candidate.schoolName === school && !knownKeys.has(candidate.sourceEventKey)));
     candidates.push(...fromBox.candidates);
+    for (const position of fromBox.confirmedPositions) {
+      for (const key of alreadyWrittenKeysBySlot.get(position) ?? []) boxConfirmedExistingKeys.add(key);
+    }
   }
   // Same per-play single-credit collapse the main automation applies, so a unit event that's
   // already been credited under one key format (an athlete-ID stat key vs a text-based ":unit"
   // fallback key) doesn't get double-counted here just because the keys genuinely differ.
   const perPlaySingleCreditTypes = new Set(["SACK", "DEFENSIVE_TURNOVER", "DEFENSIVE_TOUCHDOWN", "BLOCKED_PUNT", "BLOCKED_FIELD_GOAL", "SPECIAL_TEAMS_SAFETY", "KICK_RETURN_TOUCHDOWN", "PUNT_RETURN_TOUCHDOWN", "BLOCKED_KICK_RETURN_TOUCHDOWN", "OTHER_SPECIAL_TEAMS_TOUCHDOWN"]);
   const alreadyCreditedPlayEventPrefixes = new Set(Array.from(knownKeys).filter((key): key is string => Boolean(key) && perPlaySingleCreditTypes.has(key!.split(":")[1] ?? "")).map(key => key.split(":").slice(0, 2).join(":")));
-  const currentCandidateKeys = new Set<string>();
+  const currentCandidateKeys = new Set<string>(boxConfirmedExistingKeys);
   const planned: ReconcilePlannedAction[] = [];
   for (const candidate of candidates) {
     if (perPlaySingleCreditTypes.has(candidate.eventType)) {

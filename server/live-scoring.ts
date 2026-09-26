@@ -534,9 +534,9 @@ export function matchBoxAthleteToRoster(athlete: { id: string; name: string }, r
 // that frequently isn't attributed to any player at all. Used at end-of-game reconciliation as the
 // authoritative source; one candidate per drafted slot with statValue = fumbles lost by that
 // position group, minus anything the play feed already wrote for the same slot+game.
-export function boxScoreFumbleCandidates(input: { gameId: number; school: string; box: CfbdGamePlayerStatsGame | undefined; roster: CfbdRosterAthlete[]; selectedSchoolPositions: Array<{ schoolName: string; position: LivePosition }>; alreadyWrittenBySlot: Map<LivePosition, number> }): { available: boolean; candidates: ScoringCandidate[] } {
+export function boxScoreFumbleCandidates(input: { gameId: number; school: string; box: CfbdGamePlayerStatsGame | undefined; roster: CfbdRosterAthlete[]; selectedSchoolPositions: Array<{ schoolName: string; position: LivePosition }>; alreadyWrittenBySlot: Map<LivePosition, number> }): { available: boolean; candidates: ScoringCandidate[]; confirmedPositions: LivePosition[] } {
   const team = input.box?.teams.find(entry => normalizeSchoolForComparison(entry.team) === normalizeSchoolForComparison(input.school));
-  if (!team) return { available: false, candidates: [] };
+  if (!team) return { available: false, candidates: [], confirmedPositions: [] };
   // A team with no fumbles has no "fumbles" category at all - that's a real zero, not missing data.
   const lost = team.categories.find(category => category.name === "fumbles")?.types.find(type => type.name === "LOST");
   const bySlot = new Map<LivePosition, { count: number; names: string[] }>();
@@ -550,11 +550,18 @@ export function boxScoreFumbleCandidates(input: { gameId: number; school: string
     bySlot.set(position, entry);
   }
   const candidates: ScoringCandidate[] = [];
+  // Every position the box score confirms actually lost a fumble (post-eligibility), whether or not
+  // that produces a NEW candidate below. A slot can be fully - or exactly - accounted for by existing
+  // non-box ENTRY rows (shortfall <= 0), which is not the same as the box failing to confirm it: the
+  // caller uses this to keep those already-written rows out of the "stale, not confirmed by final
+  // data" reversal sweep, since the box is in fact still confirming them.
+  const confirmedPositions: LivePosition[] = [];
   for (const [position, entry] of Array.from(bySlot.entries())) {
     if (!input.selectedSchoolPositions.some(selection => normalizeSchoolForComparison(selection.schoolName) === normalizeSchoolForComparison(input.school) && selection.position === position)) continue;
+    confirmedPositions.push(position);
     const shortfall = entry.count - (input.alreadyWrittenBySlot.get(position) ?? 0);
     if (shortfall <= 0) continue;
     candidates.push({ sourceEventKey: `${input.gameId}:FUMBLE_LOST:${position}:box`, sourceGameId: input.gameId, schoolName: input.school, position, eventType: "FUMBLE_LOST", statValue: shortfall, yardDistance: null, provisional: false, note: `CFBD box score · fumbles lost (${entry.names.join(", ")})` });
   }
-  return { available: true, candidates };
+  return { available: true, candidates, confirmedPositions };
 }

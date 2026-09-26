@@ -35,9 +35,15 @@ describe("boxScoreFumbleCandidates", () => {
     expect(result.candidates).toHaveLength(0);
   });
 
-  it("does not double-charge when the play feed already wrote the fumble for that slot", () => {
+  it("does not double-charge when the play feed already wrote the fumble for that slot, but still reports the slot as box-confirmed", () => {
+    // Real bug (Hawai'i QB Micah Alejado, game 401864578, Week 2): the box score confirms exactly
+    // one fumble lost, and a live-detected ENTRY already recorded that same one - so there's no
+    // shortfall to add as a new candidate. That must NOT be read as "the box doesn't confirm this
+    // slot" (which is what confirmedPositions guards against) - the caller relies on this to avoid
+    // wrongly reversing the existing entry as "no longer confirmed by final data".
     const result = boxScoreFumbleCandidates({ gameId: 401862693, school: "Memphis", box, roster: memphisRoster, selectedSchoolPositions: picks, alreadyWrittenBySlot: new Map([["RB", 1]]) });
     expect(result.candidates).toHaveLength(0);
+    expect(result.confirmedPositions).toEqual(["RB"]);
   });
 
   it("reports unavailable (so play-derived fumbles stay in force) when there is no box score at all", () => {
@@ -47,7 +53,7 @@ describe("boxScoreFumbleCandidates", () => {
 
   it("treats a team with no fumbles category as available with zero fumbles (USC / FSU / Illinois in week 1)", () => {
     const result = boxScoreFumbleCandidates({ gameId: 2, school: "USC", box: { id: 2, teams: [{ team: "USC", categories: [{ name: "passing", types: [] }] }] }, roster: [], selectedSchoolPositions: [{ schoolName: "USC", position: "QB" }], alreadyWrittenBySlot: new Map() });
-    expect(result).toEqual({ available: true, candidates: [] });
+    expect(result).toEqual({ available: true, candidates: [], confirmedPositions: [] });
   });
 
   it("matches when the roster carries ids as strings (the actual feed), and falls back to name when the id is absent", () => {

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getFbsTeams: vi.fn(), getLiveScoreboard: vi.fn(), getRegularSeasonGames: vi.fn(), getRoster: vi.fn(), getWeekPlays: vi.fn(), getWeekPlayStats: vi.fn(), getLivePlays: vi.fn(),
-  getLeagueSnapshot: vi.fn(), getScoringRulesForEvent: vi.fn(), calculateEventScore: vi.fn(), mapLivePlayToCandidates: vi.fn(), eligibleGameIdsForSchool: vi.fn(), finalShutoutCandidates: vi.fn(), isSupersededInterceptionPlay: vi.fn(), supabaseRest: vi.fn(),
+  getLeagueSnapshot: vi.fn(), getScoringRulesForEvent: vi.fn(), calculateEventScore: vi.fn(), mapLivePlayToCandidates: vi.fn(), eligibleGameIdsForSchool: vi.fn(), finalShutoutCandidates: vi.fn(), isSupersededInterceptionPlay: vi.fn(), boxScoreFumbleCandidates: vi.fn(), supabaseRest: vi.fn(),
 }));
 
 vi.mock("./cfbd", () => ({
@@ -11,7 +11,7 @@ vi.mock("./cfbd", () => ({
 }));
 vi.mock("./league-data", () => ({ getLeagueSnapshot: mocks.getLeagueSnapshot, getScoringRulesForEvent: mocks.getScoringRulesForEvent }));
 vi.mock("./league-scoring", () => ({ calculateEventScore: mocks.calculateEventScore }));
-vi.mock("./live-scoring", () => ({ eligibleGameIdsForSchool: mocks.eligibleGameIdsForSchool, boxScoreFumbleCandidates: () => ({ available: false, candidates: [] }), finalShutoutCandidates: mocks.finalShutoutCandidates, isSupersededInterceptionPlay: mocks.isSupersededInterceptionPlay, normalizeSchoolForComparison: (value: string) => value.trim().toLowerCase().replace(/\s+/g, " "), mapLivePlayToCandidates: mocks.mapLivePlayToCandidates }));
+vi.mock("./live-scoring", () => ({ eligibleGameIdsForSchool: mocks.eligibleGameIdsForSchool, boxScoreFumbleCandidates: mocks.boxScoreFumbleCandidates, finalShutoutCandidates: mocks.finalShutoutCandidates, isSupersededInterceptionPlay: mocks.isSupersededInterceptionPlay, normalizeSchoolForComparison: (value: string) => value.trim().toLowerCase().replace(/\s+/g, " "), mapLivePlayToCandidates: mocks.mapLivePlayToCandidates }));
 vi.mock("./supabase", () => ({ supabaseRest: mocks.supabaseRest }));
 
 import { isCollegeFootballGamedayWindow, reconcileGameAgainstFinalData, resolveB36WeekNumber, runGamedayRefresh } from "./gameday-refresh";
@@ -45,6 +45,7 @@ describe("36 Football gameday source reconciliation", () => {
     mocks.eligibleGameIdsForSchool.mockReturnValue([101]);
     mocks.finalShutoutCandidates.mockReturnValue([]);
     mocks.isSupersededInterceptionPlay.mockReturnValue(false);
+    mocks.boxScoreFumbleCandidates.mockReturnValue({ available: false, candidates: [], confirmedPositions: [] });
     mocks.getScoringRulesForEvent.mockResolvedValue([]);
     mocks.calculateEventScore.mockReturnValue({ points: 9 });
     mocks.getLivePlays.mockResolvedValue({ teams: [], drives: [] });
@@ -312,6 +313,7 @@ describe("reconcileGameAgainstFinalData", () => {
     mocks.eligibleGameIdsForSchool.mockReturnValue([101]);
     mocks.finalShutoutCandidates.mockReturnValue([]);
     mocks.isSupersededInterceptionPlay.mockReturnValue(false);
+    mocks.boxScoreFumbleCandidates.mockReturnValue({ available: false, candidates: [], confirmedPositions: [] });
     mocks.getScoringRulesForEvent.mockResolvedValue([]);
   });
 
@@ -351,6 +353,25 @@ describe("reconcileGameAgainstFinalData", () => {
 
     const correctionWrite = writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST" && (write.options.body as Record<string, unknown>).audit_action === "CORRECTION");
     expect(correctionWrite?.options.body).toMatchObject({ computed_points: -3, source_event_key: "101:FUMBLE_LOST:QB:box:correction:-6:none:2" });
+  });
+
+  it("does not reverse a live-detected fumble-lost entry the box score confirms with zero shortfall - real bug: Hawai'i QB Micah Alejado's box-confirmed fumble (game 401864578, Week 2, FUM 1/LOST 1/REC 0) was wrongly proposed for reversal because boxScoreFumbleCandidates had nothing NEW to add once its shortfall against the existing live-detected entry hit zero, and that entry's key then fell out of currentCandidateKeys entirely", async () => {
+    // Real production key/point shape: a live-detected entry (synthetic play id, never ends in
+    // ":box") already recorded the fumble while the game was live; the final /plays feed never
+    // reproduces a FUMBLE_LOST candidate for it (fumbles are box-authoritative, not play-derived,
+    // once the game is over - see boxScoreFumbleCandidates), so mapLivePlayToCandidates returns none.
+    const liveDetectedEntry = { id: "event-1", source_event_key: "9401864578468:FUMBLE_LOST:QB", source_game_id: 101, audit_action: "ENTRY", week_id: "week-1", draft_slot_id: "slot-qb", event_type: "FUMBLE_LOST", stat_value: 1, yard_distance: null, computed_points: -3, is_provisional: true, recorded_by_open_id: "cfbd-live-detection", correction_of_event_id: null };
+    const writes = arrange([liveDetectedEntry]);
+    mocks.mapLivePlayToCandidates.mockReturnValue([]);
+    // The box confirms QB actually lost a fumble, but the amount is fully explained by the existing
+    // live-detected entry above (shortfall 0), so there is no new candidate for it - this is the
+    // exact shape boxScoreFumbleCandidates now returns for that case (see box-score-fumbles.test.ts).
+    mocks.boxScoreFumbleCandidates.mockReturnValue({ available: true, candidates: [], confirmedPositions: ["QB"] });
+
+    const result = await reconcileGameAgainstFinalData({ game, schedule: [game], season: 2026, weekRowId: "week-1", selectedSchoolPositions, dryRun: false });
+
+    expect(writes.filter(write => write.table === "b36_scoring_events" && write.options.method === "POST" && (write.options.body as Record<string, unknown>).audit_action === "REVERSAL")).toHaveLength(0);
+    expect(result.planned.some(action => action.action === "reversal")).toBe(false);
   });
 });
 
