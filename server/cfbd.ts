@@ -103,7 +103,29 @@ export const getWeekPlayStats = (year: number, week: number) => cachedCfbdGet<Cf
 // Rosters barely change during a season — a short cache here was the single biggest driver of
 // API call volume (89% of total usage in practice). A day-long cache is still fully correct for
 // our purposes (mapping players to positions) while cutting that volume by roughly 24x.
-export const getRoster = (team: string, year: number) => cachedCfbdGet<CfbdRosterAthlete[]>("/roster", { team, year }, 24 * 60 * 60_000);
+//
+// ONE call for every team, not one per team. CFBD's /roster takes `team` as an OPTIONAL filter
+// (confirmed against the official client docs), so a single `/roster?year=` returns the whole
+// season's rosters. That matters because of paceOutboundCall above: every real outbound call is
+// gated 650ms apart, globally, so "fetch rosters for N schools" costs N x 650ms of pure waiting no
+// matter how parallel the callers are - Promise.all over them changes nothing. On a cold serverless
+// instance (empty cache) a week-2 audit needed ~136 schools (68 games x 2 sides) = ~88s of gate
+// alone, and the every-minute gameday loop's fan-out over 100+ drafted schools could not finish
+// inside its own 45s budget either. With one all-teams call that whole cost is 650ms once per day
+// per instance, and every per-team getRoster below is an in-memory filter over it.
+// Fallback: if the all-teams payload has no rows for a team (a naming edge case, or an FCS opponent
+// CFBD rosters differently), fall back to the exact per-team call this used to make - so the worst
+// case for any single school is the old behavior, never a silently empty roster.
+const normalizeTeamName = (value: string | null | undefined) => (value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+const getAllRosters = (year: number) => cachedCfbdGet<CfbdRosterAthlete[]>("/roster", { year }, 24 * 60 * 60_000);
+const getRosterForTeamOnly = (team: string, year: number) => cachedCfbdGet<CfbdRosterAthlete[]>("/roster", { team, year }, 24 * 60 * 60_000);
+export const getRoster = async (team: string, year: number): Promise<CfbdRosterAthlete[]> => {
+  const all = await getAllRosters(year);
+  const wanted = normalizeTeamName(team);
+  const rows = all.filter(athlete => normalizeTeamName(athlete.team) === wanted);
+  if (rows.length) return rows;
+  return getRosterForTeamOnly(team, year);
+};
 // Game-level aggregated player stats - a different endpoint from /plays/stats (which is per-play).
 // This might have a player's total fumbles for the whole game even when the play-level feed is
 // missing the attribution for a specific play.

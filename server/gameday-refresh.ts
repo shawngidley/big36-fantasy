@@ -123,8 +123,12 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
   if (!config) throw new Error("36 Football automation is not configured.");
   if (!config.enabled && !options.force) return { skipped: "automation-disabled", insertedEvents: 0, activeGames: 0 };
   if (!options.force && !isCollegeFootballGamedayWindow()) return { skipped: "outside-gameday-window", insertedEvents: 0, activeGames: 0 };
-  // The whole function runs inside Vercel's 60s maxDuration, on a route the cron hits every minute -
-  // a killed invocation never reaches the catch block below, so a tick that runs long doesn't even
+  // This runs on a route the cron hits EVERY MINUTE. The platform maxDuration (vercel.json) is now
+  // 300s so the on-demand admin audit/reconcile endpoints can do a whole week in one call - but this
+  // loop deliberately keeps its own 45s budget regardless: a tick that ran past 60s would overlap the
+  // next minute's tick, and two ticks writing the same games concurrently would double-credit. Do
+  // not "fix" this budget up to match maxDuration. Separately: a killed invocation never reaches the
+  // catch block below, so a tick that runs long doesn't even
   // get to record last_refresh_status: error, it just silently vanishes. Fixing draftedGames to look
   // at the full season schedule (see below) means a tick can suddenly find a large backlog of
   // previously-invisible unsettled games - if a single tick tried to fully reconcile all of them at
