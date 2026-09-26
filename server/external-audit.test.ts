@@ -64,3 +64,30 @@ describe("planExternalAuditAdjustments", () => {
     expect(plan.filter(row => row.status === "match")).toHaveLength(215);
   });
 });
+
+describe("parseExternalAuditReport (real week 3 report - different column widths, shutouts, byes)", () => {
+  const week3 = parseExternalAuditReport(readFileSync(new URL("./fixtures/week3-external-audit.txt", import.meta.url), "utf8"));
+  const find3 = (school: string, position: string) => week3.groups.find(group => group.school === school && group.position === position);
+
+  it("matches the report's own counts even though the mismatch table's owner column is narrower than week 2's", () => {
+    expect(week3.groups).toHaveLength(211);
+    expect(week3.groups.filter(group => group.status === "MISMATCH")).toHaveLength(32);
+    expect(week3.groups.filter(group => group.status === "MATCH")).toHaveLength(179);
+    expect(week3.pulledAt).toBe("2026-09-20 21:58");
+  });
+
+  it("carries the external audit's shutout line - the rule the site's own live scoring missed for Indiana", () => {
+    expect(find3("Indiana", "DST")).toMatchObject({ expectedPoints: 19, sitePointsAtAudit: 4, how: ["Sack (Osunsanmi) (1)", "INT (Jones) (3)", "Shutout (15)"] });
+    expect(find3("Iowa", "DST")!.how).toContain("Shutout (15)");
+    expect(find3("Oregon", "DST")!.how).toContain("Shutout (15)");
+  });
+
+  it("reads a negative NCAA total and a how line with a nested parenthetical", () => {
+    expect(find3("SMU", "QB")).toMatchObject({ expectedPoints: -1, sitePointsAtAudit: 7 });
+    expect(find3("SMU", "QB")!.how[2]).toBe("Jennings fumble lost (through the end zone, touchback) (-3)");
+  });
+
+  it("excludes the bye-week groups listed after the parse boundary (no NCAA number exists for them)", () => {
+    for (const [school, position] of [["Hawai'i", "K"], ["Hawai'i", "QB"], ["Hawai'i", "WR"], ["Navy", "QB"], ["UNLV", "DST"]]) expect(find3(school, position)).toBeUndefined();
+  });
+});
