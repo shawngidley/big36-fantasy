@@ -1195,8 +1195,25 @@ export const leagueRouter = router({
       // every relevant game - offense credit from the school's own plays, defense credit from the
       // opponent's plays where this school was on defense. Checking only one side (a bug in an
       // earlier audit tool tonight) silently misses all defensive credit.
+      //
+      // Rosters were previously fetched SEQUENTIALLY, one awaited getRoster call at a time inside
+      // this loop - with 20-30+ relevant games in a normal week (40-60+ distinct schools), that's
+      // 40-60+ sequential CFBD round trips on top of everything else this endpoint does, which alone
+      // is enough to blow Vercel's 60-second timeout even after batching the Supabase side below
+      // (confirmed live: still 504'd after that fix alone). getRoster's cache also can't help on a
+      // cold serverless instance, which this admin-only endpoint almost always hits. Fetching every
+      // distinct school's roster with Promise.all first - the same pattern already used for this
+      // exact reason in the main automation loop's weekly fan-out (see runGamedayRefresh above) -
+      // turns that into one round of parallel requests instead of a long sequential chain.
+      const distinctSchools = new Set<string>();
+      for (const game of relevantGames) {
+        if (!plays.some(play => play.gameId === game.id)) continue;
+        distinctSchools.add(game.homeTeam);
+        distinctSchools.add(game.awayTeam);
+      }
+      const rosterEntries = await Promise.all(Array.from(distinctSchools).map(async school => [school, await getRoster(school, season)] as const));
+      const rosterBySchool = new Map(rosterEntries);
       const officialTotals = new Map<string, number>();
-      const roundedCache = new Map<string, Awaited<ReturnType<typeof getRoster>>>();
       for (const game of relevantGames) {
         const gamePlays = plays.filter(play => play.gameId === game.id);
         if (!gamePlays.length) continue;
@@ -1205,10 +1222,9 @@ export const leagueRouter = router({
           // credit comes from the OPPONENT's offensive plays, so skipping an undrafted opponent
           // here would silently miss all defensive credit against them (the bug that caused this
           // audit to under-report USC's DEF total against non-drafted San José State).
-          let roster = roundedCache.get(school);
-          if (!roster) { roster = await getRoster(school, season); roundedCache.set(school, roster); }
+          const roster = rosterBySchool.get(school) ?? [];
           const schoolPlays = gamePlays.filter((play, index) => play.offense === school && !isSupersededInterceptionPlay(play, gamePlays[index + 1]));
-          const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: stats.filter(stat => String(stat.playId) === String(play.id)), roster: roster!, selectedSchoolPositions, provisional: false }));
+          const candidates = schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: stats.filter(stat => String(stat.playId) === String(play.id)), roster, selectedSchoolPositions, provisional: false }));
           for (const candidate of candidates) {
             const rules = await getScoringRulesForEvent(candidate.eventType as never);
             const score = calculateEventScore(rules, { eventType: candidate.eventType as never, position: candidate.position, statValue: candidate.statValue, yardDistance: candidate.yardDistance });

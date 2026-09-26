@@ -126,6 +126,29 @@ describe("league.admin.fullScoringAudit", () => {
     expect(eventsQuery.query.draft_slot_id).toBe("in.(slot-1,slot-2,slot-3)");
   });
 
+  it("fetches every distinct school's roster in parallel rather than one at a time - a second, separate 504 cause left over after the Supabase batching fix alone", async () => {
+    // Deduping which schools need a roster fetch was never the problem (the old code already cached
+    // by school with a plain Map). The problem was SEQUENCING: `for (const school of ...) { ...
+    // await getRoster(...) ... }` awaited each call before starting the next, so with N distinct
+    // schools this endpoint made N sequential CFBD round trips - confirmed live: the audit still
+    // 504'd even after the Supabase per-slot batching fix landed on its own. A call-count assertion
+    // alone can't tell parallel from sequential-with-dedup (both make exactly one call per school),
+    // so this holds every getRoster call unresolved and checks that BOTH distinct schools (School X,
+    // School Y) were already requested before either one resolves - which only happens if they were
+    // kicked off together (Promise.all), not one after the other.
+    const pendingResolvers: Array<() => void> = [];
+    mocks.getRoster.mockImplementation(() => new Promise(resolve => { pendingResolvers.push(() => resolve([])); }));
+    const caller = appRouter.createCaller(adminContext());
+    const resultPromise = caller.league.admin.fullScoringAudit({ week: 2 });
+    // Flush the microtask queue enough times for every synchronous-until-first-real-await step ahead
+    // of the roster fetch (the automation-config lookup, the Promise.all of schedule/plays/stats/
+    // snapshot) to settle, without ever resolving a getRoster call ourselves.
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    expect(mocks.getRoster.mock.calls.map(call => call[0]).sort()).toEqual(["School X", "School Y"]);
+    pendingResolvers.forEach(resolve => resolve());
+    await resultPromise;
+  });
+
   it("still reports the exact same mismatches the old per-slot loop would have (behavior preserved, not just faster)", async () => {
     const caller = appRouter.createCaller(adminContext());
     const result = await caller.league.admin.fullScoringAudit({ week: 2 });
