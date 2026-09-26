@@ -1219,19 +1219,31 @@ export const leagueRouter = router({
       }
 
       // Compare against what's actually stored for every drafted slot with a game this week.
+      // Previously this issued TWO sequential Supabase round trips PER SLOT inside the loop below -
+      // one refetching that slot's full event history, and one re-fetching the exact same
+      // b36_scoring_weeks row (for input.week) on every single iteration, despite it never changing.
+      // With 100+ drafted slots in a normal week that's 200+ sequential HTTP calls before this could
+      // return - well past Vercel's 60-second function timeout (confirmed live: a plain week-2 call
+      // 504'd). Hoisting the week lookup out of the loop and batching every slot's stored events into
+      // one `in.(...)` query cuts this to two queries total, independent of slot count.
+      const relevantSlots = selectedSchoolPositions.filter(slot => relevantGames.some(game => normalizeSchoolForComparison(game.homeTeam) === normalizeSchoolForComparison(slot.schoolName) || normalizeSchoolForComparison(game.awayTeam) === normalizeSchoolForComparison(slot.schoolName)));
+      const weekRows = await supabaseRest<Array<{ id: string }>>("b36_scoring_weeks", { query: { select: "id", week_number: `eq.${input.week}` } });
+      const weekId = weekRows[0]?.id;
+      const relevantSlotIds = relevantSlots.map(slot => slot.draftSlotId);
+      const storedQuery: Record<string, string> = { select: "computed_points,week_id,draft_slot_id", draft_slot_id: `in.(${relevantSlotIds.join(",")})` };
+      // Matches the original per-slot fallback: if this week's row doesn't exist yet, fall back to
+      // that slot's full (all-weeks) event history rather than filtering to a week_id that can't match.
+      if (weekId) storedQuery.week_id = `eq.${weekId}`;
+      const storedRows = relevantSlotIds.length ? await supabaseRest<Array<{ computed_points: number; week_id: string; draft_slot_id: string }>>("b36_scoring_events", { query: storedQuery }) : [];
+      const storedNetBySlot = new Map<string, number>();
+      for (const row of storedRows) storedNetBySlot.set(row.draft_slot_id, (storedNetBySlot.get(row.draft_slot_id) ?? 0) + row.computed_points);
       const results: Array<Record<string, unknown>> = [];
-      for (const slot of selectedSchoolPositions) {
-        const inRelevantGame = relevantGames.some(game => normalizeSchoolForComparison(game.homeTeam) === normalizeSchoolForComparison(slot.schoolName) || normalizeSchoolForComparison(game.awayTeam) === normalizeSchoolForComparison(slot.schoolName));
-        if (!inRelevantGame) continue;
-        const stored = await supabaseRest<Array<{ computed_points: number; week_id: string }>>("b36_scoring_events", { query: { select: "computed_points,week_id", draft_slot_id: q.eq(slot.draftSlotId) } });
-        const weekRows = await supabaseRest<Array<{ id: string }>>("b36_scoring_weeks", { query: { select: "id", week_number: `eq.${input.week}` } });
-        const weekId = weekRows[0]?.id;
-        const storedThisWeek = weekId ? stored.filter(row => row.week_id === weekId) : stored;
-        const storedNet = storedThisWeek.reduce((sum, row) => sum + row.computed_points, 0);
+      for (const slot of relevantSlots) {
+        const storedNet = storedNetBySlot.get(slot.draftSlotId) ?? 0;
         const official = officialTotals.get(`${slot.schoolName}:${slot.position}`) ?? 0;
         if (Math.abs(official - storedNet) > 0.01) results.push({ owner: slot.teamName, school: slot.schoolName, position: slot.position, officialPoints: official, storedPoints: storedNet, difference: Math.round((official - storedNet) * 100) / 100 });
       }
-      return { checkedSlots: selectedSchoolPositions.filter(slot => relevantGames.some(game => normalizeSchoolForComparison(game.homeTeam) === normalizeSchoolForComparison(slot.schoolName) || normalizeSchoolForComparison(game.awayTeam) === normalizeSchoolForComparison(slot.schoolName))).length, gamesChecked: relevantGames.length, mismatches: results, gameTeamNames: relevantGames.map(game => ({ gameId: game.id, homeTeam: game.homeTeam, awayTeam: game.awayTeam, playCount: plays.filter(play => play.gameId === game.id).length })) };
+      return { checkedSlots: relevantSlots.length, gamesChecked: relevantGames.length, mismatches: results, gameTeamNames: relevantGames.map(game => ({ gameId: game.id, homeTeam: game.homeTeam, awayTeam: game.awayTeam, playCount: plays.filter(play => play.gameId === game.id).length })) };
     }),
     findLikelyDuplicateScoring: adminProcedure.query(async () => {
       // Targets the exact failure mode found tonight: a manual restoration entry for something
