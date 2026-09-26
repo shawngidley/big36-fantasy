@@ -17,7 +17,21 @@ vi.mock("./live-scoring", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./live-scoring")>();
   return { eligibleGameIdsForSchool: mocks.eligibleGameIdsForSchool, boxScoreFumbleCandidates: mocks.boxScoreFumbleCandidates, finalShutoutCandidates: mocks.finalShutoutCandidates, isSupersededInterceptionPlay: mocks.isSupersededInterceptionPlay, normalizeSchoolForComparison: (value: string) => value.trim().toLowerCase().replace(/\s+/g, " "), mapLivePlayToCandidates: mocks.mapLivePlayToCandidates, indexPlayStatsByPlayId: actual.indexPlayStatsByPlayId, statsForPlay: actual.statsForPlay };
 });
-vi.mock("./supabase", () => ({ supabaseRest: mocks.supabaseRest }));
+// supabaseRestAll is mocked as the same limit/offset loop the real one runs (server/supabase.ts),
+// driven through the mocked supabaseRest - so a test fixture that simulates PostgREST's silent
+// 1000-row cap (see arrange) is only fully read by code that paginates.
+vi.mock("./supabase", () => ({
+  supabaseRest: mocks.supabaseRest,
+  supabaseRestAll: async (table: string, options: { query?: Record<string, string> } = {}) => {
+    const pageSize = 1000; const all: unknown[] = [];
+    for (let offset = 0; ; offset += pageSize) {
+      const page = await mocks.supabaseRest(table, { ...options, query: { ...options.query, limit: String(pageSize), offset: String(offset) } }) as unknown[];
+      all.push(...page);
+      if (page.length < pageSize) break;
+    }
+    return all;
+  },
+}));
 
 import { isCollegeFootballGamedayWindow, reconcileGameAgainstFinalData, resolveB36WeekNumber, runGamedayRefresh } from "./gameday-refresh";
 
@@ -30,7 +44,13 @@ function arrange(existingEvents: unknown[]) {
   const writes: Array<{ table: string; options: Record<string, unknown> }> = [];
   mocks.supabaseRest.mockImplementation(async (table: string, options: Record<string, unknown> = {}) => {
     if (table === "b36_automation_config" && options.method !== "PATCH") return [{ season: 2026, enabled: true, last_refresh_at: null, schedule_cron_task_uid: null }];
-    if (table === "b36_scoring_events" && options.query) return existingEvents;
+    if (table === "b36_scoring_events" && options.query) {
+      // Simulate PostgREST: honor limit/offset, and cap a plain read (no limit) at 1000 rows with no
+      // error - the real behavior that silently truncated a full week's event list in production.
+      const query = options.query as Record<string, string>;
+      const offset = Number(query.offset ?? 0); const limit = Math.min(Number(query.limit ?? 1000), 1000);
+      return existingEvents.slice(offset, offset + limit);
+    }
     if (options.method) writes.push({ table, options });
     return [];
   });
@@ -61,6 +81,20 @@ describe("36 Football gameday source reconciliation", () => {
     mocks.mapLivePlayToCandidates.mockReturnValue([candidate]);
     await runGamedayRefresh({ force: true });
     expect(writes.filter(write => write.table === "b36_scoring_events" && write.options.method === "POST")).toHaveLength(0);
+  });
+
+  it("reads a week's full event list past PostgREST's silent 1000-row cap, so an already-recorded play is not inserted again as a duplicate", async () => {
+    // Real production mechanism behind the UCF-QB / Pittsburgh-DST double credits: the week-wide
+    // eventRows read was a plain supabaseRest call, PostgREST capped it at 1000 rows with no error,
+    // and every play whose row fell past the cap was invisible to knownKeys - so the loop inserted a
+    // fresh official ENTRY for a play it had already recorded. 1001 existing official entries, and
+    // this tick's candidate is the 1001st one: it must be recognized as known, not inserted.
+    const existing = Array.from({ length: 1001 }, (_, i) => ({ ...original, id: `event-${i}`, source_event_key: `101:${i}:qb`, is_provisional: false }));
+    const writes = arrange(existing);
+    mocks.mapLivePlayToCandidates.mockReturnValue([{ ...candidate, sourceEventKey: "101:1000:qb" }]);
+    await runGamedayRefresh({ force: true });
+    const entryInserts = writes.filter(write => write.table === "b36_scoring_events" && write.options.method === "POST" && (write.options.body as Record<string, unknown>).audit_action === "ENTRY");
+    expect(entryInserts).toHaveLength(0);
   });
 
   it("records an idempotent reversal when a final source event is removed", async () => {

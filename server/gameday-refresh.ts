@@ -2,7 +2,7 @@ import { getFbsTeams, getGamePlayerStats, getLivePlays, getLiveScoreboard, getRe
 import { getLeagueSnapshot, getScoringRulesForEvent } from "./league-data";
 import { calculateEventScore } from "./league-scoring";
 import { boxScoreFumbleCandidates, eligibleGameIdsForSchool, finalShutoutCandidates, indexPlayStatsByPlayId, isSupersededInterceptionPlay, mapLivePlayToCandidates, normalizeSchoolForComparison, statsForPlay, type LivePosition } from "./live-scoring";
-import { supabaseRest } from "./supabase";
+import { supabaseRest, supabaseRestAll } from "./supabase";
 
 type AutomationConfig = { season: number; enabled: boolean; last_refresh_at: string | null; schedule_cron_task_uid: string | null };
 type SourceEvent = { id: string; source_event_key: string | null; source_game_id: number | null; audit_action: string; week_id: string; draft_slot_id: string; event_type: string; stat_value: number; yard_distance: number | null; computed_points: number; is_provisional: boolean; recorded_by_open_id: string; correction_of_event_id: string | null };
@@ -204,7 +204,13 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
     const lockedWeekCompletedIds = draftedGames.filter(game => lockedWeekNumbers.has(game.week) && game.completed).map(game => game.id);
     const settledGameIds = new Set<number>();
     if (lockedWeekCompletedIds.length) {
-      const officialRows = await supabaseRest<Array<{ source_game_id: number | null }>>("b36_scoring_events", { query: { select: "source_game_id", source_game_id: `in.(${lockedWeekCompletedIds.join(",")})`, audit_action: "eq.ENTRY", is_provisional: "eq.false" } });
+      // supabaseRestAll, not supabaseRest: PostgREST silently caps a plain read at 1000 rows, and this
+      // is every official ENTRY across every locked week's completed drafted games - thousands over a
+      // season. Truncated, every game whose rows fell past the cap looked UNSETTLED forever ("68
+      // unsettled week 2 games found in production" - i.e. all of them), so they were re-reconciled on
+      // every tick against an eventRows list that was itself truncated (see below), which is how a
+      // play ends up with both a live-detected and an official entry active at once.
+      const officialRows = await supabaseRestAll<{ source_game_id: number | null }>("b36_scoring_events", { query: { select: "source_game_id", source_game_id: `in.(${lockedWeekCompletedIds.join(",")})`, audit_action: "eq.ENTRY", is_provisional: "eq.false", order: "id.asc" } });
       officialRows.forEach(row => { if (row.source_game_id) settledGameIds.add(row.source_game_id); });
     }
     const relevantGames = draftedGames.filter(game => !settledGameIds.has(game.id));
@@ -331,7 +337,13 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
       // (see indexPlayStatsByPlayId) - a large share of the very time budget pastDeadline() guards.
       const statsByPlayId = indexPlayStatsByPlayId(stats);
       const rosters = new Map<string, CfbdRosterAthlete[]>(rosterEntries);
-      const eventRows = await supabaseRest<SourceEvent[]>("b36_scoring_events", { query: { select: "id,source_event_key,source_game_id,audit_action,week_id,draft_slot_id,event_type,stat_value,yard_distance,computed_points,is_provisional,recorded_by_open_id,correction_of_event_id", source_game_id: `in.(${games.map(game => game.id).join(",")})` } });
+      // supabaseRestAll, not supabaseRest: a full week of drafted games is well over PostgREST's silent
+      // 1000-row cap, and everything below - knownKeys (don't insert what's already recorded),
+      // pendingLiveByGameSlotType (reverse a live entry once its official twin lands), originalByKey
+      // (corrections) - is derived from this list. A truncated list means duplicate official inserts
+      // and live entries that never get superseded: exactly the double-credit pattern found on UCF QB
+      // and Pittsburgh DST in week 2.
+      const eventRows = await supabaseRestAll<SourceEvent>("b36_scoring_events", { query: { select: "id,source_event_key,source_game_id,audit_action,week_id,draft_slot_id,event_type,stat_value,yard_distance,computed_points,is_provisional,recorded_by_open_id,correction_of_event_id", source_game_id: `in.(${games.map(game => game.id).join(",")})`, order: "created_at.asc,id.asc" } });
       const knownKeys = new Set(eventRows.filter(row => row.source_event_key && row.audit_action !== "REVERSAL").map(row => row.source_event_key));
       const reversedKeys = new Set(eventRows.filter(row => row.audit_action === "REVERSAL" && row.source_event_key).map(row => row.source_event_key));
       const originalByKey = new Map(eventRows.filter(row => row.source_event_key && row.audit_action === "ENTRY").map(row => [row.source_event_key!, row]));

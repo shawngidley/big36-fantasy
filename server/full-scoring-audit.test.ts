@@ -47,7 +47,17 @@ vi.mock("./live-scoring", async (importOriginal) => {
 vi.mock("./supabase", () => ({
   q: { eq: (value: unknown) => `eq.${String(value)}`, isNull: "is.null" },
   supabaseRest: mocks.supabaseRest,
-  supabaseRestAll: vi.fn().mockResolvedValue([]),
+  // The same limit/offset loop the real supabaseRestAll runs, driven through the mocked supabaseRest,
+  // so the cap-simulating fake table below is only fully read by code that paginates.
+  supabaseRestAll: async (table: string, options: { query?: Record<string, string> } = {}) => {
+    const pageSize = 1000; const all: unknown[] = [];
+    for (let offset = 0; ; offset += pageSize) {
+      const page = await mocks.supabaseRest(table, { ...options, query: { ...options.query, limit: String(pageSize), offset: String(offset) } }) as unknown[];
+      all.push(...page);
+      if (page.length < pageSize) break;
+    }
+    return all;
+  },
   supabaseRpc: vi.fn(),
 }));
 
@@ -77,7 +87,9 @@ function fakeScoringEventsTable(rows: Array<{ computed_points: number; week_id: 
     }
     const weekFilter = query.week_id;
     if (weekFilter) filtered = filtered.filter(row => row.week_id === weekFilter.replace(/^eq\./, ""));
-    return filtered;
+    // Simulate PostgREST: honor limit/offset, and silently cap a plain read (no limit) at 1000 rows.
+    const offset = Number(query.offset ?? 0); const limit = Math.min(Number(query.limit ?? 1000), 1000);
+    return filtered.slice(offset, offset + limit);
   };
 }
 
@@ -167,6 +179,24 @@ describe("league.admin.fullScoringAudit", () => {
     expect(result.mismatches).toContainEqual(expect.objectContaining({ owner: "Owner B", school: "School Y", position: "RB", officialPoints: 6, storedPoints: 3, difference: 3 }));
     // slot-3 (DST): official 0 (no candidates map to it), stored 0 (no rows) -> no mismatch.
     expect(result.mismatches.find((m: { position: string }) => m.position === "DST")).toBeUndefined();
+  });
+
+  it("reads a week's stored events past PostgREST's silent 1000-row cap - the first batched version reported correct slots as 'site: 0'", async () => {
+    // Real production result of the un-paginated batched read: a live week-2 audit listed Georgia QB
+    // 44/0, Colorado WR 44/0, Indiana WR 52/0 and dozens more as mismatches, when those groups were
+    // correct on the site - their rows simply fell past the cap. Here slot-1 has 1200 one-point rows
+    // and an official total of 1200; a capped read sees 1000 and invents a 200-point mismatch.
+    const eventsTable = fakeScoringEventsTable(Array.from({ length: 1200 }, () => ({ computed_points: 1, week_id: "week-2-id", draft_slot_id: "slot-1" })));
+    mocks.supabaseRest.mockImplementation(async (table: string, options: { query?: Record<string, string> } = {}) => {
+      if (table === "b36_automation_config") return [{ season: 2026 }];
+      if (table === "b36_scoring_weeks") return [{ id: "week-2-id" }];
+      if (table === "b36_scoring_events") return eventsTable(options.query);
+      return [];
+    });
+    mocks.calculateEventScore.mockImplementation((_rules: unknown, c: { position: string }) => ({ points: c.position === "QB" ? 1200 : 6 }));
+    const caller = appRouter.createCaller(adminContext());
+    const result = await caller.league.admin.fullScoringAudit({ week: 2 });
+    expect(result.mismatches.find((m: { position: string }) => m.position === "QB")).toBeUndefined();
   });
 
   it("paginates by game with a stable id order and a nextOffset chain, checking only the page's slots on each call", async () => {

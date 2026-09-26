@@ -833,7 +833,7 @@ export const leagueRouter = router({
       const [schedule, snapshot] = await Promise.all([getRegularSeasonGames(season), getLeagueSnapshot()]);
       const week1Games = schedule.filter(game => game.week === 1);
       const gameIds = week1Games.map(game => game.id);
-      const eventRows = gameIds.length ? await supabaseRest<Array<{ source_game_id: number | null; week_id: string; audit_action: string }>>("b36_scoring_events", { query: { select: "source_game_id,week_id,audit_action", source_game_id: `in.(${gameIds.join(",")})` } }) : [];
+      const eventRows = gameIds.length ? await supabaseRestAll<{ source_game_id: number | null; week_id: string; audit_action: string }>("b36_scoring_events", { query: { select: "source_game_id,week_id,audit_action", source_game_id: `in.(${gameIds.join(",")})`, order: "id.asc" } }) : [];
       const weekIdToNumber = new Map(snapshot.weeks.map(week => [week.id, week.weekNumber]));
       const games = week1Games.map(game => {
         const b36Week = resolveB36WeekNumber(game);
@@ -938,7 +938,7 @@ export const leagueRouter = router({
       const selected = snapshot.owners.flatMap(owner => owner.picks.map(pick => ({ schoolName: pick.schoolName, position: pick.position as LivePosition, draftSlotId: pick.id, ownerName: owner.teamName })));
       const games = schedule.filter(game => game.week === input.week && game.completed && [game.homeTeam, game.awayTeam].some(team => selected.some(pick => pick.schoolName === team)));
       const gameIds = games.map(game => game.id);
-      const rows = gameIds.length ? await supabaseRest<Array<{ source_event_key: string | null; source_game_id: number | null; audit_action: string; draft_slot_id: string; event_type: string; stat_value: number }>>("b36_scoring_events", { query: { select: "source_event_key,source_game_id,audit_action,draft_slot_id,event_type,stat_value", source_game_id: `in.(${gameIds.join(",")})`, limit: "5000" } }) : [];
+      const rows = gameIds.length ? await supabaseRestAll<{ source_event_key: string | null; source_game_id: number | null; audit_action: string; draft_slot_id: string; event_type: string; stat_value: number }>("b36_scoring_events", { query: { select: "source_event_key,source_game_id,audit_action,draft_slot_id,event_type,stat_value", source_game_id: `in.(${gameIds.join(",")})`, order: "id.asc" } }) : [];
       const reversed = new Set(rows.filter(row => row.audit_action === "REVERSAL" && row.source_event_key).map(row => row.source_event_key));
       const known = new Set(rows.filter(row => row.source_event_key && row.audit_action !== "REVERSAL").map(row => row.source_event_key));
       const planned: Array<{ gameId: number; game: string; owner: string; school: string; position: string; fumblesLost: number; points: number; note: string; key: string; status: string }> = [];
@@ -1266,7 +1266,11 @@ export const leagueRouter = router({
       // Matches the original per-slot fallback: if this week's row doesn't exist yet, fall back to
       // that slot's full (all-weeks) event history rather than filtering to a week_id that can't match.
       if (weekId) storedQuery.week_id = `eq.${weekId}`;
-      const storedRows = relevantSlotIds.length ? await supabaseRest<Array<{ computed_points: number; week_id: string; draft_slot_id: string }>>("b36_scoring_events", { query: storedQuery }) : [];
+      // supabaseRestAll: this is a whole week's events across every relevant slot - past PostgREST's
+      // silent 1000-row cap. The first batched version of this read used plain supabaseRest and
+      // reported dozens of correct slots as "site: 0" because their rows fell past the cap.
+      storedQuery.order = "id.asc";
+      const storedRows = relevantSlotIds.length ? await supabaseRestAll<{ computed_points: number; week_id: string; draft_slot_id: string }>("b36_scoring_events", { query: storedQuery }) : [];
       const storedNetBySlot = new Map<string, number>();
       for (const row of storedRows) storedNetBySlot.set(row.draft_slot_id, (storedNetBySlot.get(row.draft_slot_id) ?? 0) + row.computed_points);
       const results: Array<Record<string, unknown>> = [];
@@ -1548,7 +1552,7 @@ export const leagueRouter = router({
         const lockedWeekCompletedIds = draftedGames.filter(game => lockedWeekNumbers.has(game.week) && game.completed).map(game => game.id);
         const settledGameIds = new Set<number>();
         if (lockedWeekCompletedIds.length) {
-          const officialRows = await supabaseRest<Array<{ source_game_id: number | null }>>("b36_scoring_events", { query: { select: "source_game_id", source_game_id: `in.(${lockedWeekCompletedIds.join(",")})`, audit_action: "eq.ENTRY", is_provisional: "eq.false" } });
+          const officialRows = await supabaseRestAll<{ source_game_id: number | null }>("b36_scoring_events", { query: { select: "source_game_id", source_game_id: `in.(${lockedWeekCompletedIds.join(",")})`, audit_action: "eq.ENTRY", is_provisional: "eq.false", order: "id.asc" } });
           officialRows.forEach(row => { if (row.source_game_id) settledGameIds.add(row.source_game_id); });
         }
         const relevantGames = draftedGames.filter(game => !settledGameIds.has(game.id));
@@ -1564,7 +1568,7 @@ export const leagueRouter = router({
         const lockedWeekCompletedIdsFull = draftedGamesFromFullSchedule.filter(game => lockedWeekNumbers.has(game.week) && game.completed).map(game => game.id);
         const settledGameIdsFull = new Set<number>();
         if (lockedWeekCompletedIdsFull.length) {
-          const officialRowsFull = await supabaseRest<Array<{ source_game_id: number | null }>>("b36_scoring_events", { query: { select: "source_game_id", source_game_id: `in.(${lockedWeekCompletedIdsFull.join(",")})`, audit_action: "eq.ENTRY", is_provisional: "eq.false" } });
+          const officialRowsFull = await supabaseRestAll<{ source_game_id: number | null }>("b36_scoring_events", { query: { select: "source_game_id", source_game_id: `in.(${lockedWeekCompletedIdsFull.join(",")})`, audit_action: "eq.ENTRY", is_provisional: "eq.false", order: "id.asc" } });
           officialRowsFull.forEach(row => { if (row.source_game_id) settledGameIdsFull.add(row.source_game_id); });
         }
         const relevantGamesFull = draftedGamesFromFullSchedule.filter(game => game.completed && !settledGameIdsFull.has(game.id));
