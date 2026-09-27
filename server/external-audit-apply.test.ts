@@ -39,7 +39,9 @@ Group                   Owner                                 NCAA Audit  36Foot
 Hawai'i - K             Marcus College                                23          23  MATCH
 `;
 
-const game = { id: 401858200, season: 2026, week: 2, seasonType: "regular", startDate: "2026-09-12T19:00:00Z", completed: true, homeTeam: "Georgia", awayTeam: "Austin Peay" };
+// The endpoint reads the schedule from the synced b36_source_games table, never from CFBD - so the
+// audit can be applied while the CFBD account is over quota (which is exactly when it is needed most).
+const sourceGameRow = { cfbd_game_id: 401858200, week_number: 2, start_date: "2026-09-12T19:00:00Z", home_team: "Georgia", away_team: "Austin Peay" };
 
 describe("league.admin.applyExternalAudit", () => {
   let events: Array<{ id: string; draft_slot_id: string; week_id: string; computed_points: number }>;
@@ -47,7 +49,7 @@ describe("league.admin.applyExternalAudit", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     writes = [];
-    mocks.getRegularSeasonGames.mockResolvedValue([game]);
+    mocks.getRegularSeasonGames.mockRejectedValue(new Error("Monthly call quota exceeded.")); // CFBD is down; the endpoint must not care
     mocks.getLeagueSnapshot.mockResolvedValue({
       weeks: [{ id: "week-2-id", weekNumber: 2, label: "Week 2", status: "OPEN" }],
       owners: [
@@ -63,6 +65,7 @@ describe("league.admin.applyExternalAudit", () => {
     ];
     mocks.supabaseRest.mockImplementation(async (table: string, options: { method?: string; query?: Record<string, string>; body?: Record<string, unknown> } = {}) => {
       if (table === "b36_automation_config") return [{ season: 2026 }];
+      if (table === "b36_source_games") return [sourceGameRow];
       if (table === "b36_scoring_events" && options.method === "POST") {
         writes.push(options.body!);
         events.push({ id: `w${writes.length}`, draft_slot_id: options.body!.draft_slot_id as string, week_id: options.body!.week_id as string, computed_points: options.body!.computed_points as number });

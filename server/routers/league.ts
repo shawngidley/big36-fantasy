@@ -1741,9 +1741,18 @@ export const leagueRouter = router({
       const automationRows = await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } });
       const season = automationRows[0]?.season;
       if (!season) throw new Error("No season configured.");
-      const [schedule, snapshot] = await Promise.all([getRegularSeasonGames(season), getLeagueSnapshot()]);
+      // No CFBD call anywhere in this endpoint, on purpose. The schedule is read from the
+      // b36_source_games table the gameday loop already syncs, not from CFBD's /games - so the NCAA
+      // audit can still be applied while the CFBD account is unavailable. That is not hypothetical:
+      // the CFBD monthly quota ran out on 2026-09-26 at 9:22pm ET, and correcting week 4 from the
+      // external audit was the only way to finish the week until it reset. (b36 week 0 is CFBD week
+      // 1's opening-weekend slate, so both CFBD week numbers are read and resolveB36WeekNumber picks.)
+      const snapshot = await getLeagueSnapshot();
       const weekRow = snapshot.weeks.find(week => week.weekNumber === input.week);
       if (!weekRow) throw new Error(`No scoring week row for b36 week ${input.week}.`);
+      const cfbdWeeks = input.week === 0 ? [1] : [input.week];
+      const sourceGames = await supabaseRestAll<{ cfbd_game_id: number; week_number: number; start_date: string; home_team: string; away_team: string }>("b36_source_games", { query: { select: "cfbd_game_id,week_number,start_date,home_team,away_team", season: `eq.${season}`, season_type: "eq.regular", week_number: `in.(${cfbdWeeks.join(",")})`, order: "cfbd_game_id.asc" } });
+      const weekGames = sourceGames.filter(game => resolveB36WeekNumber({ week: game.week_number, startDate: game.start_date }) === input.week).map(game => ({ id: game.cfbd_game_id, homeTeam: game.home_team, awayTeam: game.away_team }));
       const report = parseExternalAuditReport(input.reportText);
       if (!report.groups.length) throw new Error("No group lines found in the report text - is this the full audit output?");
       const key = (school: string, position: string) => `${normalizeSchoolForComparison(school)}::${position}`;
@@ -1757,7 +1766,6 @@ export const leagueRouter = router({
       const currentByGroup = new Map<string, number>();
       for (const slot of slots) currentByGroup.set(key(slot.schoolName, slot.position), Number((currentBySlot.get(slot.draftSlotId) ?? 0).toFixed(2)));
       const plan = planExternalAuditAdjustments(report, currentByGroup, key);
-      const weekGames = schedule.filter(game => resolveB36WeekNumber(game) === input.week);
       const gameForSchool = (school: string) => weekGames.find(game => normalizeSchoolForComparison(game.homeTeam) === normalizeSchoolForComparison(school) || normalizeSchoolForComparison(game.awayTeam) === normalizeSchoolForComparison(school));
       const results: Array<{ school: string; position: string; owner: string; expectedPoints: number; currentPoints: number | null; delta: number; status: string; note?: string; error?: string }> = [];
       for (const row of plan) {
