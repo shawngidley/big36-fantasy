@@ -97,6 +97,28 @@ describe("36 Football gameday source reconciliation", () => {
     expect(entryInserts).toHaveLength(0);
   });
 
+  it("on a real cron tick, re-reconciles a completed game older than six hours only every 15 minutes - the call volume that exhausted the CFBD monthly quota", async () => {
+    // The fixture game kicked off 2026-09-05; game.id 101 -> 101 % 15 = 11, so it is processed on
+    // ticks at :11, :26, :41, :56 and skipped otherwise. Same setup as the reversal test above: with
+    // no candidate for the stored provisional entry, a processed tick writes a REVERSAL; a skipped
+    // tick writes nothing. Both times are inside the Saturday gameday window, so the tick itself runs.
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-09-26T20:03:00Z")); // Sat 4:03pm ET - minute 3, not this game's slot
+      let writes = arrange([original]);
+      mocks.mapLivePlayToCandidates.mockReturnValue([]);
+      await runGamedayRefresh();
+      expect(writes.filter(write => write.table === "b36_scoring_events" && write.options.method === "POST")).toHaveLength(0);
+
+      vi.setSystemTime(new Date("2026-09-26T20:11:00Z")); // minute 11 - this game's slot
+      writes = arrange([original]);
+      await runGamedayRefresh();
+      expect(writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST")?.options.body).toMatchObject({ audit_action: "REVERSAL", correction_of_event_id: "event-1" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("records an idempotent reversal when a final source event is removed", async () => {
     const writes = arrange([original]);
     mocks.mapLivePlayToCandidates.mockReturnValue([]);

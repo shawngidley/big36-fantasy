@@ -11,6 +11,17 @@ export function sourceEventNeedsCorrection(original: Pick<SourceEvent, "computed
   return original.computed_points !== next.points || original.yard_distance !== next.yardDistance || original.stat_value !== next.statValue;
 }
 
+// See the call site in runGamedayRefresh's reconciliation loop. Deterministic spread: each stale
+// completed game is processed on the ticks where the minute-of-hour matches game.id modulo 15, so
+// across an hour every such game gets four passes and no two ticks do the same full set.
+export const STALE_COMPLETED_GAME_AGE_MS = 6 * 60 * 60_000;
+export const STALE_COMPLETED_GAME_CADENCE_MINUTES = 15;
+export function shouldSkipStaleCompletedGameThisTick(game: { id: number; completed: boolean; startDate: string }, force: boolean, now: number = Date.now()) {
+  if (force || !game.completed) return false;
+  if (now - new Date(game.startDate).getTime() < STALE_COMPLETED_GAME_AGE_MS) return false;
+  return new Date(now).getUTCMinutes() % STALE_COMPLETED_GAME_CADENCE_MINUTES !== game.id % STALE_COMPLETED_GAME_CADENCE_MINUTES;
+}
+
 export function sourceEventReversalPoints(originalPoints: number) {
   return -originalPoints;
 }
@@ -362,6 +373,17 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
       }
       for (const game of games) {
         if (pastDeadline()) { skippedWeeksForTimeBudget.push(week); break; }
+        // A completed game stays in this loop until its week is locked FINAL - deliberately, so a
+        // code fix still reaches recent games. But every pass costs CFBD calls (two box scores per
+        // game, and the 60s box-score cache never survives a 60s cron interval), and with 60+
+        // completed games in an open week that is ~120 calls a minute for days. That volume, on top
+        // of the settledGameIds truncation bug, is what exhausted the CFBD monthly quota on
+        // 2026-09-26 at 9:22pm ET and stopped live scoring cold. Once a completed game is more than
+        // six hours old it gets re-reconciled on a 15-minute cadence instead of every tick: fixes
+        // still land within a quarter hour, backlog call volume drops ~15x. Games still in progress
+        // or freshly finished are untouched, and a forced run (the admin "Run refresh now") is
+        // always a full pass.
+        if (shouldSkipStaleCompletedGameThisTick(game, options.force ?? false)) continue;
         const weekRow = await ensureWeekRow(resolveB36WeekNumber(game), snapshot.weeks);
         const currentCandidateKeys = new Set<string>();
         const gameCandidates = [

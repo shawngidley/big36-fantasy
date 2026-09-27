@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { currentEffectivePoints, isCollegeFootballGamedayWindow, sourceEventNeedsCorrection, sourceEventReversalPoints } from "./gameday-refresh";
+import { currentEffectivePoints, isCollegeFootballGamedayWindow, shouldSkipStaleCompletedGameThisTick, sourceEventNeedsCorrection, sourceEventReversalPoints } from "./gameday-refresh";
 
 describe("official source-event reconciliation", () => {
   const original = { computed_points: 10, yard_distance: 31, stat_value: 1 };
@@ -68,5 +68,41 @@ describe("College Football gameday polling window", () => {
     expect(isCollegeFootballGamedayWindow(new Date("2026-09-08T03:30:00.000Z"))).toBe(true); // Monday ~11:30pm ET, a real Monday night game still in progress
     expect(isCollegeFootballGamedayWindow(new Date("2026-09-08T13:00:00.000Z"))).toBe(true); // Tuesday ~9am ET, reconciliation runway for that Monday night game
     expect(isCollegeFootballGamedayWindow(new Date("2026-09-08T19:00:00.000Z"))).toBe(false); // Tuesday ~3pm ET, back to quiet
+  });
+});
+
+describe("shouldSkipStaleCompletedGameThisTick", () => {
+  // Re-reconciling every completed game in an open week on every one-minute tick cost ~2 CFBD calls
+  // per game per minute for days - the volume that exhausted the CFBD monthly quota on 2026-09-26
+  // and stopped live scoring at 9:22pm ET. Completed games older than six hours now get a pass every
+  // 15 minutes (minute-of-hour === game.id mod 15) instead of every minute.
+  const kickoff = Date.parse("2026-09-26T16:00:00Z");
+  const game = (id: number, completed = true) => ({ id, completed, startDate: "2026-09-26T16:00:00Z" });
+  const at = (minute: number, hoursAfterKickoff = 8) => kickoff + hoursAfterKickoff * 3_600_000 + minute * 60_000;
+
+  it("never skips a forced run, an in-progress game, or a game that finished less than six hours ago", () => {
+    expect(shouldSkipStaleCompletedGameThisTick(game(101), true, at(3))).toBe(false); // 101 % 15 = 11, minute 3 would otherwise skip
+    expect(shouldSkipStaleCompletedGameThisTick(game(101, false), false, at(3))).toBe(false);
+    expect(shouldSkipStaleCompletedGameThisTick(game(101), false, at(3, 2))).toBe(false); // only 2h old
+  });
+
+  it("processes a stale completed game only on the ticks whose minute matches game.id mod 15", () => {
+    expect(shouldSkipStaleCompletedGameThisTick(game(101), false, at(11))).toBe(false); // 101 % 15 = 11
+    expect(shouldSkipStaleCompletedGameThisTick(game(101), false, at(26))).toBe(false); // 26 % 15 = 11
+    expect(shouldSkipStaleCompletedGameThisTick(game(101), false, at(10))).toBe(true);
+    expect(shouldSkipStaleCompletedGameThisTick(game(101), false, at(12))).toBe(true);
+  });
+
+  it("spreads a full slate across the hour: every stale game gets exactly four passes, and no single tick takes them all", () => {
+    const games = Array.from({ length: 68 }, (_, i) => game(401_856_700 + i));
+    const passesPerGame = new Map(games.map(g => [g.id, 0]));
+    let maxPerTick = 0;
+    for (let minute = 0; minute < 60; minute += 1) {
+      const processed = games.filter(g => !shouldSkipStaleCompletedGameThisTick(g, false, at(minute)));
+      maxPerTick = Math.max(maxPerTick, processed.length);
+      for (const g of processed) passesPerGame.set(g.id, passesPerGame.get(g.id)! + 1);
+    }
+    expect(new Set(passesPerGame.values())).toEqual(new Set([4]));
+    expect(maxPerTick).toBeLessThan(games.length / 10);
   });
 });
