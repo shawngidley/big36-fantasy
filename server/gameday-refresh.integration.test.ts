@@ -33,7 +33,7 @@ vi.mock("./supabase", () => ({
   },
 }));
 
-import { isCollegeFootballGamedayWindow, reconcileGameAgainstFinalData, resolveB36WeekNumber, runGamedayRefresh } from "./gameday-refresh";
+import { aliasCandidateKeysToLedger, isCollegeFootballGamedayWindow, reconcileGameAgainstFinalData, resolveB36WeekNumber, runGamedayRefresh } from "./gameday-refresh";
 
 const game = { id: 101, season: 2026, week: 1, seasonType: "regular", startDate: "2026-09-05T16:00:00Z", completed: true, homeTeam: "Ohio State", awayTeam: "Texas", homeClassification: "fbs", awayClassification: "fbs", homePoints: 21, awayPoints: 14 };
 const candidate = { sourceEventKey: "101:55:qb", sourceGameId: 101, schoolName: "Ohio State", position: "QB", eventType: "TOUCHDOWN", statValue: 1, yardDistance: 35, note: "Passing touchdown" };
@@ -95,6 +95,33 @@ describe("36 Football gameday source reconciliation", () => {
     await runGamedayRefresh({ force: true });
     const entryInserts = writes.filter(write => write.table === "b36_scoring_events" && write.options.method === "POST" && (write.options.body as Record<string, unknown>).audit_action === "ENTRY");
     expect(entryInserts).toHaveLength(0);
+  });
+
+  it("treats an existing typed return-touchdown row as the original for the new <playId>:SPECIAL_TEAMS_TOUCHDOWN key - no second 12-point entry on an unsettled game (Iowa's Jackson return, the other direction)", async () => {
+    // Weeks 0-4 are FINAL, but a game there that never got an official entry is not settled and
+    // is still re-reconciled. Its ledger holds the OLD typed key; the candidate now arrives under
+    // the new shared key. Same points: nothing written. Different points: a CORRECTION against the
+    // existing row, never a fresh ENTRY.
+    const legacy = { ...original, source_event_key: "101:55:OTHER_SPECIAL_TEAMS_TOUCHDOWN", event_type: "OTHER_SPECIAL_TEAMS_TOUCHDOWN", yard_distance: null, computed_points: 12, is_provisional: false };
+    const retyped = { ...candidate, sourceEventKey: "101:55:SPECIAL_TEAMS_TOUCHDOWN", eventType: "KICK_RETURN_TOUCHDOWN", yardDistance: null };
+    mocks.calculateEventScore.mockReturnValue({ points: 12 });
+    let writes = arrange([legacy]);
+    mocks.mapLivePlayToCandidates.mockReturnValue([retyped]);
+    await runGamedayRefresh({ force: true });
+    expect(writes.filter(write => write.table === "b36_scoring_events" && write.options.method === "POST")).toHaveLength(0);
+
+    mocks.calculateEventScore.mockReturnValue({ points: 15 });
+    writes = arrange([legacy]);
+    await runGamedayRefresh({ force: true });
+    const posts = writes.filter(write => write.table === "b36_scoring_events" && write.options.method === "POST").map(write => write.options.body as Record<string, unknown>);
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).toMatchObject({ audit_action: "CORRECTION", correction_of_event_id: "event-1", computed_points: 3 });
+    expect(String(posts[0].source_event_key)).toContain("101:55:OTHER_SPECIAL_TEAMS_TOUCHDOWN:correction");
+
+    // Pure helper: only the new key is aliased, only when a legacy key for that play exists.
+    const known = new Set<string | null | undefined>(["101:55:PUNT_RETURN_TOUCHDOWN", "101:70:SPECIAL_TEAMS_TOUCHDOWN"]);
+    expect(aliasCandidateKeysToLedger([{ sourceEventKey: "101:55:SPECIAL_TEAMS_TOUCHDOWN" }, { sourceEventKey: "101:70:SPECIAL_TEAMS_TOUCHDOWN" }, { sourceEventKey: "101:80:SPECIAL_TEAMS_TOUCHDOWN" }, { sourceEventKey: "101:55:SACK:unit" }], known).map(candidate => candidate.sourceEventKey))
+      .toEqual(["101:55:PUNT_RETURN_TOUCHDOWN", "101:70:SPECIAL_TEAMS_TOUCHDOWN", "101:80:SPECIAL_TEAMS_TOUCHDOWN", "101:55:SACK:unit"]);
   });
 
   it("on a real cron tick, re-reconciles a completed game older than six hours only every 15 minutes - the call volume that exhausted the CFBD monthly quota", async () => {

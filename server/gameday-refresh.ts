@@ -80,6 +80,25 @@ async function writeRefreshStatus(values: Record<string, unknown>) {
 // as before. This is the ONLY special case: every other CFBD week number maps straight through
 // unchanged. The date check uses US/Eastern (not UTC) so a Friday-night West Coast kickoff that
 // crosses into Aug 30 UTC still correctly counts as an Aug 29 game.
+// Special-teams return touchdowns now share one key per play, <playId>:SPECIAL_TEAMS_TOUCHDOWN,
+// so CFBD retyping the play (generic "Kickoff" -> "Kickoff Return Touchdown") no longer produces a
+// second key and a second 12-point credit (Iowa's Jackson return, week 4). Rows written before
+// that change carry the old typed keys. Any game that is not settled (a completed game in a FINAL
+// week with an official entry) can still be re-reconciled, and there the new key would not find
+// the old row and would insert a duplicate - the same double credit, from the other direction. So
+// when the ledger already holds one of the old keys for that play, the candidate takes THAT key:
+// the existing row is treated as the original, corrected if the points differ, never duplicated.
+export const LEGACY_SPECIAL_TEAMS_TOUCHDOWN_TYPES = ["KICK_RETURN_TOUCHDOWN", "PUNT_RETURN_TOUCHDOWN", "BLOCKED_KICK_RETURN_TOUCHDOWN", "OTHER_SPECIAL_TEAMS_TOUCHDOWN"] as const;
+export function aliasCandidateKeysToLedger<T extends { sourceEventKey: string }>(candidates: T[], knownKeys: Set<string | null | undefined>): T[] {
+  const suffix = ":SPECIAL_TEAMS_TOUCHDOWN";
+  return candidates.map(candidate => {
+    if (!candidate.sourceEventKey.endsWith(suffix) || knownKeys.has(candidate.sourceEventKey)) return candidate;
+    const playId = candidate.sourceEventKey.slice(0, -suffix.length);
+    const legacyKey = LEGACY_SPECIAL_TEAMS_TOUCHDOWN_TYPES.map(type => `${playId}:${type}`).find(key => knownKeys.has(key));
+    return legacyKey ? { ...candidate, sourceEventKey: legacyKey } : candidate;
+  });
+}
+
 export function resolveB36WeekNumber(game: { week: number; startDate: string }): number {
   if (game.week !== 1) return game.week;
   const easternDate = new Date(game.startDate).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
@@ -386,7 +405,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
         if (shouldSkipStaleCompletedGameThisTick(game, options.force ?? false)) continue;
         const weekRow = await ensureWeekRow(resolveB36WeekNumber(game), snapshot.weeks);
         const currentCandidateKeys = new Set<string>();
-        const gameCandidates = [
+        const gameCandidates = aliasCandidateKeysToLedger([
           ...[game.homeTeam, game.awayTeam].flatMap(school => {
             const roster = rosters.get(school) ?? [];
             const eligibleIds = eligibleGameIdsForSchool(schedule.games, school);
@@ -394,7 +413,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
             return plays.filter((play, index) => play.gameId === game.id && play.offense === school && !isSupersededInterceptionPlay(play, plays[index + 1])).flatMap(play => mapLivePlayToCandidates({ play, stats: statsForPlay(statsByPlayId, play), roster, selectedSchoolPositions: selectedSchoolPositions.map(selection => ({ schoolName: selection.schoolName, position: selection.position })), provisional: !game.completed }));
           }),
           ...finalShutoutCandidates({ game, selectedSchoolPositions: selectedSchoolPositions.map(selection => ({ schoolName: selection.schoolName, position: selection.position })), provisional: !game.completed }),
-        ];
+        ], knownKeys);
         // Set when a completed game's box score fetch is cut off by the time budget below. A timed-
         // out box score falls back to play-derived fumble candidates just like a genuine CFBD error
         // does - but unlike an error (which is roughly as likely on any tick), a timeout is *most*
@@ -611,10 +630,10 @@ export async function reconcileGameAgainstFinalData(params: {
     const schoolPlays = gamePlays.filter((play, index) => play.offense === school && !isSupersededInterceptionPlay(play, gamePlays[index + 1]));
     offensiveCandidatesBySchool.set(school, schoolPlays.flatMap(play => mapLivePlayToCandidates({ play, stats: statsForPlay(statsByPlayId, play), roster, selectedSchoolPositions: selectedSchoolPositions.map(selection => ({ schoolName: selection.schoolName, position: selection.position })), provisional: false })));
   }
-  let candidates = [
+  let candidates = aliasCandidateKeysToLedger([
     ...Array.from(offensiveCandidatesBySchool.values()).flat(),
     ...finalShutoutCandidates({ game, selectedSchoolPositions: selectedSchoolPositions.map(selection => ({ schoolName: selection.schoolName, position: selection.position })), provisional: false }),
-  ];
+  ], knownKeys);
   // Box-score fumbles: same override as the main automation - the box score is authoritative once
   // the game is over, replacing play-derived fumble candidates for schools it's available for.
   const boxScoreUnavailableFor: string[] = [];

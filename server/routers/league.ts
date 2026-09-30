@@ -1715,7 +1715,11 @@ export const leagueRouter = router({
         return { success: true as const, draftPosition: target.draft_position };
       } catch (error) { asError(error); }
     }),
-    createWeek: adminProcedure.input(z.object({ weekNumber: z.number().int().min(1).max(20), label: z.string().trim().min(2).max(80), status: z.enum(["UPCOMING", "OPEN", "FINAL"]).default("UPCOMING") })).mutation(async ({ ctx, input }) => {
+    createWeek: adminProcedure.input(z.object({ weekNumber: z.number().int().min(0).max(20), label: z.string().trim().min(2).max(80), status: z.enum(["UPCOMING", "OPEN", "FINAL"]).default("UPCOMING") })).mutation(async ({ ctx, input }) => {
+      // This form used to be the only way to touch a week, and submitting it for an existing week
+      // INSERTED a second row for that week number. Refuse that; setWeekStatus changes an existing week.
+      const existing = await supabaseRest<Array<{ id: string }>>("b36_scoring_weeks", { query: { select: "id", week_number: `eq.${input.weekNumber}` } });
+      if (existing.length) throw new TRPCError({ code: "CONFLICT", message: `Week ${input.weekNumber} already exists. Use Mark final / Reopen to change its status.` });
       await supabaseRest("b36_scoring_weeks", { method: "POST", body: { week_number: input.weekNumber, label: input.label, status: input.status } });
       await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "CREATE_WEEK", entity_type: "b36_scoring_weeks" } });
       return { success: true as const };
@@ -1782,7 +1786,29 @@ export const leagueRouter = router({
         }
       }
       const count = (status: string) => results.filter(result => result.status === status).length;
-      return { week: input.week, dryRun: input.dryRun, source: input.source, pulledAt: report.pulledAt, groupsInReport: report.groups.length, matches: count("match"), wouldAdjust: count("would-adjust"), adjusted: count("adjusted"), errors: count("error"), unknownGroups: count("unknown-group"), netPointChange: results.filter(result => result.status === "would-adjust" || result.status === "adjusted").reduce((sum, result) => sum + result.delta, 0), results };
+      // Lock the week in the same call that applies the audit. The gameday loop keeps
+      // re-reconciling OPEN weeks toward CFBD, and CFBD disagrees with the NCAA book on exactly the
+      // plays the audit corrected - so any gap between "applied" and "FINAL" undoes the audit. Weeks 2
+      // and 3 both drifted that way in the hours before the manual UPDATE ... SET status='FINAL' ran
+      // (Clemson WR, Georgia Southern WR, Jacksonville State K, Notre Dame DST, South Florida WR) and
+      // had to be re-applied. A dry run never locks; an apply with any write error leaves the week
+      // open so the failed groups can be retried.
+      let weekLocked = false;
+      if (!input.dryRun && count("error") === 0 && weekRow.status !== "FINAL") {
+        await supabaseRest("b36_scoring_weeks", { method: "PATCH", query: { id: q.eq(weekRow.id) }, body: { status: "FINAL" } });
+        await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: "LOCK_WEEK", entity_type: "b36_scoring_weeks", entity_id: weekRow.id, detail: { weekNumber: input.week, reason: `${input.source} applied`, adjusted: count("adjusted") } } });
+        weekLocked = true;
+      }
+      return { week: input.week, dryRun: input.dryRun, source: input.source, pulledAt: report.pulledAt, groupsInReport: report.groups.length, matches: count("match"), wouldAdjust: count("would-adjust"), adjusted: count("adjusted"), errors: count("error"), unknownGroups: count("unknown-group"), netPointChange: results.filter(result => result.status === "would-adjust" || result.status === "adjusted").reduce((sum, result) => sum + result.delta, 0), weekLocked, weekStatus: weekLocked ? "FINAL" : weekRow.status, results };
+    }),
+    // Flip a week between OPEN and FINAL without SQL. FINAL is what stops the gameday loop from
+    // touching the week's settled games (see settledGameIds in gameday-refresh).
+    setWeekStatus: adminProcedure.input(z.object({ weekNumber: z.number().int().min(0).max(20), status: z.enum(["UPCOMING", "OPEN", "FINAL"]) })).mutation(async ({ ctx, input }) => {
+      const rows = await supabaseRest<Array<{ id: string; status: string }>>("b36_scoring_weeks", { query: { select: "id,status", week_number: `eq.${input.weekNumber}` } });
+      if (!rows.length) throw new TRPCError({ code: "NOT_FOUND", message: `No scoring week row for week ${input.weekNumber}.` });
+      for (const row of rows) await supabaseRest("b36_scoring_weeks", { method: "PATCH", query: { id: q.eq(row.id) }, body: { status: input.status } });
+      await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: input.status === "FINAL" ? "LOCK_WEEK" : "SET_WEEK_STATUS", entity_type: "b36_scoring_weeks", entity_id: rows[0].id, detail: { weekNumber: input.weekNumber, from: rows[0].status, to: input.status } } });
+      return { success: true as const, weekNumber: input.weekNumber, status: input.status, rowsUpdated: rows.length };
     }),
     recordScoreEvent: adminProcedure.input(z.object({ weekId: uuid, schoolName: z.string().trim().min(2).max(120), position: positionSchema, eventType: eventTypeSchema, statValue: z.number().min(-10000).max(10000), yardDistance: z.number().int().min(0).max(109).nullable(), note: z.string().trim().max(1000).nullable() })).mutation(async ({ ctx, input }) => {
       try {
