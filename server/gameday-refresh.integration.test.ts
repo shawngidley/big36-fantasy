@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  getFbsTeams: vi.fn(), getLiveScoreboard: vi.fn(), getRegularSeasonGames: vi.fn(), getRoster: vi.fn(), getWeekPlays: vi.fn(), getWeekPlayStats: vi.fn(), getLivePlays: vi.fn(),
+  getFbsTeams: vi.fn(), getLiveScoreboard: vi.fn(), getRegularSeasonGames: vi.fn(), getRoster: vi.fn(), getWeekPlays: vi.fn(), getWeekPlayStats: vi.fn(), getLivePlays: vi.fn(), getCfbdUsage: vi.fn(),
   getLeagueSnapshot: vi.fn(), getScoringRulesForEvent: vi.fn(), calculateEventScore: vi.fn(), mapLivePlayToCandidates: vi.fn(), eligibleGameIdsForSchool: vi.fn(), finalShutoutCandidates: vi.fn(), isSupersededInterceptionPlay: vi.fn(), boxScoreFumbleCandidates: vi.fn(), supabaseRest: vi.fn(),
 }));
 
 vi.mock("./cfbd", () => ({
   getFbsTeams: mocks.getFbsTeams, getLiveScoreboard: mocks.getLiveScoreboard, getRegularSeasonGames: mocks.getRegularSeasonGames,
-  getRoster: mocks.getRoster, getWeekPlays: mocks.getWeekPlays, getWeekPlayStats: mocks.getWeekPlayStats, getLivePlays: mocks.getLivePlays, getGamePlayerStats: vi.fn().mockResolvedValue([]),
+  getRoster: mocks.getRoster, getWeekPlays: mocks.getWeekPlays, getWeekPlayStats: mocks.getWeekPlayStats, getLivePlays: mocks.getLivePlays, getGamePlayerStats: vi.fn().mockResolvedValue([]), getCfbdUsage: mocks.getCfbdUsage, CFBD_QUOTA_FLOOR: 2000,
 }));
 vi.mock("./league-data", () => ({ getLeagueSnapshot: mocks.getLeagueSnapshot, getScoringRulesForEvent: mocks.getScoringRulesForEvent }));
 vi.mock("./league-scoring", () => ({ calculateEventScore: mocks.calculateEventScore }));
@@ -74,6 +74,7 @@ describe("36 Football gameday source reconciliation", () => {
     mocks.getScoringRulesForEvent.mockResolvedValue([]);
     mocks.calculateEventScore.mockReturnValue({ points: 9 });
     mocks.getLivePlays.mockResolvedValue({ teams: [], drives: [] });
+    mocks.getCfbdUsage.mockResolvedValue({ remainingCalls: 250_000, monthlyLimit: 500_000, tier: 6, raw: {}, fetchedAt: "" });
   });
 
   it("keeps an unchanged final source event without a duplicate correction or reversal", async () => {
@@ -122,6 +123,46 @@ describe("36 Football gameday source reconciliation", () => {
     const known = new Set<string | null | undefined>(["101:55:PUNT_RETURN_TOUCHDOWN", "101:70:SPECIAL_TEAMS_TOUCHDOWN"]);
     expect(aliasCandidateKeysToLedger([{ sourceEventKey: "101:55:SPECIAL_TEAMS_TOUCHDOWN" }, { sourceEventKey: "101:70:SPECIAL_TEAMS_TOUCHDOWN" }, { sourceEventKey: "101:80:SPECIAL_TEAMS_TOUCHDOWN" }, { sourceEventKey: "101:55:SACK:unit" }], known).map(candidate => candidate.sourceEventKey))
       .toEqual(["101:55:PUNT_RETURN_TOUCHDOWN", "101:70:SPECIAL_TEAMS_TOUCHDOWN", "101:80:SPECIAL_TEAMS_TOUCHDOWN", "101:55:SACK:unit"]);
+  });
+
+  it("stops an unforced tick when CFBD reports fewer calls left than the quota floor, still runs a forced one, and ignores an /info failure", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date("2026-09-26T20:00:00-04:00")); // a Saturday evening, inside the gameday window
+    try {
+      const writes = arrange([]);
+      mocks.mapLivePlayToCandidates.mockReturnValue([candidate]);
+      mocks.getCfbdUsage.mockResolvedValue({ remainingCalls: 1200, monthlyLimit: 500_000, tier: 6, raw: {}, fetchedAt: "" });
+      await expect(runGamedayRefresh({})).resolves.toMatchObject({ skipped: "cfbd-quota-floor", cfbdRemainingCalls: 1200 });
+      expect(mocks.getLiveScoreboard).not.toHaveBeenCalled();
+      expect(writes.filter(write => write.table === "b36_scoring_events")).toHaveLength(0);
+      const forced = await runGamedayRefresh({ force: true });
+      expect(forced.skipped).toBeUndefined();
+      expect(mocks.getLiveScoreboard).toHaveBeenCalledTimes(1);
+      mocks.getCfbdUsage.mockRejectedValue(new Error("info unavailable"));
+      const withoutInfo = await runGamedayRefresh({});
+      expect(withoutInfo.skipped).not.toBe("cfbd-quota-floor");
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("evaluates the shutout off the scoreboard's final score at the whistle, as a provisional entry, instead of waiting for /games to flip completed (Indiana's week-3 shutout posted hours late)", async () => {
+    const inProgressPerGames = { ...game, completed: false, homePoints: null, awayPoints: null };
+    mocks.getRegularSeasonGames.mockResolvedValue([inProgressPerGames]);
+    mocks.getLiveScoreboard.mockResolvedValue([{ id: 101, status: "completed", homeTeam: { name: "Ohio State", points: 31 }, awayTeam: { name: "Texas", points: 0 } }]);
+    mocks.mapLivePlayToCandidates.mockReturnValue([]);
+    mocks.finalShutoutCandidates.mockImplementation(({ game: evaluated, provisional }: { game: { completed: boolean; awayPoints: number | null }; provisional: boolean }) => evaluated.completed && evaluated.awayPoints === 0 ? [{ sourceEventKey: "101:SHUTOUT:DST:ohio state", sourceGameId: 101, schoolName: "Ohio State", position: "QB", eventType: "SHUTOUT", statValue: 1, yardDistance: null, provisional, note: "shutout" }] : []);
+    const writes = arrange([]);
+    await runGamedayRefresh({ force: true });
+    const shutoutCall = mocks.finalShutoutCandidates.mock.calls.map(call => call[0]).find((input: { game: { id: number } }) => input.game.id === 101);
+    expect(shutoutCall.game).toMatchObject({ completed: true, homePoints: 31, awayPoints: 0 });
+    expect(shutoutCall.provisional).toBe(true);
+    const inserts = writes.filter(write => write.table === "b36_scoring_events" && write.options.method === "POST").map(write => write.options.body as Record<string, unknown>);
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0]).toMatchObject({ event_type: "SHUTOUT", audit_action: "ENTRY", is_provisional: true, source_event_key: "101:SHUTOUT:DST:ohio state" });
+    // A game the scoreboard does not call completed is evaluated exactly as /games describes it.
+    mocks.getLiveScoreboard.mockResolvedValue([{ id: 101, status: "in_progress", homeTeam: { name: "Ohio State", points: 31 }, awayTeam: { name: "Texas", points: 0 } }]);
+    mocks.finalShutoutCandidates.mockClear();
+    await runGamedayRefresh({ force: true });
+    const stillLive = mocks.finalShutoutCandidates.mock.calls.map(call => call[0]).find((input: { game: { id: number } }) => input.game.id === 101);
+    expect(stillLive.game).toMatchObject({ completed: false });
   });
 
   it("on a real cron tick, re-reconciles a completed game older than six hours only every 15 minutes - the call volume that exhausted the CFBD monthly quota", async () => {

@@ -15,12 +15,12 @@ import { syncFbsPoolAndSchedule } from "../gameday-refresh";
 import { adaptLiveGameToLegacyPlays } from "../gameday-refresh";
 import { resolveB36WeekNumber, sourceEventNeedsCorrection, sourceEventReversalPoints, reconcileGameAgainstFinalData } from "../gameday-refresh";
 import { parseExternalAuditReport, planExternalAuditAdjustments } from "../external-audit";
-import { boxScoreFumbleCandidates, eligibleGameIdsForSchool, finalShutoutCandidates, indexPlayStatsByPlayId, isSupersededInterceptionPlay, mapLivePlayToCandidates, matchBoxAthleteToRoster, normalizeSchoolForComparison, statsForPlay, type LivePosition, type PlayStatsIndex } from "../live-scoring";
+import { boxScoreFumbleCandidates, eligibleGameIdsForSchool, finalShutoutCandidates, fumbleRecoveryFromText, indexPlayStatsByPlayId, isSupersededInterceptionPlay, mapLivePlayToCandidates, matchBoxAthleteToRoster, normalizePlayText, normalizeSchoolForComparison, rosterMentionsInText, statsForPlay, type LivePosition, type PlayStatsIndex } from "../live-scoring";
 import { decodeRegistrationLogo, hashRegistrationPin, normalizeRegistrationEmail, normalizeRegistrationPhone, verifyRegistrationPin } from "../registration";
 import { storagePut } from "../storage";
 import { notifyOwnerWhenUpcomingPickSafely, sendDraftSms } from "../draft-alerts";
 import { activateNextPendingTurn } from "../draft-clock";
-import { getGamePlayerStats, getLivePlays, getLiveScoreboard, getRegularSeasonGames, getRoster, getWeekPlays, getWeekPlayStats } from "../cfbd";
+import { CFBD_QUOTA_FLOOR, getCfbdUsage, getGamePlayerStats, getLivePlays, getLiveScoreboard, getRegularSeasonGames, getRoster, getWeekPlays, getWeekPlayStats } from "../cfbd";
 import { lotteryCommitment, LOTTERY_REVEAL_INTERVAL_SECONDS, secureShuffle } from "../draft-lottery";
 
 const positionSchema = z.enum(positions);
@@ -889,6 +889,39 @@ export const leagueRouter = router({
       const filtered = input.search ? roster.filter(athlete => `${athlete.firstName ?? ""} ${athlete.lastName ?? ""}`.toLowerCase().includes(input.search!.toLowerCase())) : roster;
       return { rosterSize: roster.length, matches: filtered.map(athlete => ({ id: athlete.id, firstName: athlete.firstName, lastName: athlete.lastName, position: athlete.position })) };
     }),
+    // One play, end to end: the raw CFBD play object, its player-stat rows, both rosters' name
+    // matches against the text, the fumble-recovery reading, and the candidates the scorer produces
+    // for the league's actual drafted slots. For the NCAA-audit leftovers that are logic rather than
+    // CFBD data (a touchdown landing on the wrong position, a two-point pass not detected, a PAT on
+    // the wrong team) this answers "why" in one call instead of a guess. Pass the CFBD week (b36
+    // week 0 is CFBD week 1) and the play id as it appears in the ledger note; a live "9"-prefixed
+    // id is looked up by its official id too. Also accepts the ledger's source_game_id to narrow.
+    debugPlay: adminProcedure.input(z.object({ week: z.number().int().min(1).max(20), playId: z.union([z.string(), z.number()]), gameId: z.number().optional() })).query(async ({ input }) => {
+      const season = (await supabaseRest<Array<{ season: number }>>("b36_automation_config", { query: { select: "season", id: q.eq(true) } }))[0]?.season;
+      if (!season) throw new Error("No season configured.");
+      const wanted = String(input.playId);
+      const wantedIds = new Set([wanted, wanted.length >= 13 && wanted.startsWith("9") ? wanted.slice(1) : wanted]);
+      const [plays, stats, league] = await Promise.all([getWeekPlays(season, input.week), getWeekPlayStats(season, input.week), getLeagueSnapshot()]);
+      const play = plays.find(candidate => wantedIds.has(String(candidate.id)) && (!input.gameId || candidate.gameId === input.gameId));
+      if (!play) return { found: false as const, season, week: input.week, playId: wanted, playsInWeek: plays.length, hint: "No play with that id in CFBD's final /plays feed for that week. A live-only id (13 digits starting with 9) that never got an official play means CFBD dropped or renumbered it." };
+      const playStats = stats.filter(stat => String(stat.playId) === String(play.id));
+      const [offenseRoster, defenseRoster] = await Promise.all([getRoster(play.offense, season), getRoster(play.defense, season)]);
+      const selectedSchoolPositions = league.owners.flatMap(owner => owner.picks.map(pick => ({ schoolName: pick.schoolName, position: pick.position as LivePosition })));
+      const draftedOnThisPlay = selectedSchoolPositions.filter(selection => [play.offense, play.defense].some(team => normalizeSchoolForComparison(team) === normalizeSchoolForComparison(selection.schoolName)));
+      const normalizedText = normalizePlayText(play.playText);
+      const beforeTouchdown = normalizedText.split(/touchdown/)[0] ?? normalizedText;
+      return {
+        found: true as const, season, week: input.week,
+        play,
+        playStats,
+        rosterMentions: { [play.offense]: rosterMentionsInText(play.playText, offenseRoster), [play.defense]: rosterMentionsInText(play.playText, defenseRoster) },
+        rosterSizes: { [play.offense]: offenseRoster.length, [play.defense]: defenseRoster.length },
+        fumbleRecovery: fumbleRecoveryFromText({ normalizedText: beforeTouchdown, offense: play.offense, defense: play.defense, possessingSchool: play.offense }),
+        draftedOnThisPlay,
+        candidates: mapLivePlayToCandidates({ play, stats: playStats, roster: offenseRoster, selectedSchoolPositions, provisional: false }),
+        candidatesIfEverythingDrafted: mapLivePlayToCandidates({ play, stats: playStats, roster: offenseRoster, selectedSchoolPositions: [play.offense, play.defense].flatMap(team => (["QB", "RB", "WR", "TE", "K", "DST"] as LivePosition[]).map(position => ({ schoolName: team, position }))), provisional: false }),
+      };
+    }),
     debugLivePlays: adminProcedure.input(z.object({ gameId: z.number() })).query(({ input }) => getLivePlays(input.gameId)),
     debugLiveCandidates: adminProcedure.input(z.object({ gameId: z.number(), school: z.string() })).query(async ({ input }) => {
       const [live, league] = await Promise.all([getLivePlays(input.gameId), getLeagueSnapshot()]);
@@ -1515,6 +1548,13 @@ export const leagueRouter = router({
       const rows = await supabaseRest<Array<{ season: number; enabled: boolean; last_refresh_at: string | null }>>("b36_automation_config", { query: { select: "season,enabled,last_refresh_at", id: q.eq(true) } });
       return rows[0] ?? null;
     }),
+    // CFBD account usage for the Automation tab, with the floor the cron loop stops at. Polled
+    // every 15s by the page but served from the 10-minute /info cache, so it costs one CFBD call
+    // per 10 minutes per instance.
+    cfbdUsage: adminProcedure.query(async () => {
+      try { return { ok: true as const, ...(await getCfbdUsage()), floor: CFBD_QUOTA_FLOOR }; }
+      catch (error) { return { ok: false as const, error: error instanceof Error ? error.message : String(error), floor: CFBD_QUOTA_FLOOR, remainingCalls: null, monthlyLimit: null, tier: null, raw: null, fetchedAt: new Date().toISOString() }; }
+    }),
     setLiveAutomation: adminProcedure.input(z.object({ enabled: z.boolean() })).mutation(async ({ ctx, input }) => {
       await supabaseRest("b36_automation_config", { method: "PATCH", query: { id: q.eq(true) }, body: { enabled: input.enabled, updated_at: new Date().toISOString() } });
       await supabaseRest("b36_audit_events", { method: "POST", body: { actor_open_id: ctx.user.openId, action: input.enabled ? "ENABLE_LIVE_AUTOMATION" : "DISABLE_LIVE_AUTOMATION", entity_type: "b36_automation_config" } });
@@ -1749,8 +1789,9 @@ export const leagueRouter = router({
       // b36_source_games table the gameday loop already syncs, not from CFBD's /games - so the NCAA
       // audit can still be applied while the CFBD account is unavailable. That is not hypothetical:
       // the CFBD monthly quota ran out on 2026-09-26 at 9:22pm ET, and correcting week 4 from the
-      // external audit was the only way to finish the week until it reset. (b36 week 0 is CFBD week
-      // 1's opening-weekend slate, so both CFBD week numbers are read and resolveB36WeekNumber picks.)
+      // external audit was the only way to finish the week until it reset. b36 week 0 is the Aug 29
+      // slice of CFBD week 1, so b36 weeks 0 and 1 both read CFBD week 1 and resolveB36WeekNumber
+      // keeps the games that belong to the requested b36 week; every other week maps one to one.
       const snapshot = await getLeagueSnapshot();
       const weekRow = snapshot.weeks.find(week => week.weekNumber === input.week);
       if (!weekRow) throw new Error(`No scoring week row for b36 week ${input.week}.`);

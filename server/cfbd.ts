@@ -72,8 +72,27 @@ export type CfbdPlayStat = { playId: number | string; athleteId: number; athlete
 export type CfbdLiveGamePlay = { id: string; homeScore: number; awayScore: number; period: number; clock: string; wallClock?: string; teamId: number; team: string; down?: number | null; distance?: number | null; yardsToGoal?: number | null; yardsGained?: number | null; playType?: string | null; playText?: string | null };
 export type CfbdLiveDrive = { id: string; offense: string; defense: string; plays: CfbdLiveGamePlay[] };
 export type CfbdLiveGame = { id: number; status?: string | null; period?: number | null; clock?: string | null; teams: Array<{ team: string; homeAway: "home" | "away"; points: number }>; drives: CfbdLiveDrive[] };
-export type CfbdRosterAthlete = { id: number | string; firstName?: string | null; lastName?: string | null; position: string | null; team?: string | null };
+export type CfbdRosterAthlete = { id: number | string; firstName?: string | null; lastName?: string | null; position: string | null; team?: string | null; jersey?: number | string | null };
 export type CfbdScoreboardGame = { id: number; status?: string | null; period?: number | null; clock?: string | null; homeTeam?: { name?: string | null; points?: number | string | null; lineScores?: Array<number | string> | null } | null; awayTeam?: { name?: string | null; points?: number | string | null; lineScores?: Array<number | string> | null } | null; week?: number | null; season?: number | null };
+
+// CFBD's /info reports the authenticated account's tier and monthly call usage. The exact field
+// names are not documented as a stable contract, so the raw payload is returned alongside a
+// best-effort reading of "calls remaining" and "monthly limit" from the names CFBD has used.
+// Cached 10 minutes: this is checked at the top of every cron tick, and one real call per 10
+// minutes per instance is noise next to the plays/scoreboard traffic it protects.
+export type CfbdUsage = { raw: unknown; remainingCalls: number | null; monthlyLimit: number | null; tier: string | number | null; fetchedAt: string };
+export const CFBD_QUOTA_FLOOR = Number(process.env.CFBD_QUOTA_FLOOR ?? 2000);
+export function readCfbdUsage(raw: unknown, fetchedAt = new Date().toISOString()): CfbdUsage {
+  const record = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const pick = (...keys: string[]) => { for (const key of keys) { const value = record[key]; if (typeof value === "number" && Number.isFinite(value)) return value; if (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) return Number(value); } return null; };
+  const monthlyLimit = pick("callLimit", "call_limit", "monthlyCallLimit", "monthly_call_limit", "limit", "monthlyLimit");
+  const used = pick("callsUsed", "calls_used", "callCount", "call_count", "used");
+  const remainingDirect = pick("remainingCalls", "remaining_calls", "callsRemaining", "calls_remaining", "remaining");
+  const remainingCalls = remainingDirect ?? (monthlyLimit != null && used != null ? monthlyLimit - used : null);
+  const tierValue = record.tier ?? record.patronLevel ?? record.patron_level ?? record.plan ?? null;
+  return { raw, remainingCalls, monthlyLimit, tier: typeof tierValue === "string" || typeof tierValue === "number" ? tierValue : null, fetchedAt };
+}
+export const getCfbdUsage = async (): Promise<CfbdUsage> => readCfbdUsage(await cachedCfbdGet<unknown>("/info", {}, 10 * 60_000));
 
 export const getFbsTeams = (year: number) => cachedCfbdGet<CfbdTeam[]>("/teams/fbs", { year }, 6 * 60 * 60_000);
 export const getRegularSeasonGames = (year: number) => cachedCfbdGet<CfbdGame[]>("/games", { year, seasonType: "regular" }, 10 * 60_000);

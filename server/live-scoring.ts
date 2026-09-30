@@ -124,11 +124,36 @@ function positionsMentionedInText(playText: string | null | undefined, roster: C
     for (let length = 2; length <= first.length; length += 1) if (text.includes(` ${first.slice(0, length)} ${stripGenerationalSuffix(normalizeText(athlete.lastName ?? ""))} `)) return true;
     return false;
   });
-  for (const athlete of (resolved.length ? resolved : matches)) {
+  // Teammates who share a surname AND a first initial ("#8 D.Moore" the QB, "#1 D.Moore" the WR)
+  // are indistinguishable by name alone, and when no stat row is there to break the tie every one
+  // of them gets credited - week 4, Oregon's TE slot was paid 12 for a touchdown the NCAA book has
+  // on a WR. CFBD's text puts the jersey number right before the name and the roster carries it,
+  // so when the tie survives the name check, keep only the athletes whose own number precedes
+  // their name in the text. Falls through unchanged when no roster row has a jersey.
+  const byJersey = (resolved.length > 1 ? resolved : matches.length > 1 ? matches : []).filter(athlete => {
+    if (athlete.jersey == null || athlete.jersey === "") return false;
+    const last = stripGenerationalSuffix(normalizeText(athlete.lastName ?? ""));
+    const first = normalizeText(athlete.firstName ?? "");
+    for (let length = 1; length <= Math.max(1, first.length); length += 1) if (text.includes(` ${String(athlete.jersey)} ${first.slice(0, length)} ${last} `)) return true;
+    return false;
+  });
+  for (const athlete of (byJersey.length ? byJersey : resolved.length ? resolved : matches)) {
     const position = positions.get(String(athlete.id));
     if (position) mentioned.add(position);
   }
   return mentioned;
+}
+
+// For the admin debugPlay endpoint: every roster athlete whose name the text matches, with the
+// position the scorer would use. This is the exact match the touchdown/fumble attribution runs on,
+// so a wrong-position credit (a WR's touchdown landing on TE because two teammates share a
+// surname and the text only gives an initial) is visible here without guessing.
+export const normalizePlayText = (value: string | null | undefined) => normalizeText(value);
+
+export function rosterMentionsInText(playText: string | null | undefined, roster: CfbdRosterAthlete[]) {
+  const positions = positionByAthlete(roster);
+  const text = ` ${normalizeText(playText)} `;
+  return roster.filter(athlete => normalizeText(athlete.lastName ?? "").length >= 3 && nameVariantsMatchText(text, athlete.firstName ?? "", athlete.lastName ?? "")).map(athlete => ({ id: athlete.id, firstName: athlete.firstName ?? null, lastName: athlete.lastName ?? null, rosterPosition: athlete.position, scoringPosition: positions.get(String(athlete.id)) ?? null }));
 }
 
 function passerPositionsInText(playText: string | null | undefined, roster: CfbdRosterAthlete[], positions: Map<string, LivePosition | null>) {

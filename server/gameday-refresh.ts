@@ -1,4 +1,4 @@
-import { getFbsTeams, getGamePlayerStats, getLivePlays, getLiveScoreboard, getRegularSeasonGames, getRoster, getWeekPlays, getWeekPlayStats, type CfbdGame, type CfbdLiveGame, type CfbdPlay, type CfbdRosterAthlete } from "./cfbd";
+import { CFBD_QUOTA_FLOOR, getCfbdUsage, getFbsTeams, getGamePlayerStats, getLivePlays, getLiveScoreboard, getRegularSeasonGames, getRoster, getWeekPlays, getWeekPlayStats, type CfbdGame, type CfbdLiveGame, type CfbdPlay, type CfbdRosterAthlete } from "./cfbd";
 import { getLeagueSnapshot, getScoringRulesForEvent } from "./league-data";
 import { calculateEventScore } from "./league-scoring";
 import { boxScoreFumbleCandidates, eligibleGameIdsForSchool, finalShutoutCandidates, indexPlayStatsByPlayId, isSupersededInterceptionPlay, mapLivePlayToCandidates, normalizeSchoolForComparison, statsForPlay, type LivePosition } from "./live-scoring";
@@ -153,6 +153,19 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
   if (!config) throw new Error("36 Football automation is not configured.");
   if (!config.enabled && !options.force) return { skipped: "automation-disabled", insertedEvents: 0, activeGames: 0 };
   if (!options.force && !isCollegeFootballGamedayWindow()) return { skipped: "outside-gameday-window", insertedEvents: 0, activeGames: 0 };
+  // Quota floor. The monthly CFBD quota ran out on Sept 26 at 9:22pm ET with games on, and
+  // nobody knew until an owner texted the next morning: every tick just failed. When /info says
+  // fewer than CFBD_QUOTA_FLOOR calls are left, an unforced tick stops here and says why, so the
+  // last few thousand calls are kept for a forced refresh or the week's final reconciliation
+  // rather than burned one scoreboard poll at a time. A forced run always goes through. If /info
+  // itself fails or has no usable numbers, the tick proceeds as before.
+  if (!options.force) {
+    const usage = await Promise.resolve().then(() => getCfbdUsage()).catch(() => null);
+    if (usage?.remainingCalls != null && usage.remainingCalls < CFBD_QUOTA_FLOOR) {
+      console.error(`[gameday] CFBD quota floor: ${usage.remainingCalls} calls remaining (floor ${CFBD_QUOTA_FLOOR}). Skipping tick.`);
+      return { skipped: "cfbd-quota-floor", insertedEvents: 0, activeGames: 0, cfbdRemainingCalls: usage.remainingCalls };
+    }
+  }
   // This runs on a route the cron hits EVERY MINUTE. The platform maxDuration (vercel.json) is now
   // 300s so the on-demand admin audit/reconcile endpoints can do a whole week in one call - but this
   // loop deliberately keeps its own 45s budget regardless: a tick that ran past 60s would overlap the
@@ -166,7 +179,11 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
   // reconciliation loop with margin to spare (leaving room for the schedule sync and live-detection
   // pass that already ran), so a tick that runs out of time simply leaves the remainder for the next
   // one - which starts a fresh 60s budget a minute later - rather than getting killed mid-write.
-  const deadlineAt = Date.now() + 45_000;
+  // One clock reading for the whole tick, so every game's 15-minute cadence check (see
+  // shouldSkipStaleCompletedGameThisTick) sees the same minute even when the loop crosses a
+  // minute boundary mid-tick - otherwise a game could be skipped this tick and next tick both.
+  const tickNow = Date.now();
+  const deadlineAt = tickNow + 45_000;
   const pastDeadline = () => Date.now() > deadlineAt;
   // pastDeadline() alone only stops us from STARTING new work once the budget is spent - it does
   // nothing once a single await is already in flight. debugRefreshTiming confirmed the pre-loop
@@ -204,6 +221,19 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
     const selectedSchoolPositions = snapshot.owners.flatMap(owner => owner.picks.map(pick => ({ schoolName: pick.schoolName, position: pick.position as LivePosition, draftSlotId: pick.id })));
     const scoreboard = await getLiveScoreboard();
     const scoreboardStatusById = new Map(scoreboard.filter(game => game.id).map(game => [game.id, game.status ?? null]));
+    // Final scores straight from the scoreboard, which flips to "completed" with the final points
+    // at the whistle. CFBD's /games (where schedule.games and game.completed come from) can lag that
+    // by an hour or more, and it is the only source finalShutoutCandidates used - so a shutout
+    // (Indiana, week 3) showed up long after every other DST point for the same game had posted.
+    // Used ONLY for the shutout candidate below, and only as a provisional entry: everything else
+    // that keys off game.completed (box scores, reversing unconfirmed live entries) still waits for
+    // /games, since /plays is usually not complete at the whistle either. The same source key is
+    // produced again once /games catches up, so the provisional row is confirmed, not duplicated.
+    const scoreboardFinalById = new Map<number, { homePoints: number; awayPoints: number }>();
+    for (const row of scoreboard) {
+      const home = Number(row.homeTeam?.points); const away = Number(row.awayTeam?.points);
+      if (row.id && row.status === "completed" && Number.isFinite(home) && Number.isFinite(away)) scoreboardFinalById.set(row.id, { homePoints: home, awayPoints: away });
+    }
     // CFBD's /scoreboard (no week/year param - see getLiveScoreboard) only ever returns TODAY's games.
     // draftedGames used to be filtered through this same-day scoreboard, which meant any drafted-school
     // game not fully reconciled before its calendar day ended became permanently invisible to every
@@ -402,7 +432,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
         // still land within a quarter hour, backlog call volume drops ~15x. Games still in progress
         // or freshly finished are untouched, and a forced run (the admin "Run refresh now") is
         // always a full pass.
-        if (shouldSkipStaleCompletedGameThisTick(game, options.force ?? false)) continue;
+        if (shouldSkipStaleCompletedGameThisTick(game, options.force ?? false, tickNow)) continue;
         const weekRow = await ensureWeekRow(resolveB36WeekNumber(game), snapshot.weeks);
         const currentCandidateKeys = new Set<string>();
         const gameCandidates = aliasCandidateKeysToLedger([
@@ -412,7 +442,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
             if (!eligibleIds.includes(game.id)) return [];
             return plays.filter((play, index) => play.gameId === game.id && play.offense === school && !isSupersededInterceptionPlay(play, plays[index + 1])).flatMap(play => mapLivePlayToCandidates({ play, stats: statsForPlay(statsByPlayId, play), roster, selectedSchoolPositions: selectedSchoolPositions.map(selection => ({ schoolName: selection.schoolName, position: selection.position })), provisional: !game.completed }));
           }),
-          ...finalShutoutCandidates({ game, selectedSchoolPositions: selectedSchoolPositions.map(selection => ({ schoolName: selection.schoolName, position: selection.position })), provisional: !game.completed }),
+          ...finalShutoutCandidates({ game: !game.completed && scoreboardFinalById.has(game.id) ? { ...game, completed: true, ...scoreboardFinalById.get(game.id)! } : game, selectedSchoolPositions: selectedSchoolPositions.map(selection => ({ schoolName: selection.schoolName, position: selection.position })), provisional: !game.completed }),
         ], knownKeys);
         // Set when a completed game's box score fetch is cut off by the time budget below. A timed-
         // out box score falls back to play-derived fumble candidates just like a genuine CFBD error
