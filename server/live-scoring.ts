@@ -145,6 +145,66 @@ function passerPositionsInText(playText: string | null | undefined, roster: Cfbd
   return mentioned;
 }
 
+// CFBD's play text names the team that recovered a fumble/muff by an abbreviation of its own
+// choosing, not the team name the play's offense/defense fields use: "recovered by TEXAS", "TENN",
+// "ASU" (Arkansas State), "TAMU" (Texas A&M), "TOLEDO"/"TOL", "NW" (Northwestern), "TXST" (Texas
+// State), "U-M" (Michigan), "KSU", "UND", "MSU", "FRES", "NEB", "CLEM", "WASH", "FLA". There is no
+// abbreviation table in any CFBD feed, so this resolves a token against a full school name by the
+// three forms those abbreviations actually take: a prefix of the run-together name (TEXAS, TENN,
+// TOL, FRES, WASH), the initials with an optional "U" (ASU, KSU, TAMU, UND, OU, MSU), or an
+// in-order subsequence that starts with the name's first letter (TXST, NW, FST). A token that fits
+// neither team ("Hokies", "CANES", "UGA") is reported as no match so the caller keeps its existing
+// behavior rather than guessing.
+export function textTeamTokenMatchesSchool(token: string, schoolName: string): boolean {
+  const words = normalizeText(schoolName).split(" ").filter(Boolean);
+  const joined = words.join("");
+  const compact = normalizeText(token).replace(/\s+/g, "");
+  if (compact.length < 2 || !joined) return false;
+  if (joined.startsWith(compact)) return true;
+  const initials = words.map(word => word[0]).join("");
+  if (initials.length >= 1 && (compact === initials || compact === `${initials}u` || compact === `u${initials}`)) return true;
+  if (compact[0] !== joined[0]) return false;
+  let index = 0;
+  for (const character of joined) if (character === compact[index]) index += 1;
+  return index === compact.length;
+}
+
+// Who recovered a fumble, read from the text, and whether that was the fumbling team itself.
+// Returns null when the text does not name a recovering team, or names one that resolves to both
+// teams or neither - the caller then falls back to its other signals unchanged.
+//
+// Real week-4 plays this decides (every one was scored as a takeaway before this; the NCAA book
+// credits none of them, because the ball never changed hands):
+//   "fumbled by Texas at recovered by TEXAS #16 A.Manning"                      (Texas rush, offense Texas)
+//   "fumble by #11 F.Brandon recovered by TENN  at, End Of Play"                (Tennessee sack-fumble)
+//   "fumbled by Arkansas State at KSU31 recovered by ASU #9 T.Owens"            (initials + U)
+//   "fumbled by #2 J.Barney Jr. ... forced by #4 C.Brantley recovered by NEB #51 J.Evans"
+//   "fumble by #17 G.Parkhurst recovered by TXST #58 A.Rhodes"                  (subsequence)
+//   "fumbled by Northwestern at NW 00 recovered by NW  #0 A.Chiles ... SAFETY"  (safety stands, no takeaway)
+//   "muffed by #4 R.Owens II at TAMU01 recovered by TAMU #4 R.Owens II"         (kickoff, returner's own team)
+//   "muffed by #19 D.Barnett Jr. at TOLEDO03 recovered by TOLEDO  at TOLEDO03" (kickoff, no recoverer named)
+//   "muffed by #8 E.James at IOWA38 recovered by IOWA #8 E.James"               (punt)
+//   "fumbled by #22 T.Cooley ... forced by #1 J.Howard recovered by WASH #76 K.Greene"
+//   "fumbled by  at UCLA33 recovered by UCLA #74 J.Armella"                     (live text with the rusher blank)
+// And the ones it must still call takeaways (all credited by the NCAA book):
+//   "fumbled by Texas at TENN49 recovered by TENN #7 A.Carter" on a Tennessee kickoff (kicking team recovers)
+//   "fumbled by #33 K.Cox ... recovered by UMD #14 S.Johnson" (UCLA rush, Maryland recovers)
+//   "fumbled by #81 R.Beers ... recovered by UGA #14 R.Dinkins" (UGA fits neither name -> null -> existing path)
+export function fumbleRecoveryFromText(input: { normalizedText: string; offense: string; defense: string; possessingSchool: string }): { recoveringSchool: string; recoveredByFumblingTeam: boolean } | null {
+  const text = input.normalizedText;
+  const recoverer = text.match(/recovered by (?!at\b|the\b)([a-z]+(?: [a-z]+)*?)(?= \d| (?:at|for|in|on)\b|$)/)?.[1]?.trim();
+  if (!recoverer) return null;
+  const namedFumbler = text.match(/(?:fumbled?|muffed) by (?!at\b)([a-z][a-z ]*?)(?= at\b| recovered| forced|\s\d|\s*$)/)?.[1]?.trim();
+  const fumblerMatchesOffense = Boolean(namedFumbler) && textTeamTokenMatchesSchool(namedFumbler!, input.offense);
+  const fumblerMatchesDefense = Boolean(namedFumbler) && textTeamTokenMatchesSchool(namedFumbler!, input.defense);
+  const fumblingSchool = fumblerMatchesOffense && !fumblerMatchesDefense ? input.offense : fumblerMatchesDefense && !fumblerMatchesOffense ? input.defense : input.possessingSchool;
+  const otherSchool = normalizeSchoolForComparison(fumblingSchool) === normalizeSchoolForComparison(input.offense) ? input.defense : input.offense;
+  const recovererMatchesFumbling = textTeamTokenMatchesSchool(recoverer, fumblingSchool);
+  const recovererMatchesOther = textTeamTokenMatchesSchool(recoverer, otherSchool);
+  if (recovererMatchesFumbling === recovererMatchesOther) return null;
+  return recovererMatchesFumbling ? { recoveringSchool: fumblingSchool, recoveredByFumblingTeam: true } : { recoveringSchool: otherSchool, recoveredByFumblingTeam: false };
+}
+
 function uniqueCandidates(candidates: ScoringCandidate[]) {
   return Array.from(new Map(candidates.map(candidate => [candidate.sourceEventKey, candidate])).values());
 }
@@ -324,8 +384,30 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   const fumblerJerseyNumber = beforeTouchdown.match(/fumbled? by\s+(\d+)/)?.[1];
   const recovererJerseyNumber = beforeTouchdown.match(/recovered by\D*?(\d+)/)?.[1];
   const recoveredBySameJerseyNumber = Boolean(fumblerJerseyNumber && recovererJerseyNumber && fumblerJerseyNumber === recovererJerseyNumber);
-  const fumbleChangedPossessionBeforeTouchdown = /fumble/.test(beforeTouchdown) && /recovered by/.test(beforeTouchdown) && !/(own player|'s own)/.test(beforeTouchdown) && !recoveredBySameJerseyNumber;
-  const isFumbleLostToOpponent = playType.includes("fumble recovery (opponent)") || playType.includes("fumble return touchdown") || isMuffedReturn || fumbleChangedPossessionBeforeTouchdown;
+  // The jersey-number check above only catches a player recovering HIS OWN fumble. The week-4 NCAA
+  // audit showed the far more common miss: a DIFFERENT player on the same team falls on it
+  // ("fumbled by #2 J.Barney Jr. ... recovered by NEB #51 J.Evans", "muffed by #19 D.Barnett Jr. ...
+  // recovered by TOLEDO", "fumbled by Texas ... recovered by TEXAS #16 A.Manning"), or the recoverer
+  // is not named at all ("recovered by TENN  at,"). Every one of those was scored as a takeaway
+  // (+3 DST, -3 FUMBLE_LOST) that the official book does not have, because the ball never changed
+  // hands. CFBD's text always names the recovering TEAM right after "recovered by", so resolve that
+  // token against the two teams on the play (see fumbleRecoveryFromText) and let it decide. Which
+  // team had the ball when it came loose: the offense on a scrimmage play; the returning team
+  // (play.defense - CFBD lists the kicking team as offense) on a kick or punt once the text shows a
+  // return or muff; and the intercepting team when the fumble follows "intercepted by" in the same
+  // text (Utah's Pegan picked off Raynor, then fumbled and Utah recovered - no second takeaway).
+  const kickReturnBeforeFumble = /(return|muff)/.test(beforeTouchdown.split(/fumbled? by/)[0] ?? "");
+  const interceptedBeforeFumble = /intercepted by/.test(beforeTouchdown.split(/fumbled? by/)[0] ?? "");
+  const possessingSchoolAtFumble = (isSpecialTeamsPlay(play.playType, play.playText) && kickReturnBeforeFumble) || interceptedBeforeFumble ? play.defense : schoolName;
+  const fumbleRecoveryByText = fumbleRecoveryFromText({ normalizedText: beforeTouchdown, offense: schoolName, defense: play.defense, possessingSchool: possessingSchoolAtFumble });
+  // When the text names the OTHER team as the recoverer, that outranks a jersey-number coincidence:
+  // real Rice/Fresno State play "fumble by #11 J.Brown recovered by FRES #11 D.Hampsten" is a genuine
+  // takeaway (the NCAA book credits Fresno State a fumble recovery) that the same-number check alone
+  // wrongly dismissed as a self-recovery.
+  const recoveredByOtherTeamPerText = fumbleRecoveryByText?.recoveredByFumblingTeam === false;
+  const recoveredByFumblingTeamPerText = fumbleRecoveryByText?.recoveredByFumblingTeam === true;
+  const fumbleChangedPossessionBeforeTouchdown = /fumble/.test(beforeTouchdown) && /recovered by/.test(beforeTouchdown) && !/(own player|'s own)/.test(beforeTouchdown) && !recoveredByFumblingTeamPerText && (!recoveredBySameJerseyNumber || recoveredByOtherTeamPerText);
+  const isFumbleLostToOpponent = !recoveredByFumblingTeamPerText && (playType.includes("fumble recovery (opponent)") || playType.includes("fumble return touchdown") || isMuffedReturn || fumbleChangedPossessionBeforeTouchdown);
   const hasOffensiveTouchdownText = /(touchdown|\btd\b)/.test(`${playType} ${playTextNormalized}`);
   // The final /pass/ fallback below must be scoped to the text BEFORE "touchdown" specifically -
   // otherwise a rushing touchdown followed by an unrelated pass-based PAT/2pt attempt (a different
@@ -503,7 +585,8 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
   // (defensiveSchool) fumbles and the kicking team recovers it, the actual recovering team is
   // schoolName, not defensiveSchool. Only special-teams plays need this inversion; a normal
   // offensive fumble recovered by the real defense is unaffected (specialTeamsPlay is false there).
-  const fumbleRecoveringSchool = specialTeamsPlay ? schoolName : defensiveSchool;
+  // When the text itself resolves the recovering team, trust that over the offense/defense guess.
+  const fumbleRecoveringSchool = fumbleRecoveryByText?.recoveringSchool ?? (specialTeamsPlay ? schoolName : defensiveSchool);
   if (eligibleSelection(fumbleRecoveringSchool, "DST") && isFumbleLostToOpponent && !isInvalidated && !candidates.some(candidate => candidate.eventType === "DEFENSIVE_TURNOVER" && candidate.schoolName === fumbleRecoveringSchool) && !candidates.some(candidate => candidate.eventType === "DEFENSIVE_TOUCHDOWN" && candidate.schoolName === fumbleRecoveringSchool)) {
     candidates.push({ sourceEventKey: `${play.id}:DEFENSIVE_TURNOVER:playtype`, sourceGameId: play.gameId, schoolName: fumbleRecoveringSchool, position: "DST", eventType: "DEFENSIVE_TURNOVER", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · fumble recovery (playType match)` });
   }
@@ -522,13 +605,30 @@ export function mapLivePlayToCandidates(input: { play: CfbdPlay; stats: CfbdPlay
     if (isTurnoverPlay) candidates.push({ sourceEventKey: `${play.id}:DEFENSIVE_TURNOVER:unit`, sourceGameId: play.gameId, schoolName: defensiveSchool, position: "DST", eventType: "DEFENSIVE_TURNOVER", statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · turnover (text match)` });
   }
   const typedSpecialTeamsTd = specialTeamsTouchdownType(play.playType);
-  const untypedSpecialTeamsTd = !typedSpecialTeamsTd && specialTeamsPlay && /touchdown|\btd\b/.test(playText) && !isInvalidated;
+  // For the text-only path the kick has to come BEFORE the touchdown in the text - a return score
+  // reads "kickoff ... return ... TOUCHDOWN". CFBD's final feed sometimes glues the NEXT several
+  // plays onto a scoring play's text; real Georgia/Oklahoma play 401856700178 is an ordinary
+  // Stockton-to-Taylor passing touchdown whose text continues "...kick attempt good ... #91
+  // P.Woodring kickoff 65 yards to the OU 00, Touchback (14:20) Shotgun #10 J.Mateer pass..." and that
+  // trailing kickoff made the whole play look like a special-teams return, crediting Georgia's DST a
+  // 12-point return touchdown the NCAA book does not have. playTextNormalized/beforeTouchdown already
+  // exist above, so the kick words are checked only in the text up to the first "touchdown".
+  const untypedSpecialTeamsTd = !typedSpecialTeamsTd && (isSpecialTeamsPlayType(play.playType) || (playTextNormalized.includes("touchdown") ? isSpecialTeamsPlay(null, beforeTouchdown) : specialTeamsPlay)) && /touchdown|\btd\b/.test(playText) && !isInvalidated;
   const specialTeamType = typedSpecialTeamsTd ?? (untypedSpecialTeamsTd ? "OTHER_SPECIAL_TEAMS_TOUCHDOWN" : null);
   if (specialTeamType && !isInvalidated) {
     // Credit the team whose score actually moved. Without that signal, the returning side is the
     // play's DEFENSE (the kicking/punting team is listed as offense), never the offense.
     const returningSchool = play.scoringTeam && [schoolName, defensiveSchool].includes(play.scoringTeam) ? play.scoringTeam : defensiveSchool;
-    if (eligibleSelection(returningSchool, "DST")) candidates.push({ sourceEventKey: `${play.id}:${specialTeamType}`, sourceGameId: play.gameId, schoolName: returningSchool, position: "DST", eventType: specialTeamType, statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · special teams return (${play.scoringTeam ? "by score change" : "defense of kicking team"})` });
+    // One key for the play's return touchdown whatever CFBD currently calls it. CFBD types a return
+    // score generically at first and refines it later ("Kickoff Return Touchdown" once the final
+    // play-by-play lands). With the type in the key, the refinement is a brand-new key: real
+    // Iowa/Michigan play 401858463152 (Jackson's 99-yard kickoff return) was credited as
+    // OTHER_SPECIAL_TEAMS_TOUCHDOWN, confirmed official when the game completed, then credited AGAIN
+    // as KICK_RETURN_TOUCHDOWN on a later pass - 24 points for one return, and the first entry could
+    // never be reversed because official entries are (correctly) never blanket-reversed. With a
+    // stable key the later pass finds the original entry and only issues a correction if the
+    // points differ.
+    if (eligibleSelection(returningSchool, "DST")) candidates.push({ sourceEventKey: `${play.id}:SPECIAL_TEAMS_TOUCHDOWN`, sourceGameId: play.gameId, schoolName: returningSchool, position: "DST", eventType: specialTeamType, statValue: 1, yardDistance: null, provisional, note: `CFBD play ${play.id} · special teams return (${play.scoringTeam ? "by score change" : "defense of kicking team"})` });
   }
   // For auditing: attach the actual CFBD play description verbatim, not just our own generated
   // summary, so anyone reviewing a scored play (a touchdown especially) can see exactly what
