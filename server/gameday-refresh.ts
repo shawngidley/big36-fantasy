@@ -1,4 +1,4 @@
-import { CFBD_QUOTA_FLOOR, getCfbdUsage, getFbsTeams, getGamePlayerStats, getLivePlays, getLiveScoreboard, getRegularSeasonGames, getRoster, getWeekPlays, getWeekPlayStats, type CfbdGame, type CfbdLiveGame, type CfbdPlay, type CfbdRosterAthlete } from "./cfbd";
+import { CFBD_QUOTA_FLOOR, cfbdOutboundCallCount, getCfbdUsage, getFbsTeams, getGamePlayerStats, getLivePlays, getLiveScoreboard, getRegularSeasonGames, getRoster, getWeekPlays, getWeekPlayStats, type CfbdGame, type CfbdLiveGame, type CfbdPlay, type CfbdRosterAthlete } from "./cfbd";
 import { getLeagueSnapshot, getScoringRulesForEvent } from "./league-data";
 import { calculateEventScore } from "./league-scoring";
 import { boxScoreFumbleCandidates, eligibleGameIdsForSchool, finalShutoutCandidates, indexPlayStatsByPlayId, isSupersededInterceptionPlay, mapLivePlayToCandidates, normalizeSchoolForComparison, statsForPlay, type LivePosition } from "./live-scoring";
@@ -11,15 +11,30 @@ export function sourceEventNeedsCorrection(original: Pick<SourceEvent, "computed
   return original.computed_points !== next.points || original.yard_distance !== next.yardDistance || original.stat_value !== next.statValue;
 }
 
-// See the call site in runGamedayRefresh's reconciliation loop. Deterministic spread: each stale
-// completed game is processed on the ticks where the minute-of-hour matches game.id modulo 15, so
-// across an hour every such game gets four passes and no two ticks do the same full set.
+// How often a COMPLETED game is re-reconciled, by age since kickoff. Before this the answer was
+// "every 15 minutes, forever, until the week is marked FINAL". With the season five weeks deep and
+// weeks left OPEN until their audit, that was 400+ completed games each costing two box-score calls
+// four times an hour across the whole gameday window: the 500k monthly CFBD quota was gone by Oct 25
+// (498,196 used on Oct 31), the second month running that live scoring stopped on a Saturday. A game
+// that finished two weeks ago does not change; the NCAA audit is what corrects it. So:
+//   under 6h since kickoff     every tick        (in progress, or just finished: plays still landing)
+//   6h to 12h                  every 15 minutes  (CFBD's final play-by-play and box score settle here)
+//   12h to 48h                 once an hour      (late stat corrections)
+//   over 48h                   never on the cron (a forced run, the per-game reconcile, or the audit)
+// The 15-minute and hourly slots are spread by game id so no two ticks do the same set. A forced run
+// ("Run refresh now") is always a full pass, and games still in progress are never skipped.
 export const STALE_COMPLETED_GAME_AGE_MS = 6 * 60 * 60_000;
 export const STALE_COMPLETED_GAME_CADENCE_MINUTES = 15;
+export const HOURLY_COMPLETED_GAME_AGE_MS = 12 * 60 * 60_000;
+export const COMPLETED_GAME_RETIRE_AGE_MS = 48 * 60 * 60_000;
 export function shouldSkipStaleCompletedGameThisTick(game: { id: number; completed: boolean; startDate: string }, force: boolean, now: number = Date.now()) {
   if (force || !game.completed) return false;
-  if (now - new Date(game.startDate).getTime() < STALE_COMPLETED_GAME_AGE_MS) return false;
-  return new Date(now).getUTCMinutes() % STALE_COMPLETED_GAME_CADENCE_MINUTES !== game.id % STALE_COMPLETED_GAME_CADENCE_MINUTES;
+  const age = now - new Date(game.startDate).getTime();
+  if (age < STALE_COMPLETED_GAME_AGE_MS) return false;
+  if (age >= COMPLETED_GAME_RETIRE_AGE_MS) return true;
+  const minute = new Date(now).getUTCMinutes();
+  if (age >= HOURLY_COMPLETED_GAME_AGE_MS) return minute !== game.id % 60;
+  return minute % STALE_COMPLETED_GAME_CADENCE_MINUTES !== game.id % STALE_COMPLETED_GAME_CADENCE_MINUTES;
 }
 
 export function sourceEventReversalPoints(originalPoints: number) {
@@ -183,6 +198,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
   // shouldSkipStaleCompletedGameThisTick) sees the same minute even when the loop crosses a
   // minute boundary mid-tick - otherwise a game could be skipped this tick and next tick both.
   const tickNow = Date.now();
+  const cfbdCallsAtTickStart = cfbdOutboundCallCount();
   const deadlineAt = tickNow + 45_000;
   const pastDeadline = () => Date.now() > deadlineAt;
   // pastDeadline() alone only stops us from STARTING new work once the budget is spent - it does
@@ -371,7 +387,12 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
     }
 
     const byWeek = new Map<number, CfbdGame[]>();
-    for (const game of relevantGames) byWeek.set(game.week, [...(byWeek.get(game.week) ?? []), game]);
+    // Decide per game whether this tick touches it BEFORE grouping by week, so a week whose games are
+    // all retired or off-cadence costs nothing: previously the week's /plays, /plays/stats and roster
+    // fan-out ran for every week with any unsettled game, even when every game in it was then skipped.
+    const dueGames = relevantGames.filter(game => !shouldSkipStaleCompletedGameThisTick(game, options.force ?? false, tickNow));
+    const retiredCompletedGames = relevantGames.length - dueGames.length;
+    for (const game of dueGames) byWeek.set(game.week, [...(byWeek.get(game.week) ?? []), game]);
     // Process the most recent week first. draftedGames now draws on the full season schedule (not
     // just today's scoreboard), so a week that's been backlogged for a while - e.g. 68 unsettled week
     // 2 games found in production - can vastly outnumber today's own week's handful of games. Without
@@ -432,6 +453,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
         // still land within a quarter hour, backlog call volume drops ~15x. Games still in progress
         // or freshly finished are untouched, and a forced run (the admin "Run refresh now") is
         // always a full pass.
+        // (Filtered into dueGames above; kept as a guard so a game cannot slip in by another path.)
         if (shouldSkipStaleCompletedGameThisTick(game, options.force ?? false, tickNow)) continue;
         const weekRow = await ensureWeekRow(resolveB36WeekNumber(game), snapshot.weeks);
         const currentCandidateKeys = new Set<string>();
@@ -598,7 +620,9 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
     }
     const uniqueSkippedWeeks = Array.from(new Set(skippedWeeksForTimeBudget));
     await writeRefreshStatus({ last_refresh_status: "ok", last_refresh_detail: { active_games: trulyInProgress.length, relevant_games: relevantGames.length, inserted_events: insertedEvents, team_count: schedule.teamCount, live_debug: liveDebug, match_debug: matchDebug, skipped_weeks_for_time_budget: uniqueSkippedWeeks } });
-    return { activeGames: trulyInProgress.length, relevantGames: relevantGames.length, insertedEvents, teamCount: schedule.teamCount, liveDebug, matchDebug, skippedWeeksForTimeBudget: uniqueSkippedWeeks };
+    const cfbdCallsThisTick = cfbdOutboundCallCount() - cfbdCallsAtTickStart;
+    console.log(`[gameday] tick done: ${cfbdCallsThisTick} CFBD calls, ${dueGames.length} games due, ${retiredCompletedGames} skipped by age/cadence, ${insertedEvents} events`);
+    return { cfbdCallsThisTick, gamesDueThisTick: dueGames.length, gamesSkippedByAgeOrCadence: retiredCompletedGames, activeGames: trulyInProgress.length, relevantGames: relevantGames.length, insertedEvents, teamCount: schedule.teamCount, liveDebug, matchDebug, skippedWeeksForTimeBudget: uniqueSkippedWeeks };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown gameday refresh failure";
     await writeRefreshStatus({ last_refresh_status: "error", last_refresh_detail: { message } });

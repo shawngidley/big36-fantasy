@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./cfbd", () => ({
   getFbsTeams: mocks.getFbsTeams, getLiveScoreboard: mocks.getLiveScoreboard, getRegularSeasonGames: mocks.getRegularSeasonGames,
-  getRoster: mocks.getRoster, getWeekPlays: mocks.getWeekPlays, getWeekPlayStats: mocks.getWeekPlayStats, getLivePlays: mocks.getLivePlays, getGamePlayerStats: vi.fn().mockResolvedValue([]), getCfbdUsage: mocks.getCfbdUsage, CFBD_QUOTA_FLOOR: 2000,
+  getRoster: mocks.getRoster, getWeekPlays: mocks.getWeekPlays, getWeekPlayStats: mocks.getWeekPlayStats, getLivePlays: mocks.getLivePlays, getGamePlayerStats: vi.fn().mockResolvedValue([]), getCfbdUsage: mocks.getCfbdUsage, CFBD_QUOTA_FLOOR: 2000, cfbdOutboundCallCount: () => 0,
 }));
 vi.mock("./league-data", () => ({ getLeagueSnapshot: mocks.getLeagueSnapshot, getScoringRulesForEvent: mocks.getScoringRulesForEvent }));
 vi.mock("./league-scoring", () => ({ calculateEventScore: mocks.calculateEventScore }));
@@ -165,23 +165,24 @@ describe("36 Football gameday source reconciliation", () => {
     expect(stillLive.game).toMatchObject({ completed: false });
   });
 
-  it("on a real cron tick, re-reconciles a completed game older than six hours only every 15 minutes - the call volume that exhausted the CFBD monthly quota", async () => {
-    // The fixture game kicked off 2026-09-05; game.id 101 -> 101 % 15 = 11, so it is processed on
-    // ticks at :11, :26, :41, :56 and skipped otherwise. Same setup as the reversal test above: with
-    // no candidate for the stored provisional entry, a processed tick writes a REVERSAL; a skipped
-    // tick writes nothing. Both times are inside the Saturday gameday window, so the tick itself runs.
+  it("re-reconciles a completed game on a schedule by age: every tick under 6h, every 15 minutes to 12h, hourly to 48h, then never on the cron - the volume that spent the CFBD quota two months running", async () => {
+    // Fixture game.id 101: 101 % 15 = 11 (quarter-hour slot :11/:26/:41/:56), 101 % 60 = 41 (hourly
+    // slot :41). With no candidate for the stored provisional entry, a processed tick writes a
+    // REVERSAL; a skipped tick writes nothing and does not even fetch the week's plays.
     vi.useFakeTimers();
+    const kickoff = (hoursAgo: number, at: string) => { vi.setSystemTime(new Date(at)); mocks.getRegularSeasonGames.mockResolvedValue([{ ...game, startDate: new Date(new Date(at).getTime() - hoursAgo * 3_600_000).toISOString() }]); };
+    const run = async () => { const writes = arrange([original]); mocks.getWeekPlays.mockClear(); const result = await runGamedayRefresh(); return { posts: writes.filter(write => write.table === "b36_scoring_events" && write.options.method === "POST").length, weekFetches: mocks.getWeekPlays.mock.calls.length, result }; };
     try {
-      vi.setSystemTime(new Date("2026-09-26T20:03:00Z")); // Sat 4:03pm ET - minute 3, not this game's slot
-      let writes = arrange([original]);
       mocks.mapLivePlayToCandidates.mockReturnValue([]);
-      await runGamedayRefresh();
-      expect(writes.filter(write => write.table === "b36_scoring_events" && write.options.method === "POST")).toHaveLength(0);
-
-      vi.setSystemTime(new Date("2026-09-26T20:11:00Z")); // minute 11 - this game's slot
-      writes = arrange([original]);
-      await runGamedayRefresh();
-      expect(writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST")?.options.body).toMatchObject({ audit_action: "REVERSAL", correction_of_event_id: "event-1" });
+      kickoff(3, "2026-09-26T20:03:00Z"); expect(await run()).toMatchObject({ posts: 1, weekFetches: 1 });            // fresh: every tick
+      kickoff(8, "2026-09-26T20:03:00Z"); expect(await run()).toMatchObject({ posts: 0, weekFetches: 0 });            // 6-12h, minute 3: not its slot, week not fetched
+      kickoff(8, "2026-09-26T20:11:00Z"); expect(await run()).toMatchObject({ posts: 1, weekFetches: 1 });            // 6-12h, minute 11: its slot
+      kickoff(30, "2026-09-26T20:11:00Z"); expect(await run()).toMatchObject({ posts: 0, weekFetches: 0 });           // 12-48h, minute 11: hourly slot is :41
+      kickoff(30, "2026-09-26T20:41:00Z"); expect(await run()).toMatchObject({ posts: 1, weekFetches: 1 });           // 12-48h, minute 41
+      kickoff(72, "2026-09-26T20:41:00Z"); const retired = await run(); expect(retired).toMatchObject({ posts: 0, weekFetches: 0 }); // retired
+      expect(retired.result).toMatchObject({ gamesDueThisTick: 0, gamesSkippedByAgeOrCadence: 1 });
+      kickoff(72, "2026-09-26T20:03:00Z"); const forced = arrange([original]); await runGamedayRefresh({ force: true }); // forced: full pass
+      expect(forced.filter(write => write.table === "b36_scoring_events" && write.options.method === "POST")).toHaveLength(1);
     } finally {
       vi.useRealTimers();
     }

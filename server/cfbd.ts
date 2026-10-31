@@ -12,7 +12,12 @@ function apiKey() {
 // operation. A small minimum gap between real requests keeps volume under the limit without any
 // call site needing to know about pacing.
 let nextSlotAt = 0;
+// Real outbound calls since this instance started (cache hits are not counted). runGamedayRefresh
+// reads it before and after a tick to report what the tick actually cost against the monthly quota.
+let outboundCallCount = 0;
+export const cfbdOutboundCallCount = () => outboundCallCount;
 async function paceOutboundCall() {
+  outboundCallCount += 1;
   const wait = Math.max(0, nextSlotAt - Date.now());
   nextSlotAt = Math.max(Date.now(), nextSlotAt) + 650;
   if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
