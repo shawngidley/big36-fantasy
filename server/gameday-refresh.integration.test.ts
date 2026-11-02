@@ -33,7 +33,7 @@ vi.mock("./supabase", () => ({
   },
 }));
 
-import { aliasCandidateKeysToLedger, isCollegeFootballGamedayWindow, reconcileGameAgainstFinalData, resolveB36WeekNumber, runGamedayRefresh } from "./gameday-refresh";
+import { aliasCandidateKeysToLedger, isCollegeFootballGamedayWindow, reconcileGameAgainstFinalData, resolveB36WeekNumber, runGamedayRefresh, syncFbsPoolAndSchedule } from "./gameday-refresh";
 
 const game = { id: 101, season: 2026, week: 1, seasonType: "regular", startDate: "2026-09-05T16:00:00Z", completed: true, homeTeam: "Ohio State", awayTeam: "Texas", homeClassification: "fbs", awayClassification: "fbs", homePoints: 21, awayPoints: 14 };
 const candidate = { sourceEventKey: "101:55:qb", sourceGameId: 101, schoolName: "Ohio State", position: "QB", eventType: "TOUCHDOWN", statValue: 1, yardDistance: 35, note: "Passing touchdown" };
@@ -75,6 +75,41 @@ describe("36 Football gameday source reconciliation", () => {
     mocks.calculateEventScore.mockReturnValue({ points: 9 });
     mocks.getLivePlays.mockResolvedValue({ teams: [], drives: [] });
     mocks.getCfbdUsage.mockResolvedValue({ remainingCalls: 250_000, monthlyLimit: 500_000, tier: 6, raw: {}, fetchedAt: "" });
+  });
+
+  it("schedule sync writes only the game rows whose content changed - not all 3,681 every tick (the Disk IO budget warning of Nov 2)", async () => {
+    const stored = { cfbd_game_id: 101, season: 2026, week_number: 1, season_type: "regular", start_date: "2026-09-05T16:00:00+00:00", completed: true, home_team: "Ohio State", away_team: "Texas", home_classification: "fbs", away_classification: "fbs", home_points: 21, away_points: 14 };
+    const second = { ...game, id: 102, homeTeam: "Georgia", awayTeam: "Alabama", completed: false, homePoints: null, awayPoints: null };
+    const writes: Array<{ table: string; options: Record<string, unknown> }> = [];
+    mocks.supabaseRest.mockImplementation(async (table: string, options: Record<string, unknown> = {}) => {
+      if (table === "b36_source_games" && !options.method) return [stored]; // game 102 not stored yet
+      if (options.method) writes.push({ table, options });
+      return [];
+    });
+    mocks.getRegularSeasonGames.mockResolvedValue([game, second]);
+    const first = await syncFbsPoolAndSchedule(2026);
+    // Game 101 is byte-for-byte what is stored (start_date in a different but equal ISO spelling): not
+    // written. Game 102 is new: written. The FBS pool is written on the first sync of the instance.
+    const gameWrites = () => writes.filter(write => write.table === "b36_source_games").map(write => write.options.body as Array<{ cfbd_game_id: number }>);
+    expect(first.scheduleRowsWritten).toBe(1);
+    expect(gameWrites()).toEqual([[expect.objectContaining({ cfbd_game_id: 102 })]]);
+    expect(writes.filter(write => write.table === "b36_fbs_schools")).toHaveLength(1);
+    // A score change on 101 is written; the pool is not written again.
+    writes.length = 0;
+    mocks.getRegularSeasonGames.mockResolvedValue([{ ...game, homePoints: 28 }, second]);
+    mocks.supabaseRest.mockImplementation(async (table: string, options: Record<string, unknown> = {}) => {
+      if (table === "b36_source_games" && !options.method) return [stored, { ...stored, cfbd_game_id: 102, home_team: "Georgia", away_team: "Alabama", completed: false, home_points: null, away_points: null }];
+      if (options.method) writes.push({ table, options });
+      return [];
+    });
+    expect((await syncFbsPoolAndSchedule(2026)).scheduleRowsWritten).toBe(1);
+    expect(gameWrites()).toEqual([[expect.objectContaining({ cfbd_game_id: 101, home_points: 28 })]]);
+    expect(writes.filter(write => write.table === "b36_fbs_schools")).toHaveLength(0);
+    // Nothing changed: nothing written at all.
+    writes.length = 0;
+    mocks.getRegularSeasonGames.mockResolvedValue([game, second]);
+    expect((await syncFbsPoolAndSchedule(2026)).scheduleRowsWritten).toBe(0);
+    expect(writes).toHaveLength(0);
   });
 
   it("keeps an unchanged final source event without a duplicate correction or reversal", async () => {

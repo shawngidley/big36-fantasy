@@ -155,12 +155,35 @@ export function adaptLiveGameToLegacyPlays(gameId: number, live: CfbdLiveGame): 
   });
 }
 
+// Columns compared to decide whether a schedule row actually changed. updated_at is deliberately
+// not among them: it used to be set to "now" on every row on every tick, which made all 3,681 rows
+// a real write every minute.
+const SOURCE_GAME_COMPARE_COLUMNS = ["season", "week_number", "season_type", "start_date", "completed", "home_team", "away_team", "home_classification", "away_classification", "home_points", "away_points"] as const;
+type SourceGameRow = Record<(typeof SOURCE_GAME_COMPARE_COLUMNS)[number], unknown> & { cfbd_game_id: number };
+const sourceGameFingerprint = (row: Record<string, unknown>) => JSON.stringify(SOURCE_GAME_COMPARE_COLUMNS.map(column => { const value = row[column]; return value === undefined ? null : column === "start_date" && typeof value === "string" ? new Date(value).toISOString() : value; }));
+// Per instance: the last time the FBS school pool was written. It changes once a year.
+let fbsPoolWrittenAt = 0;
+const FBS_POOL_REWRITE_MS = 6 * 60 * 60_000;
+
+// Writes only the schedule rows whose content changed. Before this, every tick upserted every game
+// of the season (3,681 rows) with a fresh updated_at, so each tick was 3,681 row writes whether or
+// not a single score had moved: 177 million index entries touched on b36_source_games by Nov 2,
+// dead tuples for autovacuum on every pass, and the Disk IO budget warning from Supabase that
+// morning. On a typical tick a handful of games have changed (a score, a completed flag), and on a
+// weekday none have. Reading the table back (one indexed read of 2.5 MB) and diffing costs far less
+// than rewriting it, and the FBS pool is rewritten at most every six hours per instance.
 export async function syncFbsPoolAndSchedule(season: number) {
   const [teams, games] = await Promise.all([getFbsTeams(season), getRegularSeasonGames(season)]);
   if (teams.length < 130) throw new Error("CollegeFootballData did not return the expected FBS school pool.");
-  await supabaseRest("b36_fbs_schools", { method: "POST", query: { on_conflict: "season,cfbd_team_id" }, prefer: "resolution=merge-duplicates,return=minimal", body: teams.map(team => ({ season, cfbd_team_id: team.id, school_name: team.school, conference: team.conference ?? null })) });
-  await supabaseRest("b36_source_games", { method: "POST", query: { on_conflict: "cfbd_game_id" }, prefer: "resolution=merge-duplicates,return=minimal", body: games.map(sourceGameValues) });
-  return { teamCount: teams.length, gameCount: games.length, games };
+  if (Date.now() - fbsPoolWrittenAt > FBS_POOL_REWRITE_MS) {
+    await supabaseRest("b36_fbs_schools", { method: "POST", query: { on_conflict: "season,cfbd_team_id" }, prefer: "resolution=merge-duplicates,return=minimal", body: teams.map(team => ({ season, cfbd_team_id: team.id, school_name: team.school, conference: team.conference ?? null })) });
+    fbsPoolWrittenAt = Date.now();
+  }
+  const existing = await supabaseRestAll<SourceGameRow>("b36_source_games", { query: { select: ["cfbd_game_id", ...SOURCE_GAME_COMPARE_COLUMNS].join(","), season: `eq.${season}`, order: "cfbd_game_id.asc" } });
+  const existingFingerprints = new Map(existing.map(row => [row.cfbd_game_id, sourceGameFingerprint(row)]));
+  const changed = games.map(sourceGameValues).filter(row => existingFingerprints.get(row.cfbd_game_id) !== sourceGameFingerprint(row));
+  if (changed.length) await supabaseRest("b36_source_games", { method: "POST", query: { on_conflict: "cfbd_game_id" }, prefer: "resolution=merge-duplicates,return=minimal", body: changed });
+  return { teamCount: teams.length, gameCount: games.length, games, scheduleRowsWritten: changed.length };
 }
 
 export async function runGamedayRefresh(options: { force?: boolean } = {}) {
