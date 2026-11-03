@@ -33,7 +33,7 @@ vi.mock("./supabase", () => ({
   },
 }));
 
-import { aliasCandidateKeysToLedger, isCollegeFootballGamedayWindow, reconcileGameAgainstFinalData, resolveB36WeekNumber, runGamedayRefresh, syncFbsPoolAndSchedule } from "./gameday-refresh";
+import { aliasCandidateKeysToLedger, isCollegeFootballGamedayWindow, reconcileGameAgainstFinalData, resetFbsPoolWriteTimeForTests, resolveB36WeekNumber, runGamedayRefresh, syncFbsPoolAndSchedule } from "./gameday-refresh";
 
 const game = { id: 101, season: 2026, week: 1, seasonType: "regular", startDate: "2026-09-05T16:00:00Z", completed: true, homeTeam: "Ohio State", awayTeam: "Texas", homeClassification: "fbs", awayClassification: "fbs", homePoints: 21, awayPoints: 14 };
 const candidate = { sourceEventKey: "101:55:qb", sourceGameId: 101, schoolName: "Ohio State", position: "QB", eventType: "TOUCHDOWN", statValue: 1, yardDistance: 35, note: "Passing touchdown" };
@@ -60,6 +60,7 @@ function arrange(existingEvents: unknown[]) {
 describe("36 Football gameday source reconciliation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetFbsPoolWriteTimeForTests();
     mocks.getFbsTeams.mockResolvedValue(Array.from({ length: 136 }, (_, index) => ({ id: index + 1, school: `School ${index + 1}`, conference: "FBS" })));
     mocks.getRegularSeasonGames.mockResolvedValue([game]);
     mocks.getLeagueSnapshot.mockResolvedValue(snapshot);
@@ -201,18 +202,20 @@ describe("36 Football gameday source reconciliation", () => {
   });
 
   it("re-reconciles a completed game on a schedule by age: every tick under 6h, every 15 minutes to 12h, hourly to 48h, then never on the cron - the volume that spent the CFBD quota two months running", async () => {
-    // Fixture game.id 101: 101 % 15 = 11 (quarter-hour slot :11/:26/:41/:56), 101 % 60 = 41 (hourly
-    // slot :41). With no candidate for the stored provisional entry, a processed tick writes a
+    // Fixture game.id 101: 101 % 15 = 11 (quarter-hour slot :11/:26/:41/:56), 101 % 30 = 11 (half-hour slots :11 and :41 in the 12-48h band;
+    // the age test checks :03 and :41). With no candidate for the stored provisional entry, a processed tick writes a
     // REVERSAL; a skipped tick writes nothing and does not even fetch the week's plays.
     vi.useFakeTimers();
     const kickoff = (hoursAgo: number, at: string) => { vi.setSystemTime(new Date(at)); mocks.getRegularSeasonGames.mockResolvedValue([{ ...game, startDate: new Date(new Date(at).getTime() - hoursAgo * 3_600_000).toISOString() }]); };
     const run = async () => { const writes = arrange([original]); mocks.getWeekPlays.mockClear(); const result = await runGamedayRefresh(); return { posts: writes.filter(write => write.table === "b36_scoring_events" && write.options.method === "POST").length, weekFetches: mocks.getWeekPlays.mock.calls.length, result }; };
     try {
       mocks.mapLivePlayToCandidates.mockReturnValue([]);
-      kickoff(3, "2026-09-26T20:03:00Z"); expect(await run()).toMatchObject({ posts: 1, weekFetches: 1 });            // fresh: every tick
+      // Fresh game: processed every tick (week fetched), but no reversal yet - the final-feed
+      // reversal gate needs the game five hours past kickoff (see the reversal-gate test).
+      kickoff(3, "2026-09-26T20:03:00Z"); expect(await run()).toMatchObject({ posts: 0, weekFetches: 1 });
       kickoff(8, "2026-09-26T20:03:00Z"); expect(await run()).toMatchObject({ posts: 0, weekFetches: 0 });            // 6-12h, minute 3: not its slot, week not fetched
       kickoff(8, "2026-09-26T20:11:00Z"); expect(await run()).toMatchObject({ posts: 1, weekFetches: 1 });            // 6-12h, minute 11: its slot
-      kickoff(30, "2026-09-26T20:11:00Z"); expect(await run()).toMatchObject({ posts: 0, weekFetches: 0 });           // 12-48h, minute 11: hourly slot is :41
+      kickoff(30, "2026-09-26T20:03:00Z"); expect(await run()).toMatchObject({ posts: 0, weekFetches: 0 });           // 12-48h, minute 3: slots are :11 and :41 (101 % 30)
       kickoff(30, "2026-09-26T20:41:00Z"); expect(await run()).toMatchObject({ posts: 1, weekFetches: 1 });           // 12-48h, minute 41
       kickoff(72, "2026-09-26T20:41:00Z"); const retired = await run(); expect(retired).toMatchObject({ posts: 0, weekFetches: 0 }); // retired
       expect(retired.result).toMatchObject({ gamesDueThisTick: 0, gamesSkippedByAgeOrCadence: 1 });
@@ -221,6 +224,20 @@ describe("36 Football gameday source reconciliation", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("does not reverse a provisional entry on the first completed tick - only once the game is five hours past kickoff and the feed still holds the game's plays (week 5: Minnesota DST 12 -> 3, Notre Dame DST 7 -> 0, all real plays)", async () => {
+    vi.useFakeTimers();
+    const kickoff = (hoursAgo: number, at: string) => { vi.setSystemTime(new Date(at)); mocks.getRegularSeasonGames.mockResolvedValue([{ ...game, startDate: new Date(new Date(at).getTime() - hoursAgo * 3_600_000).toISOString() }]); };
+    const reversals = async () => { const writes = arrange([original]); await runGamedayRefresh({ force: true }); return writes.filter(write => write.table === "b36_scoring_events" && write.options.method === "POST" && (write.options.body as Record<string, unknown>).audit_action === "REVERSAL").length; };
+    try {
+      mocks.mapLivePlayToCandidates.mockReturnValue([]); // the entry's play produces no candidate this tick
+      kickoff(3.5, "2026-10-03T19:35:00Z"); expect(await reversals()).toBe(0);   // just completed: CFBD is still rebuilding the feed
+      kickoff(4.9, "2026-10-03T19:35:00Z"); expect(await reversals()).toBe(0);
+      kickoff(5.1, "2026-10-03T19:35:00Z"); expect(await reversals()).toBe(1);   // settled: reversal proceeds
+      mocks.getWeekPlays.mockResolvedValue([]);                                    // feed has no plays for the game at all: never reverse on that
+      kickoff(5.1, "2026-10-03T19:35:00Z"); expect(await reversals()).toBe(0);
+    } finally { vi.useRealTimers(); }
   });
 
   it("records an idempotent reversal when a final source event is removed", async () => {

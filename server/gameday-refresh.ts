@@ -19,7 +19,7 @@ export function sourceEventNeedsCorrection(original: Pick<SourceEvent, "computed
 // that finished two weeks ago does not change; the NCAA audit is what corrects it. So:
 //   under 6h since kickoff     every tick        (in progress, or just finished: plays still landing)
 //   6h to 12h                  every 15 minutes  (CFBD's final play-by-play and box score settle here)
-//   12h to 48h                 once an hour      (late stat corrections)
+//   12h to 48h                 twice an hour     (late stat corrections)
 //   over 48h                   never on the cron (a forced run, the per-game reconcile, or the audit)
 // The 15-minute and hourly slots are spread by game id so no two ticks do the same set. A forced run
 // ("Run refresh now") is always a full pass, and games still in progress are never skipped.
@@ -27,13 +27,17 @@ export const STALE_COMPLETED_GAME_AGE_MS = 6 * 60 * 60_000;
 export const STALE_COMPLETED_GAME_CADENCE_MINUTES = 15;
 export const HOURLY_COMPLETED_GAME_AGE_MS = 12 * 60 * 60_000;
 export const COMPLETED_GAME_RETIRE_AGE_MS = 48 * 60 * 60_000;
+// Minimum age since kickoff before the cron may reverse a provisional entry as absent from the
+// final feed (see finalDataSettled in runGamedayRefresh).
+export const FINAL_REVERSAL_MIN_AGE_MS = 5 * 60 * 60_000;
 export function shouldSkipStaleCompletedGameThisTick(game: { id: number; completed: boolean; startDate: string }, force: boolean, now: number = Date.now()) {
   if (force || !game.completed) return false;
   const age = now - new Date(game.startDate).getTime();
   if (age < STALE_COMPLETED_GAME_AGE_MS) return false;
   if (age >= COMPLETED_GAME_RETIRE_AGE_MS) return true;
   const minute = new Date(now).getUTCMinutes();
-  if (age >= HOURLY_COMPLETED_GAME_AGE_MS) return minute !== game.id % 60;
+  // Two slots an hour, not one: a single slot can be lost to the 45s time budget on that tick.
+  if (age >= HOURLY_COMPLETED_GAME_AGE_MS) return minute % 30 !== game.id % 30;
   return minute % STALE_COMPLETED_GAME_CADENCE_MINUTES !== game.id % STALE_COMPLETED_GAME_CADENCE_MINUTES;
 }
 
@@ -164,6 +168,9 @@ const sourceGameFingerprint = (row: Record<string, unknown>) => JSON.stringify(S
 // Per instance: the last time the FBS school pool was written. It changes once a year.
 let fbsPoolWrittenAt = 0;
 const FBS_POOL_REWRITE_MS = 6 * 60 * 60_000;
+// Test-only, matching resetScoringRulesCacheForTests: the throttle is module state, so a test that
+// asserts the pool write must not depend on being the first test in its file to sync.
+export function resetFbsPoolWriteTimeForTests() { fbsPoolWrittenAt = 0; }
 
 // Writes only the schedule rows whose content changed. Before this, every tick upserted every game
 // of the season (3,681 rows) with a fresh updated_at, so each tick was 3,681 row writes whether or
@@ -616,6 +623,17 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
         for (const school of [game.homeTeam, game.awayTeam]) {
           if (!eligibleGameIdsForSchool(schedule.games, school).includes(game.id)) continue;
         }
+        // The reversal sweep below used to run on the first tick after CFBD flipped a game to
+        // completed. At that moment CFBD is rebuilding the final play-by-play and /plays is often
+        // missing plays it had served minutes earlier, so entries for real plays - including OFFICIAL
+        // entries inserted mid-game, which are provisional until the box score lands - were reversed
+        // as "no longer in the final data". Week 5, Oct 3: Minnesota DST's five official entries
+        // (two interceptions, three sacks) inserted at 3:26pm were all reversed at 3:35pm, 12 -> 3;
+        // Notre Dame DST 7 -> 0 the same way; Georgia DST lost three real sacks in week 4. The NCAA
+        // book had every one. So: no reversal until the game is at least five hours past kickoff
+        // (games run ~3.5h; CFBD's feed is stable well inside the margin) and this tick's feed holds
+        // at least one play for the game. Confirming entries official is not gated; only reversing.
+        const finalDataSettled = game.completed && tickNow - new Date(game.startDate).getTime() >= FINAL_REVERSAL_MIN_AGE_MS && plays.some(play => play.gameId === game.id);
         if (game.completed) {
           // Only ever auto-reverse PROVISIONAL (live-detected) entries that the official data doesn't
           // confirm. An entry that's already been confirmed official (is_provisional: false) must never
@@ -624,7 +642,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
           // entry is far worse than leaving a stale one a little longer. Official entries can still be
           // adjusted via the CORRECTION path above if the point value genuinely needs fixing.
           const originalEvents = eventRows.filter(row => row.source_game_id === game.id && row.source_event_key && row.audit_action === "ENTRY" && row.is_provisional);
-          for (const original of originalEvents.filter(event => !currentCandidateKeys.has(event.source_event_key!))) {
+          for (const original of finalDataSettled ? originalEvents.filter(event => !currentCandidateKeys.has(event.source_event_key!)) : []) {
             const reversalKey = `${original.source_event_key}:reversal`;
             if (reversedKeys.has(reversalKey)) continue;
             await supabaseRest("b36_scoring_events", { method: "POST", body: { week_id: original.week_id, draft_slot_id: original.draft_slot_id, event_type: original.event_type, stat_value: original.stat_value, yard_distance: original.yard_distance, computed_points: sourceEventReversalPoints(currentEffectivePoints(original, eventRows)), note: `Official CFBD final correction reversed source event ${original.source_event_key}`, audit_action: "REVERSAL", correction_of_event_id: original.id, recorded_by_open_id: "cfbd-final-reconciliation", source_event_key: reversalKey, source_game_id: game.id, is_provisional: false } });
