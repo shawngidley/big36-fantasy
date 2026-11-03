@@ -128,16 +128,29 @@ function positionsMentionedInText(playText: string | null | undefined, roster: C
   // are indistinguishable by name alone, and when no stat row is there to break the tie every one
   // of them gets credited - week 4, Oregon's TE slot was paid 12 for a touchdown the NCAA book has
   // on a WR. CFBD's text puts the jersey number right before the name and the roster carries it,
-  // so when the tie survives the name check, keep only the athletes whose own number precedes
-  // their name in the text. Falls through unchanged when no roster row has a jersey.
-  const byJersey = (resolved.length > 1 ? resolved : matches.length > 1 ? matches : []).filter(athlete => {
+  // so within a group of athletes that collide on the same name, keep only those whose own number
+  // precedes their name in the text. The check is scoped to the colliding group ONLY: the first
+  // version applied it to every multi-name play, so on "#10 A.Colandrea pass ... to #3 K.Gilmer ...
+  // TOUCHDOWN" (Nebraska, week 5) a roster number for Gilmer that did not match the one he wore
+  // dropped him from the mention set and Nebraska WR got nothing for two touchdowns. Different
+  // names never compete with each other, and a group with no jersey evidence is left as it was.
+  const pool = resolved.length ? resolved : matches;
+  const collisionKey = (athlete: CfbdRosterAthlete) => `${normalizeText(athlete.firstName ?? "").slice(0, 1)} ${stripGenerationalSuffix(normalizeText(athlete.lastName ?? ""))}`;
+  const byCollision = new Map<string, CfbdRosterAthlete[]>();
+  for (const athlete of pool) byCollision.set(collisionKey(athlete), [...(byCollision.get(collisionKey(athlete)) ?? []), athlete]);
+  const jerseyPrecedesName = (athlete: CfbdRosterAthlete) => {
     if (athlete.jersey == null || athlete.jersey === "") return false;
     const last = stripGenerationalSuffix(normalizeText(athlete.lastName ?? ""));
     const first = normalizeText(athlete.firstName ?? "");
     for (let length = 1; length <= Math.max(1, first.length); length += 1) if (text.includes(` ${String(athlete.jersey)} ${first.slice(0, length)} ${last} `)) return true;
     return false;
+  };
+  const disambiguated = Array.from(byCollision.values()).flatMap(group => {
+    if (group.length < 2) return group;
+    const byJersey = group.filter(jerseyPrecedesName);
+    return byJersey.length ? byJersey : group;
   });
-  for (const athlete of (byJersey.length ? byJersey : resolved.length ? resolved : matches)) {
+  for (const athlete of disambiguated) {
     const position = positions.get(String(athlete.id));
     if (position) mentioned.add(position);
   }

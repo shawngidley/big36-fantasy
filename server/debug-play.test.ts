@@ -67,3 +67,15 @@ describe("jersey-number tie-break for teammates sharing a surname and initial", 
     expect(scored(withJerseys.map(({ jersey: _jersey, ...athlete }) => athlete) as typeof withJerseys)).toEqual(["QB", "TE", "WR"]);
   });
 });
+
+describe("jersey tie-break is scoped to colliding names only", () => {
+  it("does not drop a receiver whose roster number differs from the one in the text when nobody shares his name (Nebraska WR, week 5: two Gilmer touchdowns scored as nothing)", async () => {
+    const { mapLivePlayToCandidates } = await import("./live-scoring");
+    const play = { id: 401858475789, gameId: 401858475, offense: "Nebraska", defense: "Maryland", scoring: true, scoringTeam: "Nebraska", yardsToGoal: 5, playType: "Passing Touchdown", playText: "(10:34) No Huddle-Shotgun #10 A.Colandrea pass complete short right to #3 K.Gilmer caught at UMD00, for 5 yards to the UMD00 TOUCHDOWN, clock 10:32 #91 K.Cunanan kick attempt good (H: #37 K.Koch, LS: #55 J.Wills)" };
+    // Roster says Gilmer is #11 (stale); the text says #3. Colandrea's number matches.
+    const roster = [{ id: 5044387, firstName: "Anthony", lastName: "Colandrea", position: "QB", jersey: 10 }, { id: 5127885, firstName: "Kwazi", lastName: "Gilmer", position: "WR", jersey: 11 }, { id: 5146969, firstName: "Kamdyn", lastName: "Koch", position: "P", jersey: 37 }];
+    const all = (["QB", "RB", "WR", "TE", "K", "DST"] as const).map(position => ({ schoolName: "Nebraska", position }));
+    const scored = mapLivePlayToCandidates({ play, stats: [], roster, selectedSchoolPositions: all }).map(candidate => `${candidate.position}:${candidate.eventType}`).sort();
+    expect(scored).toEqual(["K:EXTRA_POINT", "QB:TOUCHDOWN", "WR:TOUCHDOWN"]);
+  });
+});
