@@ -21,6 +21,7 @@ vi.mock("./live-scoring", async (importOriginal) => {
 // driven through the mocked supabaseRest - so a test fixture that simulates PostgREST's silent
 // 1000-row cap (see arrange) is only fully read by code that paginates.
 vi.mock("./supabase", () => ({
+  q: { eq: (value: unknown) => `eq.${value}` },
   supabaseRest: mocks.supabaseRest,
   supabaseRestAll: async (table: string, options: { query?: Record<string, string> } = {}) => {
     const pageSize = 1000; const all: unknown[] = [];
@@ -325,6 +326,38 @@ describe("36 Football gameday source reconciliation", () => {
     expect(result.insertedEvents).toBeGreaterThan(0);
     const liveWrite = writes.find(write => write.table === "b36_scoring_events" && write.options.method === "POST" && (write.options.body as Record<string, unknown>).recorded_by_open_id === "cfbd-live-detection");
     expect(liveWrite?.options.body).toMatchObject({ audit_action: "ENTRY", is_provisional: true, source_game_id: 301 });
+  });
+
+  it("creates next week's row UPCOMING when its first game has not kicked off, and promotes it to OPEN once the game is under way (Nov 14: an OPEN week 12 row hid week 11's live points)", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-11-14T19:00:00Z")); // Saturday 2pm ET, week 11 in progress
+      const nextWeekGame = { ...game, id: 501, week: 12, completed: false, startDate: "2026-11-15T17:00:00Z" }; // tomorrow, inside the 2-day lookahead
+      mocks.getRegularSeasonGames.mockResolvedValue([nextWeekGame]);
+      mocks.getLiveScoreboard.mockResolvedValue([]);
+      mocks.getLeagueSnapshot.mockResolvedValue({ owners: [{ picks: [{ id: "slot-qb", schoolName: "Ohio State", position: "QB" }] }], weeks: [] });
+      mocks.mapLivePlayToCandidates.mockReturnValue([]);
+      let weekWrites: Array<Record<string, unknown>> = [];
+      let weekPatches: Array<Record<string, unknown>> = [];
+      let storedWeek: { id: string; week_number: number; status: string } | null = null;
+      mocks.supabaseRest.mockImplementation(async (table: string, options: Record<string, unknown> = {}) => {
+        if (table === "b36_automation_config" && options.method !== "PATCH") return [{ season: 2026, enabled: true, last_refresh_at: null, schedule_cron_task_uid: null }];
+        if (table === "b36_scoring_weeks" && options.method === "POST") { weekWrites.push(options.body as Record<string, unknown>); storedWeek = { id: "week-12", week_number: 12, status: String((options.body as Record<string, unknown>).status) }; return [{ id: "week-12", week_number: 12 }]; }
+        if (table === "b36_scoring_weeks" && options.method === "PATCH") { weekPatches.push(options.body as Record<string, unknown>); if (storedWeek) storedWeek.status = String((options.body as Record<string, unknown>).status); return []; }
+        if (table === "b36_scoring_weeks") return storedWeek ? [storedWeek] : [];
+        return [];
+      });
+      await runGamedayRefresh({ force: true });
+      expect(weekWrites).toEqual([expect.objectContaining({ week_number: 12, status: "UPCOMING" })]);
+      expect(weekPatches).toHaveLength(0);
+      // Next day, kickoff has passed: the same row is promoted, not recreated.
+      vi.setSystemTime(new Date("2026-11-15T17:05:00Z"));
+      mocks.getLeagueSnapshot.mockResolvedValue({ owners: [{ picks: [{ id: "slot-qb", schoolName: "Ohio State", position: "QB" }] }], weeks: [{ id: "week-12", weekNumber: 12, status: "UPCOMING" }] });
+      weekWrites = []; weekPatches = [];
+      await runGamedayRefresh({ force: true });
+      expect(weekWrites).toHaveLength(0);
+      expect(weekPatches).toEqual([{ status: "OPEN" }]);
+    } finally { vi.useRealTimers(); }
   });
 
   it("automatically creates the scoring week if it doesn't exist yet, instead of silently skipping every event (the real bug found in production)", async () => {

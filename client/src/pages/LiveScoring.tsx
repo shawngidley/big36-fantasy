@@ -36,7 +36,13 @@ export default function LiveScoring() {
   if (league.isLoading) return <LeagueShell><LeagueLoading /></LeagueShell>;
   if (league.error || !league.data) return <LeagueShell><LeagueError message={league.error?.message} /></LeagueShell>;
 
-  const currentWeek = [...league.data.weeks].reverse().find(week => week.status !== "UPCOMING") ?? league.data.weeks[0];
+  // "This week" is the latest week that is not UPCOMING and already has points on the board; if no
+  // week has points yet (preseason), the latest non-UPCOMING week. The latest row alone is not
+  // enough: the gameday loop creates next week's row up to two days early, and a row with no
+  // scoring in it showed every card at 0 while this week's games were in progress (Nov 14, 2026).
+  const weeksNewestFirst = [...league.data.weeks].reverse().filter(week => week.status !== "UPCOMING");
+  const weekHasPoints = (weekId: string) => league.data.weeklySummaries.find(summary => summary.id === weekId)?.teams.some(team => team.points !== 0) ?? false;
+  const currentWeek = weeksNewestFirst.find(week => weekHasPoints(week.id)) ?? weeksNewestFirst[0] ?? league.data.weeks[0];
   const myOwnerId = profile.data?.registration.ownerId;
   const myTeam = myOwnerId ? league.data.owners.find(owner => owner.id === myOwnerId) : undefined;
   const showMine = view === "mine" && isAuthenticated && myTeam;

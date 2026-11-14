@@ -2,7 +2,7 @@ import { CFBD_QUOTA_FLOOR, cfbdOutboundCallCount, getCfbdUsage, getFbsTeams, get
 import { getLeagueSnapshot, getScoringRulesForEvent } from "./league-data";
 import { calculateEventScore } from "./league-scoring";
 import { boxScoreFumbleCandidates, eligibleGameIdsForSchool, finalShutoutCandidates, indexPlayStatsByPlayId, isSupersededInterceptionPlay, mapLivePlayToCandidates, normalizeSchoolForComparison, statsForPlay, type LivePosition } from "./live-scoring";
-import { supabaseRest, supabaseRestAll } from "./supabase";
+import { q, supabaseRest, supabaseRestAll } from "./supabase";
 
 type AutomationConfig = { season: number; enabled: boolean; last_refresh_at: string | null; schedule_cron_task_uid: string | null };
 type SourceEvent = { id: string; source_event_key: string | null; source_game_id: number | null; audit_action: string; week_id: string; draft_slot_id: string; event_type: string; stat_value: number; yard_distance: number | null; computed_points: number; is_provisional: boolean; recorded_by_open_id: string; correction_of_event_id: string | null };
@@ -124,15 +124,30 @@ export function resolveB36WeekNumber(game: { week: number; startDate: string }):
   return easternDate === "2026-08-29" ? 0 : 1;
 }
 
-async function ensureWeekRow(weekNumber: number, weeks: Array<{ id: string; weekNumber: number }>): Promise<{ id: string; weekNumber: number }> {
+// A week row is created the first time the loop touches one of its games. The loop looks two days
+// ahead (nearTermCutoff), so on a Saturday it can reach next week's first game and create NEXT
+// week's row - and it created it OPEN. The Live Scoring page shows the latest non-UPCOMING week,
+// so on Nov 14 (week 11, games in progress, 100 events posted) every card read "this week: 0"
+// under a week 12 heading. A row for a week whose game has not kicked off is created UPCOMING and
+// promoted to OPEN the first time the loop sees one of its games under way or finished.
+async function ensureWeekRow(weekNumber: number, weeks: Array<{ id: string; weekNumber: number; status?: string }>, game: { startDate: string; completed: boolean }, now: number = Date.now()): Promise<{ id: string; weekNumber: number; status?: string }> {
+  const gameUnderWay = game.completed || new Date(game.startDate).getTime() <= now;
   const existing = weeks.find(item => item.weekNumber === weekNumber);
-  if (existing) return existing;
+  const promote = async (row: { id: string; weekNumber: number; status?: string }) => {
+    if (row.status === "UPCOMING" && gameUnderWay) {
+      await supabaseRest("b36_scoring_weeks", { method: "PATCH", query: { id: q.eq(row.id) }, body: { status: "OPEN" } });
+      row.status = "OPEN";
+    }
+    return row;
+  };
+  if (existing) return promote(existing);
   // Check the database fresh (not just the in-memory snapshot) in case it was already created
   // moments ago by a concurrent refresh, before creating a new one.
-  const freshRows = await supabaseRest<Array<{ id: string; week_number: number }>>("b36_scoring_weeks", { query: { select: "id,week_number", week_number: `eq.${weekNumber}`, limit: "1" } });
-  if (freshRows[0]) { const row = { id: freshRows[0].id, weekNumber: freshRows[0].week_number }; weeks.push(row); return row; }
-  const created = await supabaseRest<Array<{ id: string; week_number: number }>>("b36_scoring_weeks", { method: "POST", body: { week_number: weekNumber, label: `Week ${weekNumber}`, status: "OPEN" } });
-  const row = { id: created[0].id, weekNumber: created[0].week_number };
+  const freshRows = await supabaseRest<Array<{ id: string; week_number: number; status: string }>>("b36_scoring_weeks", { query: { select: "id,week_number,status", week_number: `eq.${weekNumber}`, limit: "1" } });
+  if (freshRows[0]) { const row = { id: freshRows[0].id, weekNumber: freshRows[0].week_number, status: freshRows[0].status }; weeks.push(row); return promote(row); }
+  const status = gameUnderWay ? "OPEN" : "UPCOMING";
+  const created = await supabaseRest<Array<{ id: string; week_number: number }>>("b36_scoring_weeks", { method: "POST", body: { week_number: weekNumber, label: `Week ${weekNumber}`, status } });
+  const row = { id: created[0].id, weekNumber: created[0].week_number, status };
   weeks.push(row);
   return row;
 }
@@ -367,7 +382,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
         debugEntry.legacyPlayCount = legacyPlays.length;
         const existingRows = await supabaseRest<Array<{ source_event_key: string | null }>>("b36_scoring_events", { query: { select: "source_event_key", source_game_id: `eq.${game.id}`, audit_action: "eq.ENTRY" } });
         const knownLiveKeys = new Set(existingRows.filter(row => row.source_event_key).map(row => row.source_event_key));
-        const weekRow = await ensureWeekRow(resolveB36WeekNumber(game), snapshot.weeks);
+        const weekRow = await ensureWeekRow(resolveB36WeekNumber(game), snapshot.weeks, game, tickNow);
         debugEntry.weekRowFound = Boolean(weekRow);
         debugEntry.availableWeekNumbers = snapshot.weeks.map(item => item.weekNumber);
         let candidateCount = 0, insertedForGame = 0, skippedNoSlot = 0, skippedForTimeBudget = 0;
@@ -485,7 +500,7 @@ export async function runGamedayRefresh(options: { force?: boolean } = {}) {
         // always a full pass.
         // (Filtered into dueGames above; kept as a guard so a game cannot slip in by another path.)
         if (shouldSkipStaleCompletedGameThisTick(game, options.force ?? false, tickNow)) continue;
-        const weekRow = await ensureWeekRow(resolveB36WeekNumber(game), snapshot.weeks);
+        const weekRow = await ensureWeekRow(resolveB36WeekNumber(game), snapshot.weeks, game, tickNow);
         const currentCandidateKeys = new Set<string>();
         const gameCandidates = aliasCandidateKeysToLedger([
           ...[game.homeTeam, game.awayTeam].flatMap(school => {
