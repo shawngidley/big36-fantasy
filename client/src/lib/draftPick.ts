@@ -23,6 +23,15 @@ export function draftPickBreakdown(globalPick: number | null | undefined) {
   return { globalPick: pick, roundNumber: Math.ceil(pick / DRAFT_PROGRAM_COUNT), pickInRound: ((pick - 1) % DRAFT_PROGRAM_COUNT) + 1 };
 }
 
+// "Round 2, Pick 5" - for dense rows. The Position leaders subtitles already truncate at this
+// width ("... · QB10 · Pick 17 ove..."), and this is within a character of the "Pick 17 overall"
+// it replaces, where the full form below would push them further. The overall number is still one
+// click away on the team and unit pages.
+export function formatDraftPickShort(globalPick: number | null | undefined) {
+  const breakdown = draftPickBreakdown(globalPick);
+  return breakdown ? `Round ${breakdown.roundNumber}, Pick ${breakdown.pickInRound}` : "—";
+}
+
 // "Round 2, Pick 5 (41 overall)". A selection with no recorded position - some were entered
 // without a linked draft turn - keeps showing an em dash instead of an invented round.
 export function formatDraftPick(globalPick: number | null | undefined) {
