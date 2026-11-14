@@ -1,6 +1,7 @@
 import { ArrowLeft } from "lucide-react";
 import { Link, useRoute } from "wouter";
 import LeagueShell from "@/components/LeagueShell";
+import { formatDraftPick } from "@/lib/draftPick";
 import TeamLogo from "@/components/TeamLogo";
 import { EmptyLedger, LeagueError, LeagueLoading } from "@/components/LeagueState";
 import { Badge } from "@/components/ui/badge";
@@ -30,7 +31,7 @@ export default function UnitDetail() {
     <Link href="/leaders" onClick={goBack} className="inline-flex items-center gap-1.5 text-xs font-bold text-primary hover:underline"><ArrowLeft className="h-3.5 w-3.5" /> Back to leaders</Link>
     <div className="mt-6 flex flex-wrap items-center gap-4">
       <TeamLogo logoUrl={owner.logoUrl} teamName={school} size="lg" />
-      <div><p className="section-kicker">{pick.positionLabel}</p><h1 className="display-title mt-1">{school}</h1><p className="mt-1 text-sm text-muted-foreground">{owner.teamName} · Pick {pick.draftPosition ?? "—"}</p></div>
+      <div><p className="section-kicker">{pick.positionLabel}</p><h1 className="display-title mt-1">{school}</h1><p className="mt-1 text-sm text-muted-foreground">{owner.teamName} · {formatDraftPick(pick.draftPosition)}</p></div>
     </div>
     <div className="mt-6 grid grid-cols-3 gap-3 sm:max-w-md">
       <div className="rounded-xl border border-border bg-card p-4"><p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Total</p><p className="mt-1 font-display text-2xl font-extrabold tabular-nums">{Math.round(pick.seasonPoints)}</p></div>
