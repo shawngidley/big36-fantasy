@@ -19,6 +19,10 @@ export default function UnitDetail() {
 
   const owner = league.data.owners.find(item => item.picks.some(pick => pick.position === position && pick.schoolName === school));
   const pick = owner?.picks.find(item => item.position === position && item.schoolName === school);
+  // A selection's real pick is on its draft TURN (draftSlotId -> globalPick), as Position leaders
+  // reads it. The slot's own draft_position is the program's spot in the draft order - 31 for every
+  // one of its six units - so it cannot say which pick a unit was.
+  const globalPickBySlotId = new Map(league.data.draftTurns.filter(turn => turn.draftSlotId).map(turn => [turn.draftSlotId as string, turn.globalPick]));
 
   if (!pick || !owner) return <LeagueShell eyebrow="Position leaders"><section className="container pt-10 sm:pt-14">
     <Link href="/leaders" onClick={goBack} className="inline-flex items-center gap-1.5 text-xs font-bold text-primary hover:underline"><ArrowLeft className="h-3.5 w-3.5" /> Back to leaders</Link>
@@ -31,7 +35,7 @@ export default function UnitDetail() {
     <Link href="/leaders" onClick={goBack} className="inline-flex items-center gap-1.5 text-xs font-bold text-primary hover:underline"><ArrowLeft className="h-3.5 w-3.5" /> Back to leaders</Link>
     <div className="mt-6 flex flex-wrap items-center gap-4">
       <TeamLogo logoUrl={owner.logoUrl} teamName={school} size="lg" />
-      <div><p className="section-kicker">{pick.positionLabel}</p><h1 className="display-title mt-1">{school}</h1><p className="mt-1 text-sm text-muted-foreground">{owner.teamName} · {formatDraftPick(pick.draftPosition)}</p></div>
+      <div><p className="section-kicker">{pick.positionLabel}</p><h1 className="display-title mt-1">{school}</h1><p className="mt-1 text-sm text-muted-foreground">{owner.teamName} · {formatDraftPick(globalPickBySlotId.get(pick.id))}</p></div>
     </div>
     <div className="mt-6 grid grid-cols-3 gap-3 sm:max-w-md">
       <div className="rounded-xl border border-border bg-card p-4"><p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Total</p><p className="mt-1 font-display text-2xl font-extrabold tabular-nums">{Math.round(pick.seasonPoints)}</p></div>
